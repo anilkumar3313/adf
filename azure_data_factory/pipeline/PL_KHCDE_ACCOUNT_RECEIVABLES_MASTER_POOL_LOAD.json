@@ -1,0 +1,1207 @@
+{
+	"name": "PL_KHCDE_ACCOUNT_RECEIVABLES_MASTER_POOL_LOAD",
+	"properties": {
+		"description": "This has 2 Pipelines to Process the data. 1. Ingest Data from RAW blob .xlsx file to Snowflake Stage locations .csv file\n2. Ingest Data from RAW blob .csv file to Snowflake Stage Table\n3. Transform the data from Stage Tables and load to the final base tables.",
+		"activities": [
+			{
+				"name": "LU-Metadata",
+				"description": "Generic orchestration lookup activity\nfor data level 1",
+				"type": "Lookup",
+				"dependsOn": [
+					{
+						"activity": "SP-PipelineStart",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "SqlServerSource",
+						"sqlReaderQuery": {
+							"value": "select * from khc_orchestration_metadata where application_name = '@{pipeline().parameters.ApplicationName}' and adf_trigger_name = '@{replace(pipeline().parameters.adf_trigger_name,'_trigger.txt','')}' and data_level = 1 and active_ind = 'y'",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "DS_KHCDE_GENERIC_MSSQL_Metadata",
+						"type": "DatasetReference"
+					},
+					"firstRowOnly": false
+				}
+			},
+			{
+				"name": "EP-SnowflakeIngestion",
+				"description": "This will ingest the staging files for the given dataset group.",
+				"type": "ExecutePipeline",
+				"dependsOn": [
+					{
+						"activity": "LU-Metadata",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"pipeline": {
+						"referenceName": "PL_KHCDE_GENERIC_SnowflakeIngestion",
+						"type": "PipelineReference"
+					},
+					"waitOnCompletion": true,
+					"parameters": {
+						"ApplicationName": {
+							"value": "@{activity('LU-Metadata').output.value[0].application_name}",
+							"type": "Expression"
+						},
+						"DatasetGroup": {
+							"value": "@{activity('LU-Metadata').output.value[0].dataset_group}",
+							"type": "Expression"
+						},
+						"ParameterJson": {
+							"value": "@{activity('LU-Metadata').output.value[0].parameter_json}",
+							"type": "Expression"
+						}
+					}
+				}
+			},
+			{
+				"name": "EP-DBT_Processing",
+				"description": "This will perform DBT processing.",
+				"type": "ExecutePipeline",
+				"dependsOn": [
+					{
+						"activity": "EP-SnowflakeIngestion",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"pipeline": {
+						"referenceName": "PL_KHCDE_GENERIC_DBTProcessing",
+						"type": "PipelineReference"
+					},
+					"waitOnCompletion": true,
+					"parameters": {
+						"ApplicationName": {
+							"value": "@{activity('LU-Metadata').output.value[0].application_name}",
+							"type": "Expression"
+						},
+						"DatasetGroup": {
+							"value": "@{activity('LU-Metadata').output.value[0].dataset_group}",
+							"type": "Expression"
+						},
+						"ParameterJson": {
+							"value": "@{activity('LU-Metadata').output.value[0].parameter_json}",
+							"type": "Expression"
+						}
+					}
+				}
+			},
+			{
+				"name": "SP-PipelineStart",
+				"description": "Insert pipeline start Audit entry into khc_audit_log table",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": "I",
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.ApplicationName",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.adf_trigger_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@pipeline().Pipeline",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@pipeline().RunId",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Processing",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-ActivityFailed05",
+				"description": "Insert pipeline activity with status= failed to the khc_audit_log_detail table",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "EP-SnowflakeIngestion",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": "EP_SnowflakeIngestion",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@activity('LU-Metadata').output.value[0].application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@activity('LU-Metadata').output.value[0].dataset_group",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_code": {
+							"value": {
+								"value": "@activity('EP-SnowflakeIngestion').Error.errorCode",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_detail": {
+							"value": {
+								"value": "@activity('EP-SnowflakeIngestion').Error.message",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-ActivitySuccess07",
+				"description": "Insert pipeline activity with status= success to the khc_audit_log_detail table",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "EP-DBT_Processing",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": "EP_DBT_Processing",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Successful",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@activity('LU-Metadata').output.value[0].application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@activity('LU-Metadata').output.value[0].dataset_group",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-ActivityFailed07",
+				"description": "Insert pipeline activity with status= failed to the khc_audit_log_detail table",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "EP-DBT_Processing",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": "EP_DBT_Processing",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@activity('LU-Metadata').output.value[0].application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@activity('LU-Metadata').output.value[0].dataset_group",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_code": {
+							"value": {
+								"value": "@activity('EP-DBT_Processing').Error.errorCode",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_detail": {
+							"value": {
+								"value": "@activity('EP-DBT_Processing').Error.message",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-ActivitySuccess01",
+				"description": "Insert pipeline activity with status= success to the khc_audit_log_detail table",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "LU-Metadata",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": "Metadata",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Successful",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@activity('LU-Metadata').output.value[0].application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@activity('LU-Metadata').output.value[0].dataset_group",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-ActivityFailed01",
+				"description": "Insert pipeline activity with status= Failed to the khc_audit_log_detail table",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "LU-Metadata",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": "Metadata",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@activity('LU-Metadata').output.value[0].application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@activity('LU-Metadata').output.value[0].dataset_group",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_code": {
+							"value": {
+								"value": "@activity('LU-Metadata').Error.errorCode\n",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_detail": {
+							"value": {
+								"value": "@activity('LU-Metadata').Error.errorCode",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-Pipelinesuccesful_master_pool_with_week_check",
+				"description": "Insert pipeline activity with status= success to the khc_audit_log_detail table",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "EP-DBT_Processing",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": "U",
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.ApplicationName",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.adf_trigger_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@{pipeline().Pipeline}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": "Successful",
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "LU-Get_trigger_value",
+				"description": "Generic orchestration lookup activity\nfor data level 1",
+				"type": "Lookup",
+				"dependsOn": [
+					{
+						"activity": "SP-PipelineStart",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "SqlServerSource",
+						"sqlReaderQuery": {
+							"value": "select * from khc_orchestration_metadata where application_name = '@{pipeline().parameters.ApplicationName}' \nand adf_trigger_name = '@{replace(pipeline().parameters.adf_trigger_name,'_trigger.txt','')}' and data_level = 1 and active_ind = 'y';",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "DS_KHCDE_GENERIC_MSSQL_Metadata",
+						"type": "DatasetReference"
+					},
+					"firstRowOnly": false
+				}
+			},
+			{
+				"name": "DL-Trigger",
+				"description": "To delete the trigger .txt file created",
+				"type": "Delete",
+				"dependsOn": [
+					{
+						"activity": "LU-Get_trigger_value",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"dataset": {
+						"referenceName": "DS_KHCDE_ADLS_Blob",
+						"type": "DatasetReference",
+						"parameters": {
+							"container": {
+								"value": "@activity('LU-Get_trigger_value').output.value[0].container_name",
+								"type": "Expression"
+							},
+							"stage_path": {
+								"value": "@activity('LU-Get_trigger_value').output.value[0].blob_trigger_name",
+								"type": "Expression"
+							}
+						}
+					},
+					"enableLogging": false,
+					"storeSettings": {
+						"type": "AzureBlobFSReadSettings",
+						"recursive": true
+					}
+				}
+			},
+			{
+				"name": "SP-ActivitySuccess02",
+				"description": "Insert pipeline activity with status= success to the khc_audit_log_detail table",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "LU-Get_trigger_value",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": {
+								"value": "LU-Get_trigger_value",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Successful",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@activity('LU-Get_trigger_value').output.value[0].application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@activity('LU-Get_trigger_value').output.value[0].dataset_group",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-ActivityFailed02",
+				"description": "Insert pipeline activity with status= failed to the khc_audit_log_detail table",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "LU-Get_trigger_value",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": {
+								"value": "LU-Get_trigger_value",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@activity('LU-Get_trigger_value').output.value[0].application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@activity('LU-Get_trigger_value').output.value[0].dataset_group",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_code": {
+							"value": {
+								"value": "@activity('LU-Get_Trigger_Value').Error.errorCode",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_detail": {
+							"value": {
+								"value": "@activity('LU-Get_Trigger_Value').Error.message",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-ActivitySuccess04",
+				"description": "Insert pipeline activity with status= success to the khc_audit_log_detail table",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "DL-Trigger",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": {
+								"value": "DL-Trigger",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Success",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@activity('LU-Get_trigger_value').output.value[0].application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@activity('LU-Get_trigger_value').output.value[0].dataset_group",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-ActivityFailed04",
+				"description": "Insert pipeline activity with status= failed to the khc_audit_log_detail table",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "DL-Trigger",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": {
+								"value": "DL-Trigger",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@activity('LU-Get_trigger_value').output.value[0].application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@activity('LU-Get_trigger_value').output.value[0].dataset_group",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_code": {
+							"value": {
+								"value": "@activity('DL-Trigger').Error.errorCode",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_detail": {
+							"value": {
+								"value": "@activity('DL-Trigger').Error.errorCode",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-PipelineFailed_master_pool",
+				"description": "Insert pipeline activity with status= failed to the khc_audit_log_detail table",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "EP-DBT_Processing",
+						"dependencyConditions": [
+							"Failed"
+						]
+					},
+					{
+						"activity": "EP-SnowflakeIngestion",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": "U",
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@activity('LU-Metadata').output.value[0].application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.adf_trigger_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@{pipeline().Pipeline}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": "Failed",
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "IF-Email_Notification_Required_Sfk_Ingestion",
+				"description": "If Email notif indicator is y, corresponding email notification will be dropped to list of emails in to_email parameter",
+				"type": "IfCondition",
+				"dependsOn": [
+					{
+						"activity": "EP-SnowflakeIngestion",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"expression": {
+						"value": "@equals(pipeline().parameters.email_notify_ind,'y')",
+						"type": "Expression"
+					},
+					"ifTrueActivities": [
+						{
+							"name": "WB-SendFailureEmail_SFK_Ingestion",
+							"description": "to send email notification",
+							"type": "WebActivity",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"url": {
+									"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+									"type": "Expression"
+								},
+								"method": "POST",
+								"body": {
+									"value": "{ \n        \"to_email\": \"@{pipeline().parameters.to_emails}\", \n        \"subject\": \"Failed during SFK Ingestion : @{pipeline().parameters.ApplicationName} -  @{pipeline().parameters.adf_trigger_name}\", \n        \"body\": \"Dear All,<br><br>The cloud analytics data load process failed for the below:<br><b>Application: @{pipeline().parameters.ApplicationName}<br>Impacted ADF Trigger Name: @{pipeline().parameters.ApplicationName}</b><br><br> Please find below the details: <br><br> Pipeline Name: @{pipeline().Pipeline} <br> Pipeline Run ID: @{pipeline().RunId}<br> Pipeline Trigger Name: @{pipeline().TriggerName}<br> Pipeline Trigger Type: @{pipeline().TriggerType}<br> Pipeline Start Time: @{pipeline().TriggerTime}<br> Activity: Snowflake Ingestion<br>Next Step: Please check the dataset group and active_ind<br><br>Parameters:<br>===========<br>Application Name: @{pipeline().parameters.ApplicationName}<br>ADF Trigger Name: @{pipeline().parameters.adf_trigger_name}<br>CONTACT - DL_CLOUD_DATAOPS_ENT_FUNC@kraftheinz.com for resolution.<br><br>Regards,<br>Cloud Analytics Team\", \n        \"importance\": \"High\"\n}",
+									"type": "Expression"
+								}
+							}
+						}
+					]
+				}
+			},
+			{
+				"name": "IF-Email_Notification_Required_DBT_Processing",
+				"description": "If Email notification indicator is y, corresponding email notification will be dropped to list of emails in to_email parameter",
+				"type": "IfCondition",
+				"dependsOn": [
+					{
+						"activity": "EP-DBT_Processing",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"expression": {
+						"value": "@equals(pipeline().parameters.email_notify_ind,'y')",
+						"type": "Expression"
+					},
+					"ifTrueActivities": [
+						{
+							"name": "WB-SendFailureEmail_DBT",
+							"description": "to send email notification",
+							"type": "WebActivity",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"url": {
+									"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+									"type": "Expression"
+								},
+								"method": "POST",
+								"body": {
+									"value": "{ \n        \"to_email\": \"@{pipeline().parameters.to_emails}\", \n        \"subject\": \"Failed during DBT Processing : @{pipeline().parameters.ApplicationName} -  @{pipeline().parameters.adf_trigger_name}\", \n        \"body\": \"Dear All,<br><br>The cloud analytics data load process failed for the below:<br><b>Application: @{pipeline().parameters.ApplicationName}<br>Impacted ADF Trigger Name: @{pipeline().parameters.adf_trigger_name}</b><br><br> Please find below the details: <br><br> Pipeline Name: @{pipeline().Pipeline} <br> Pipeline Run ID: @{pipeline().RunId}<br> Pipeline Trigger Name: @{pipeline().TriggerName}<br> Pipeline Trigger Type: @{pipeline().TriggerType}<br> Pipeline Start Time: @{pipeline().TriggerTime}<br> Activity: DBT Processing<br>Next Step: Please check the adf_trigger_name and active_ind<br><br>Parameters:<br>===========<br>Application Name: @{pipeline().parameters.ApplicationName}<br>ADF Trigger Name: @{pipeline().parameters.adf_trigger_name}<br>CONTACT - DL_CLOUD_DATAOPS_ENT_FUNC@kraftheinz.com for resolution<br><br>Regards,<br>Cloud Analytics Team\", \n        \"importance\": \"High\"\n}",
+									"type": "Expression"
+								}
+							}
+						}
+					]
+				}
+			},
+			{
+				"name": "IF-Email_Notification_Required_Success",
+				"description": "If Email notif indicator is y, corresponding email notification will be dropped to list of emails in to_email parameter",
+				"type": "IfCondition",
+				"dependsOn": [
+					{
+						"activity": "EP-DBT_Processing",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"expression": {
+						"value": "@equals(pipeline().parameters.email_notify_ind,'y')",
+						"type": "Expression"
+					},
+					"ifTrueActivities": [
+						{
+							"name": "WB-SendSuccessEmail",
+							"description": "to send email notification",
+							"type": "WebActivity",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"url": {
+									"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+									"type": "Expression"
+								},
+								"method": "POST",
+								"body": {
+									"value": "{ \n        \"to_email\": \"@{pipeline().parameters.to_emails}\", \n        \"subject\": \"Success : @{pipeline().parameters.ApplicationName} - @{pipeline().parameters.adf_trigger_name}\", \n        \"body\": \"Dear All,<br><br>The cloud analytics data load process succeeded for the below:<br><b>Application: @{pipeline().parameters.ApplicationName}<br>Impacted ADF Trigger Name: @{pipeline().parameters.adf_trigger_name}</b><br><br> Please find below the details: <br><br> Pipeline Name: @{pipeline().Pipeline} <br> Pipeline Run ID: @{pipeline().RunId}<br> Pipeline Trigger Name: @{pipeline().TriggerName}<br> Pipeline Trigger Type: @{pipeline().TriggerType}<br> Pipeline Start Time: @{pipeline().TriggerTime}<br><br>Parameters:<br>===========<br>Application Name: @{pipeline().parameters.ApplicationName}<br>ADF Trigger Name: @{pipeline().parameters.adf_trigger_name}<br><br>CONTACT - DL_CLOUD_DATAOPS_ENT_FUNC@kraftheinz.com for resolution<br><br>Regards,<br>Cloud Analytics Team\", \n        \"importance\": \"Low\"\n}",
+									"type": "Expression"
+								}
+							}
+						}
+					]
+				}
+			}
+		],
+		"parameters": {
+			"ApplicationName": {
+				"type": "string",
+				"defaultValue": "account_receivables"
+			},
+			"adf_trigger_name": {
+				"type": "string",
+				"defaultValue": "@trigger().outputs.body.fileName"
+			},
+			"to_emails": {
+				"type": "string",
+				"defaultValue": " "
+			},
+			"email_notify_ind": {
+				"type": "string",
+				"defaultValue": "n"
+			}
+		},
+		"variables": {
+			"exit": {
+				"type": "String",
+				"defaultValue": "N"
+			},
+			"adf_trigger_name": {
+				"type": "String"
+			}
+		},
+		"folder": {
+			"name": "Account_Receivables"
+		},
+		"annotations": []
+	},
+	"type": "Microsoft.DataFactory/factories/pipelines"
+}

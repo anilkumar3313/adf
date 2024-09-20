@@ -1,0 +1,1316 @@
+{
+	"name": "PL_KHCDE_APAC_ANZ_SQL_SERVER_ADLS",
+	"properties": {
+		"activities": [
+			{
+				"name": "ForEach_Tables",
+				"type": "ForEach",
+				"dependsOn": [
+					{
+						"activity": "If Condition3",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"items": {
+						"value": "@activity('LU-SQL_Server_Metadata').output.value",
+						"type": "Expression"
+					},
+					"activities": [
+						{
+							"name": "Copy data from SQLSERVER to BLYFORD",
+							"description": "The data to be extracted from SQL Server to BLYFORD file server for Complaints dataset -BODS_AS400DW_TPRDV table ",
+							"type": "Copy",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"source": {
+									"type": "SqlServerSource",
+									"sqlReaderQuery": {
+										"value": "SELECT * FROM @{concat(variables('database_name'),'BODS_AS400DW_TPRDV')}",
+										"type": "Expression"
+									},
+									"queryTimeout": "02:00:00",
+									"partitionOption": "None"
+								},
+								"sink": {
+									"type": "DelimitedTextSink",
+									"storeSettings": {
+										"type": "AzureBlobFSWriteSettings"
+									},
+									"formatSettings": {
+										"type": "DelimitedTextWriteSettings",
+										"quoteAllText": true,
+										"fileExtension": ".txt"
+									}
+								},
+								"enableStaging": false
+							},
+							"inputs": [
+								{
+									"referenceName": "DS_KHCDE_APAC_ANZ_SQLSERVER_SOURCE",
+									"type": "DatasetReference"
+								}
+							],
+							"outputs": [
+								{
+									"referenceName": "DS_KHCDE_APAC_ANZ_SQL_SERVER_SINK",
+									"type": "DatasetReference"
+								}
+							]
+						}
+					]
+				}
+			},
+			{
+				"name": "SP-Pipeline_End_Successful",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "AF-TriggerLoad",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": {
+								"value": "U",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@{activity('LU-Metadata').output.value[0].application_name}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@{activity('LU-Metadata').output.value[0].dataset_name}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@{pipeline().Pipeline}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Successful",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-Pipeline_End_Failed",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "ForEach_Tables",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": {
+								"value": "U",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@{activity('LU-Metadata').output.value[0].application_name}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@{activity('LU-Metadata').output.value[0].dataset_name}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@{pipeline().Pipeline}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-Pipeline_Start",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "LU-Metadata",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": {
+								"value": "I",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@{activity('LU-Metadata').output.value[0].application_name}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@{activity('LU-Metadata').output.value[0].dataset_name}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@{pipeline().Pipeline}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Processing",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "LU-Metadata",
+				"type": "Lookup",
+				"dependsOn": [
+					{
+						"activity": "set_email_logic_app_variable",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "SqlServerSource",
+						"sqlReaderQuery": {
+							"value": "select * from khc_orchestration_metadata where parent_id='apac_anz_qly_03' and  application_name = 'apac_anz_quality' and active_ind='y'",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "DS_KHCDE_GENERIC_MSSQL_Metadata",
+						"type": "DatasetReference"
+					},
+					"firstRowOnly": false
+				}
+			},
+			{
+				"name": "AF-TriggerLoad",
+				"type": "AzureFunctionActivity",
+				"dependsOn": [
+					{
+						"activity": "ForEach_Tables",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"functionName": {
+						"value": "HttpTriggerCopytrigger",
+						"type": "Expression"
+					},
+					"method": "POST",
+					"body": {
+						"value": "@json(concat('{', '\"container_name\":\"', activity('LU-Metadata').output.value[0].container_name, '\", ', '\"blob_trigger_name\":\"', activity('LU-Metadata').output.value[0].blob_trigger_name, '\"', '}'))",
+						"type": "Expression"
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_AzF_Src_File_Validation",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-Pipeline_End_Failed_AF_TriggerLoad",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "AF-TriggerLoad",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": {
+								"value": "U",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@{activity('LU-Metadata').output.value[0].application_name}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@{activity('LU-Metadata').output.value[0].dataset_name}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@{pipeline().Pipeline}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"activity_name": {
+							"value": "AF-TriggerLoad",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": "Failed",
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "Until1",
+				"type": "Until",
+				"dependsOn": [
+					{
+						"activity": "SP-Pipeline_Start",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"expression": {
+						"value": "@equals(variables('exit_ind'), 'Y')",
+						"type": "Expression"
+					},
+					"activities": [
+						{
+							"name": "LU-SQL_Server_Metadata",
+							"type": "Lookup",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 5,
+								"retryIntervalInSeconds": 300,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"source": {
+									"type": "SqlServerSource",
+									"sqlReaderQuery": {
+										"value": "SELECT OBJECT, STATUS\n  FROM @{concat(variables('database_name'),variables('table_name_1'))}\n WHERE OBJECT = 'BODS_AS400DW_TPRDV' ",
+										"type": "Expression"
+									},
+									"queryTimeout": "02:00:00",
+									"partitionOption": "None"
+								},
+								"dataset": {
+									"referenceName": "DS_KHCDE_APAC_ANZ_SQLSERVER_SOURCE",
+									"type": "DatasetReference"
+								},
+								"firstRowOnly": false
+							}
+						},
+						{
+							"name": "If Condition1",
+							"type": "IfCondition",
+							"dependsOn": [
+								{
+									"activity": "LU-SQL_Server_Metadata",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"userProperties": [],
+							"typeProperties": {
+								"expression": {
+									"value": "@equals(int(activity('LU-SQL_Server_Metadata').output.value[0].STATUS), 1)",
+									"type": "Expression"
+								},
+								"ifFalseActivities": [
+									{
+										"name": "Wait1",
+										"type": "Wait",
+										"dependsOn": [],
+										"userProperties": [],
+										"typeProperties": {
+											"waitTimeInSeconds": {
+												"value": "@int(300)",
+												"type": "Expression"
+											}
+										}
+									},
+									{
+										"name": "Set variable2",
+										"type": "SetVariable",
+										"dependsOn": [
+											{
+												"activity": "Wait1",
+												"dependencyConditions": [
+													"Succeeded"
+												]
+											}
+										],
+										"userProperties": [],
+										"typeProperties": {
+											"variableName": "retry_count",
+											"value": {
+												"value": "@{add(int(variables('retry_count_temp')), 1)}",
+												"type": "Expression"
+											}
+										}
+									},
+									{
+										"name": "Set variable3",
+										"type": "SetVariable",
+										"dependsOn": [
+											{
+												"activity": "Set variable2",
+												"dependencyConditions": [
+													"Succeeded"
+												]
+											}
+										],
+										"userProperties": [],
+										"typeProperties": {
+											"variableName": "retry_count_temp",
+											"value": {
+												"value": "@variables('retry_count')",
+												"type": "Expression"
+											}
+										}
+									}
+								],
+								"ifTrueActivities": [
+									{
+										"name": "Set variable1",
+										"type": "SetVariable",
+										"dependsOn": [],
+										"userProperties": [],
+										"typeProperties": {
+											"variableName": "exit_ind",
+											"value": {
+												"value": "Y",
+												"type": "Expression"
+											}
+										}
+									}
+								]
+							}
+						},
+						{
+							"name": "If Condition2",
+							"type": "IfCondition",
+							"dependsOn": [
+								{
+									"activity": "If Condition1",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"userProperties": [],
+							"typeProperties": {
+								"expression": {
+									"value": "@and(greater(int(variables('retry_count')), 5), equals(variables('exit_ind'), 'N'))",
+									"type": "Expression"
+								},
+								"ifTrueActivities": [
+									{
+										"name": "Copy data1",
+										"type": "Copy",
+										"dependsOn": [
+											{
+												"activity": "Set variable4",
+												"dependencyConditions": [
+													"Succeeded"
+												]
+											}
+										],
+										"policy": {
+											"timeout": "7.00:00:00",
+											"retry": 0,
+											"retryIntervalInSeconds": 30,
+											"secureOutput": false,
+											"secureInput": false
+										},
+										"userProperties": [],
+										"typeProperties": {
+											"source": {
+												"type": "BinarySource",
+												"storeSettings": {
+													"type": "AzureBlobFSReadSettings",
+													"recursive": true
+												},
+												"formatSettings": {
+													"type": "BinaryReadSettings"
+												}
+											},
+											"sink": {
+												"type": "BinarySink",
+												"storeSettings": {
+													"type": "AzureBlobFSWriteSettings"
+												}
+											},
+											"enableStaging": false
+										},
+										"inputs": [
+											{
+												"referenceName": "DS_KHCDE_GENERIC_BLOB_BINARY_Folder",
+												"type": "DatasetReference",
+												"parameters": {
+													"container_name": {
+														"value": "doesNotExist_Input",
+														"type": "Expression"
+													},
+													"blob_name": {
+														"value": "doesNotExist_Input",
+														"type": "Expression"
+													}
+												}
+											}
+										],
+										"outputs": [
+											{
+												"referenceName": "DS_KHCDE_GENERIC_BLOB_BINARY_Folder",
+												"type": "DatasetReference",
+												"parameters": {
+													"container_name": {
+														"value": "doesNotExist_Output",
+														"type": "Expression"
+													},
+													"blob_name": {
+														"value": "doesNotExist_Output",
+														"type": "Expression"
+													}
+												}
+											}
+										]
+									},
+									{
+										"name": "Set variable4",
+										"type": "SetVariable",
+										"dependsOn": [],
+										"userProperties": [],
+										"typeProperties": {
+											"variableName": "exit_ind",
+											"value": {
+												"value": "Y",
+												"type": "Expression"
+											}
+										}
+									}
+								]
+							}
+						}
+					],
+					"timeout": "7.00:00:00"
+				}
+			},
+			{
+				"name": "SP-Pipeline_End_Failed_until",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "Until1",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": {
+								"value": "U",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@{activity('LU-Metadata').output.value[0].application_name}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@{activity('LU-Metadata').output.value[0].dataset_name}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@{pipeline().Pipeline}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-Pipeline_End_Failed_If_condition",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "If Condition3",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": {
+								"value": "U",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@{activity('LU-Metadata').output.value[0].application_name}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@{activity('LU-Metadata').output.value[0].dataset_name}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@{pipeline().Pipeline}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "If Condition3",
+				"type": "IfCondition",
+				"dependsOn": [
+					{
+						"activity": "Get Metadata1",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"expression": {
+						"value": "@activity('Get Metadata1').output.exists",
+						"type": "Expression"
+					},
+					"ifTrueActivities": [
+						{
+							"name": "Delete1",
+							"type": "Delete",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"dataset": {
+									"referenceName": "DS_KHCDE_GENERIC_BLOB_BINARY_Folder",
+									"type": "DatasetReference",
+									"parameters": {
+										"container_name": {
+											"value": "@activity('LU-Metadata').output.value[0].container_name",
+											"type": "Expression"
+										},
+										"blob_name": {
+											"value": "@activity('LU-Metadata').output.value[0].stage_blob_name",
+											"type": "Expression"
+										}
+									}
+								},
+								"enableLogging": false,
+								"storeSettings": {
+									"type": "AzureBlobFSReadSettings",
+									"recursive": true,
+									"wildcardFileName": {
+										"value": "*",
+										"type": "Expression"
+									}
+								}
+							}
+						}
+					]
+				}
+			},
+			{
+				"name": "Get Metadata1",
+				"type": "GetMetadata",
+				"dependsOn": [
+					{
+						"activity": "Until1",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"dataset": {
+						"referenceName": "DS_KHCDE_GENERIC_BLOB_BINARY_Folder",
+						"type": "DatasetReference",
+						"parameters": {
+							"container_name": {
+								"value": "@activity('LU-Metadata').output.value[0].container_name",
+								"type": "Expression"
+							},
+							"blob_name": {
+								"value": "@activity('LU-Metadata').output.value[0].stage_blob_name",
+								"type": "Expression"
+							}
+						}
+					},
+					"fieldList": [
+						"exists"
+					],
+					"storeSettings": {
+						"type": "AzureBlobFSReadSettings",
+						"recursive": true
+					},
+					"formatSettings": {
+						"type": "BinaryReadSettings"
+					}
+				}
+			},
+			{
+				"name": "SP-Pipeline_End_Failed_Get_Metadata",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "Get Metadata1",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": {
+								"value": "U",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@{activity('LU-Metadata').output.value[0].application_name}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@{activity('LU-Metadata').output.value[0].dataset_name}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@{pipeline().Pipeline}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "WB-SendFailureEmail_master_01",
+				"type": "WebActivity",
+				"dependsOn": [
+					{
+						"activity": "SP-ActivityAndPipelineFailed01",
+						"dependencyConditions": [
+							"Completed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"url": {
+						"value": "@variables('logicapp_url')",
+						"type": "Expression"
+					},
+					"method": "POST",
+					"body": {
+						"value": "{ \n        \"to_email\": \"@{variables('emailTo')}\", \n        \"subject\": \"@{pipeline().parameters.ApplicationName} (Complaints) -Failure: Lookup Metadata Activity\", \n        \"body\": \"Dear All,<br><br>The APAC ANZ Data Load Process Failed for the Application:<b>@{pipeline().parameters.ApplicationName} (Complaints)</b><br> Please find below the details:<br><br>Pipeline Name: @{pipeline().Pipeline} <br> Pipeline Run ID: @{pipeline().RunId}<br> Pipeline Trigger Name: @{pipeline().TriggerName}<br> Pipeline Trigger Type: @{pipeline().TriggerType}<br> Pipeline Start Time: @{pipeline().TriggerTime}<br> Activity: LU-Metadata activity has failed. Please check the metadata<br><br>Parameters:<br>===========<br>Application Name: @{pipeline().parameters.ApplicationName}<br><br> <br><br>Please take care.<br><br>Regards,<br>Cloud Analytics Team\", \n        \"importance\": \"High\"\n}",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "SP-ActivityAndPipelineFailed01",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "SP-Pipeline_Start",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": {
+								"value": "LU-Metadata Fetch",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "WB-SendFailureEmail_master_02",
+				"type": "WebActivity",
+				"dependsOn": [
+					{
+						"activity": "SP-Pipeline_End_Failed_until",
+						"dependencyConditions": [
+							"Completed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"url": {
+						"value": "@variables('logicapp_url')",
+						"type": "Expression"
+					},
+					"method": "POST",
+					"body": {
+						"value": "{ \n        \"to_email\": \"@{variables('emailTo')}\", \n        \"subject\": \"@{activity('LU-Metadata').output.value[0].application_name} (Complaints) - @{activity('LU-Metadata').output.value[0].dataset_name} -Failure: Until Activity\", \n        \"body\": \"Dear All,<br><br>The APAC ANZ Data Load Process Failed for Application: <b>@{activity('LU-Metadata').output.value[0].application_name} (Complaints)</b><br> Please find below the details: <br><br> Pipeline Name: @{pipeline().Pipeline} <br> Pipeline Run ID: @{pipeline().RunId}<br> Pipeline Trigger Name: @{pipeline().TriggerName}<br> Pipeline Trigger Type: @{pipeline().TriggerType}<br> Pipeline Start Time: @{pipeline().TriggerTime}<br> Activity: Until Activity has failed ,please check the Activity<br><br>Parameters:<br>===========<br>Application Name: @{activity('LU-Metadata').output.value[0].application_name}<br>Dataset Name:@{activity('LU-Metadata').output.value[0].dataset_name}<br> <br><br>Please take care.<br><br>Regards,<br>Cloud Analytics Team\", \n        \"importance\": \"High\"\n}",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "WB-SendFailureEmail_master_02_GetMetadata",
+				"type": "WebActivity",
+				"dependsOn": [
+					{
+						"activity": "SP-Pipeline_End_Failed_Get_Metadata",
+						"dependencyConditions": [
+							"Completed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"url": {
+						"value": "@variables('logicapp_url')",
+						"type": "Expression"
+					},
+					"method": "POST",
+					"body": {
+						"value": "{ \n        \"to_email\": \"@{variables('emailTo')}\", \n        \"subject\": \"@{activity('LU-Metadata').output.value[0].application_name} (Complaints) - @{activity('LU-Metadata').output.value[0].dataset_name} -Failure: Get Metadata Activity\", \n        \"body\": \"Dear All,<br><br>The APAC ANZ Data Load Process Failed for the Application: <b>@{activity('LU-Metadata').output.value[0].application_name} (Complaints)</b><br> Please find below the details: <br><br> Pipeline Name: @{pipeline().Pipeline} <br> Pipeline Run ID: @{pipeline().RunId}<br> Pipeline Trigger Name: @{pipeline().TriggerName}<br> Pipeline Trigger Type: @{pipeline().TriggerType}<br> Pipeline Start Time: @{pipeline().TriggerTime}<br> Activity: Get Metadata activity failed ,Please check the Metadata<br><br>Parameters:<br>===========<br>Application Name: @{activity('LU-Metadata').output.value[0].application_name}<br>Dataset Name:@{activity('LU-Metadata').output.value[0].dataset_name}<br> <br><br>Please take care.<br><br>Regards,<br>Cloud Analytics Team\", \n        \"importance\": \"High\"\n}",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "WB-SendFailureEmail_master_02_IF_condition",
+				"type": "WebActivity",
+				"dependsOn": [
+					{
+						"activity": "SP-Pipeline_End_Failed_If_condition",
+						"dependencyConditions": [
+							"Completed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"url": {
+						"value": "@variables('logicapp_url')",
+						"type": "Expression"
+					},
+					"method": "POST",
+					"body": {
+						"value": "{ \n        \"to_email\": \"@{variables('emailTo')}\", \n        \"subject\": \"@{activity('LU-Metadata').output.value[0].application_name} (Complaints) - @{activity('LU-Metadata').output.value[0].dataset_name} -Failure: If Condition Activity\", \n        \"body\": \"Dear All,<br><br>The APAC ANZ Data Load Process Failed for Application: <b>@{activity('LU-Metadata').output.value[0].application_name} (Complaints)</b><br> Please find below the details: <br><br> Pipeline Name: @{pipeline().Pipeline} <br> Pipeline Run ID: @{pipeline().RunId}<br> Pipeline Trigger Name: @{pipeline().TriggerName}<br> Pipeline Trigger Type: @{pipeline().TriggerType}<br> Pipeline Start Time: @{pipeline().TriggerTime}<br> Activity: If Condition Activity failed. Please check the Activity <br><br>Parameters:<br>===========<br>Application Name: @{activity('LU-Metadata').output.value[0].application_name}<br>Dataset Name:@{activity('LU-Metadata').output.value[0].dataset_name}<br> <br><br>Please take care.<br><br>Regards,<br>Cloud Analytics Team\", \n        \"importance\": \"High\"\n}",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "WB-SendFailureEmail_master_02_ForEachT",
+				"type": "WebActivity",
+				"dependsOn": [
+					{
+						"activity": "SP-Pipeline_End_Failed",
+						"dependencyConditions": [
+							"Completed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"url": {
+						"value": "@variables('logicapp_url')",
+						"type": "Expression"
+					},
+					"method": "POST",
+					"body": {
+						"value": "{ \n        \"to_email\": \"@{variables('emailTo')}\", \n        \"subject\": \"@{activity('LU-Metadata').output.value[0].application_name} (Complaints) - @{activity('LU-Metadata').output.value[0].dataset_name} -Failure: For Each Activity\", \n        \"body\": \"Dear All,<br><br>The APAC ANZ Data Load Process Failed for the Application: <b>@{activity('LU-Metadata').output.value[0].application_name} (Complaints)</b><br> Please find below the details: <br><br> Pipeline Name: @{pipeline().Pipeline} <br> Pipeline Run ID: @{pipeline().RunId}<br> Pipeline Trigger Name: @{pipeline().TriggerName}<br> Pipeline Trigger Type: @{pipeline().TriggerType}<br> Pipeline Start Time: @{pipeline().TriggerTime}<br> Activity: For Each activity has failed. Please check the activity.<br><br>Parameters:<br>===========<br>Application Name: @{activity('LU-Metadata').output.value[0].application_name}<br>Dataset Name:@{activity('LU-Metadata').output.value[0].dataset_name}<br> <br><br>Please take care.<br><br>Regards,<br>Cloud Analytics Team\", \n        \"importance\": \"High\"\n}",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "WB-SendSuccessEmail_master_04",
+				"type": "WebActivity",
+				"dependsOn": [
+					{
+						"activity": "SP-Pipeline_End_Successful",
+						"dependencyConditions": [
+							"Completed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"url": {
+						"value": "@variables('logicapp_url')",
+						"type": "Expression"
+					},
+					"method": "POST",
+					"body": {
+						"value": "{ \n        \"to_email\": \"@{variables('emailTo')}\", \n        \"subject\": \"@{activity('LU-Metadata').output.value[0].application_name} (Complaints) -@{activity('LU-Metadata').output.value[0].dataset_name} - Success\", \n        \"body\": \"Dear All,<br><br>The APAC ANZ Data Load Process Succeeded for the Application: <b>@{activity('LU-Metadata').output.value[0].application_name} (Complaints)</b><br> Please find below the details: <br><br> Pipeline Name: @{pipeline().Pipeline} <br> Pipeline Run ID: @{pipeline().RunId}<br><br> Pipeline Trigger Type: @{pipeline().TriggerType}<br> Pipeline Start Time: @{pipeline().TriggerTime}<br><br>Parameters:<br>===========<br>Application Name: @{activity('LU-Metadata').output.value[0].application_name}<br>Dataset Name:@{activity('LU-Metadata').output.value[0].dataset_name} <br><br><br>Regards,<br>Cloud Analytics Team\", \n        \"importance\": \"Low\"\n}",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "WB-SendFailureEmail_master_AF_trigger",
+				"type": "WebActivity",
+				"dependsOn": [
+					{
+						"activity": "SP-Pipeline_End_Failed_AF_TriggerLoad",
+						"dependencyConditions": [
+							"Completed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"url": {
+						"value": "@variables('logicapp_url')",
+						"type": "Expression"
+					},
+					"method": "POST",
+					"body": {
+						"value": "{ \n        \"to_email\": \"@{variables('emailTo')}\", \n        \"subject\": \"@{activity('LU-Metadata').output.value[0].application_name}  (Complaints) - @{activity('LU-Metadata').output.value[0].dataset_name} -Failure: AF Trigger Activity\", \n        \"body\": \"Dear All,<br><br>The APAC ANZ Data Load Process Succeeded for the Application: <b>@{activity('LU-Metadata').output.value[0].application_name}  (Complaints)</b><br> Please find below the details: <br><br> Pipeline Name: @{pipeline().Pipeline} <br> Pipeline Run ID: @{pipeline().RunId}<br><br> Pipeline Trigger Type: @{pipeline().TriggerType}<br> Pipeline Start Time: @{pipeline().TriggerTime}<br>Activity:AF Trigger Activity has Failed. Please check the triggers<br>Parameters:<br>===========<br>Application Name: @{activity('LU-Metadata').output.value[0].application_name} <br>Dataset Name:@{activity('LU-Metadata').output.value[0].dataset_name}<br><br><br>Regards,<br>Cloud Analytics Team\", \n        \"importance\": \"High\"\n}",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "set_email_logic_app_variable",
+				"description": "Set the logic app URL from Global Param",
+				"type": "SetVariable",
+				"dependsOn": [],
+				"userProperties": [],
+				"typeProperties": {
+					"variableName": "logicapp_url",
+					"value": {
+						"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+						"type": "Expression"
+					}
+				}
+			}
+		],
+		"parameters": {
+			"ApplicationName": {
+				"type": "string",
+				"defaultValue": "apac_anz_quality"
+			}
+		},
+		"variables": {
+			"database_name": {
+				"type": "String",
+				"defaultValue": "BODS.DBO."
+			},
+			"table_name_1": {
+				"type": "String",
+				"defaultValue": "BODS_INTEGRATIONSTATUST"
+			},
+			"exit_ind": {
+				"type": "String",
+				"defaultValue": "N"
+			},
+			"retry_count": {
+				"type": "String",
+				"defaultValue": "0"
+			},
+			"retry_count_temp": {
+				"type": "String",
+				"defaultValue": "0"
+			},
+			"logicapp_url": {
+				"type": "String",
+				"defaultValue": "https://prod-21.eastus2.logic.azure.com:443/workflows/bf557cd83c3b45c5a365826555b38597/triggers/manual/paths/invoke?api-version=2016-10-01&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=eAMxSb-7pJGx_Ex0OGfry6YBV-RFaKUmU5ul75ISRtg"
+			},
+			"emailTo": {
+				"type": "String",
+				"defaultValue": "DL_APAC_MiddlewareNotifications@kraftheinz.com;bfc2b500.Heinz365.onmicrosoft.com@amer.teams.ms"
+			}
+		},
+		"folder": {
+			"name": "Apac_Anz"
+		},
+		"annotations": []
+	}
+}

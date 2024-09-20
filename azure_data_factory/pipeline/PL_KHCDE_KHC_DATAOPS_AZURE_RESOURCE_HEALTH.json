@@ -1,0 +1,1429 @@
+{
+	"name": "PL_KHCDE_KHC_DATAOPS_AZURE_RESOURCE_HEALTH",
+	"properties": {
+		"description": "Azure Resource Health data extraction",
+		"activities": [
+			{
+				"name": "SP-Pipelinesuccesful",
+				"description": "Pipeline end activity",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "Audit_Log_Copy_Files_To_Archive_Success",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": {
+								"value": "U",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@activity('LU-Metadata').output.value[0].application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@activity('LU-Metadata').output.value[0].dataset_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@{pipeline().Pipeline}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Successful",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "Get_LogAnalytics_Access_Token",
+				"description": "Getting Bearer Access Token to access the log analytics workspace",
+				"type": "WebActivity",
+				"dependsOn": [
+					{
+						"activity": "Get_Secret_Token",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 120,
+					"secureOutput": true,
+					"secureInput": true
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"url": {
+						"value": "@{concat('https://login.microsoftonline.com/',variables('azure_tenant_id'), '/oauth2/token')}",
+						"type": "Expression"
+					},
+					"method": "POST",
+					"headers": {
+						"Content-Type": "application/x-www-form-urlencoded"
+					},
+					"body": {
+						"value": "@concat(substring(activity('Get_Secret_Token').output.value,0,lastindexof(activity('Get_Secret_Token').output.value,'resource=')),'resource=https://management.azure.com')",
+						"type": "Expression"
+					},
+					"authentication": {
+						"type": "MSI",
+						"resource": "https://management.azure.com"
+					}
+				}
+			},
+			{
+				"name": "Get_Secret_Token",
+				"description": "Get the Service Principle token value",
+				"type": "WebActivity",
+				"dependsOn": [
+					{
+						"activity": "LU-Metadata",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 120,
+					"secureOutput": true,
+					"secureInput": true
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"url": {
+						"value": "@{concat('https://khcde-kv-', toLower(variables('env')), '.vault.azure.net/secrets/kv-sec-spn-khcde-resource-monitoring/?api-version=7.0')}",
+						"type": "Expression"
+					},
+					"method": "GET",
+					"authentication": {
+						"type": "MSI",
+						"resource": "https://vault.azure.net"
+					}
+				}
+			},
+			{
+				"name": "set_env_variable",
+				"description": "Set the variable - ENV from global parameters - AZURE_ENV",
+				"type": "SetVariable",
+				"dependsOn": [
+					{
+						"activity": "SP-PipelineStart",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"variableName": "env",
+					"value": {
+						"value": "@pipeline().globalParameters.AZURE_ENV",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "LU-Metadata",
+				"description": "get the metadata of SFDC datasets from orchestration and control tables",
+				"type": "Lookup",
+				"dependsOn": [
+					{
+						"activity": "GET_THE_EXT_DATE",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "SqlServerSource",
+						"sqlReaderQuery": {
+							"value": "select\n* from khc_orchestration_metadata om\nwhere len(trim(om.server_name)) > 0\n  and len(trim(om.application_name)) > 0\n  and len(trim(om.server_path)) > 0\n  and len(trim(om.filename)) > 0\n  and len(trim(om.data_filename)) > 0\n  and om.file_zip_ind in ('y', 'n')\n  and om.file_checksum_ind in ('y', 'n')\n  and len(trim(om.container_name)) > 0\n  and len(trim(om.archival_blob_name)) > 0\n  and len(trim(om.stage_blob_name)) > 0\n  and om.application_name like  '@{pipeline().parameters.application_name}'\n  and om.dataset_group like  '@{pipeline().parameters.dataset_group}'\n  and om.data_level=2 \n  and om.active_ind = 'y'\n  and server_name = '@{pipeline().parameters.linked_service}'\n",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "DS_KHCDE_GENERIC_MSSQL_Metadata",
+						"type": "DatasetReference"
+					},
+					"firstRowOnly": false
+				}
+			},
+			{
+				"name": "SP-PipelineStart",
+				"description": "Pipeline start activity",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": {
+								"value": "I",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.dataset_group",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@pipeline().Pipeline",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@pipeline().RunId",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Processing",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "CP_Export_Resoure_Health_PROD",
+				"description": "extract azure resource health data through  REST API",
+				"type": "Copy",
+				"dependsOn": [
+					{
+						"activity": "Get_LogAnalytics_Access_Token",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "RestSource",
+						"httpRequestTimeout": "00:07:00",
+						"requestInterval": "00.00:00:00.010",
+						"requestMethod": "GET",
+						"additionalHeaders": {
+							"Authorization": {
+								"value": "@concat('Bearer ',activity('Get_LogAnalytics_Access_Token').output.access_token)",
+								"type": "Expression"
+							}
+						},
+						"paginationRules": {
+							"AbsoluteUrl": "$.nextLink",
+							"supportRFC5988": "true"
+						}
+					},
+					"sink": {
+						"type": "JsonSink",
+						"storeSettings": {
+							"type": "AzureBlobFSWriteSettings"
+						},
+						"formatSettings": {
+							"type": "JsonWriteSettings",
+							"filePattern": "setOfObjects"
+						}
+					},
+					"enableStaging": false,
+					"translator": {
+						"type": "TabularTranslator",
+						"mappings": [
+							{
+								"source": {
+									"path": "['id']"
+								},
+								"sink": {
+									"path": "$['id']"
+								}
+							},
+							{
+								"source": {
+									"path": "['name']"
+								},
+								"sink": {
+									"path": "$['name']"
+								}
+							},
+							{
+								"source": {
+									"path": "['type']"
+								},
+								"sink": {
+									"path": "$['type']"
+								}
+							},
+							{
+								"source": {
+									"path": "['location']"
+								},
+								"sink": {
+									"path": "$['location']"
+								}
+							},
+							{
+								"source": {
+									"path": "['properties']['availabilityState']"
+								},
+								"sink": {
+									"path": "$['availabilityState']"
+								}
+							},
+							{
+								"source": {
+									"path": "['properties']['title']"
+								},
+								"sink": {
+									"path": "$['title']"
+								}
+							},
+							{
+								"source": {
+									"path": "['properties']['summary']"
+								},
+								"sink": {
+									"path": "$['summary']"
+								}
+							},
+							{
+								"source": {
+									"path": "['properties']['reasonType']"
+								},
+								"sink": {
+									"path": "$['reasonType']"
+								}
+							},
+							{
+								"source": {
+									"path": "['properties']['occuredTime']"
+								},
+								"sink": {
+									"path": "$['occuredTime']"
+								}
+							},
+							{
+								"source": {
+									"path": "['properties']['reasonChronicity']"
+								},
+								"sink": {
+									"path": "$['reasonChronicity']"
+								}
+							},
+							{
+								"source": {
+									"path": "['properties']['reportedTime']"
+								},
+								"sink": {
+									"path": "$['reportedTime']"
+								}
+							}
+						],
+						"collectionReference": "$['value']"
+					}
+				},
+				"inputs": [
+					{
+						"referenceName": "DS_KHCDE_KHC_DATAOPS_AZURE_RESOURCE_HEALTH",
+						"type": "DatasetReference",
+						"parameters": {
+							"subscriptionId": {
+								"value": "e6fea09c-372c-4b63-bf61-4467e97e8f97",
+								"type": "Expression"
+							}
+						}
+					}
+				],
+				"outputs": [
+					{
+						"referenceName": "DS_KHCDE_GENERIC_ADLS_JSON",
+						"type": "DatasetReference",
+						"parameters": {
+							"container": {
+								"value": "@activity('LU-Metadata').output.value[0].container_name",
+								"type": "Expression"
+							},
+							"blob_path": {
+								"value": "@{replace(activity('LU-Metadata').output.value[0].archival_blob_name, 'yyyyMMdd',formatDateTime(convertTimeZone(variables('extract_date'),'UTC','Eastern Standard Time'),'yyyyMMdd'))}",
+								"type": "Expression"
+							},
+							"file_name": {
+								"value": "@concat(activity('LU-Metadata').output.value[0].filename,'_',formatDateTime(convertTimeZone(variables('extract_date'),'UTC','Eastern Standard Time'),'yyyyMMddhhmmss'),'_e6fea09c-372c-4b63-bf61-4467e97e8f97','.',activity('LU-Metadata').output.value[0].pattern_type)",
+								"type": "Expression"
+							}
+						}
+					}
+				]
+			},
+			{
+				"name": "Audit_Log_Copy_Files_To_Archive_Success",
+				"description": "Updates the activity success status in khc_audit_log_detail",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "CP_Export_Resoure_Health_PROD-DXCOPS",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					},
+					{
+						"activity": "CP_Export_Resoure_Health_NONPROD-DXCOPS",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					},
+					{
+						"activity": "CP_Export_Resoure_Health_NonProd",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					},
+					{
+						"activity": "CP_Export_Resoure_Health_PROD",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": {
+								"value": "CP_Export_Resource_health_Details",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.Application_Name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@activity('LU-Metadata').output.value[0].dataset_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Successful",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "Audit_Log_CP_Export_Resoure_Health_PROD-DXCOPS",
+				"description": "Updates the khc_audit_log and khc_error_log tables",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "CP_Export_Resoure_Health_PROD-DXCOPS",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": {
+								"value": "CP_Export_Resoure_Health_PROD-DXCOPS",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.Application_Name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@activity('LU-Metadata').output.value[0].dataset_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_code": {
+							"value": {
+								"value": "N.A.",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_detail": {
+							"value": {
+								"value": "N.A.",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "GET_THE_EXT_DATE",
+				"description": "Get the current time in UTC.",
+				"type": "SetVariable",
+				"dependsOn": [
+					{
+						"activity": "set_env_variable",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"variableName": "extract_date",
+					"value": {
+						"value": "@utcnow()",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "CP_Export_Resoure_Health_NonProd",
+				"description": "extract azure resource health data through  REST API",
+				"type": "Copy",
+				"dependsOn": [
+					{
+						"activity": "Get_LogAnalytics_Access_Token",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "RestSource",
+						"httpRequestTimeout": "00:07:00",
+						"requestInterval": "00.00:00:00.010",
+						"requestMethod": "GET",
+						"additionalHeaders": {
+							"Authorization": {
+								"value": "@concat('Bearer ',activity('Get_LogAnalytics_Access_Token').output.access_token)",
+								"type": "Expression"
+							}
+						},
+						"paginationRules": {
+							"AbsoluteUrl": "$.nextLink",
+							"supportRFC5988": "true"
+						}
+					},
+					"sink": {
+						"type": "JsonSink",
+						"storeSettings": {
+							"type": "AzureBlobFSWriteSettings"
+						},
+						"formatSettings": {
+							"type": "JsonWriteSettings",
+							"filePattern": "setOfObjects"
+						}
+					},
+					"enableStaging": false,
+					"translator": {
+						"type": "TabularTranslator",
+						"mappings": [
+							{
+								"source": {
+									"path": "['id']"
+								},
+								"sink": {
+									"path": "$['id']"
+								}
+							},
+							{
+								"source": {
+									"path": "['name']"
+								},
+								"sink": {
+									"path": "$['name']"
+								}
+							},
+							{
+								"source": {
+									"path": "['type']"
+								},
+								"sink": {
+									"path": "$['type']"
+								}
+							},
+							{
+								"source": {
+									"path": "['location']"
+								},
+								"sink": {
+									"path": "$['location']"
+								}
+							},
+							{
+								"source": {
+									"path": "['properties']['availabilityState']"
+								},
+								"sink": {
+									"path": "$['availabilityState']"
+								}
+							},
+							{
+								"source": {
+									"path": "['properties']['title']"
+								},
+								"sink": {
+									"path": "$['title']"
+								}
+							},
+							{
+								"source": {
+									"path": "['properties']['summary']"
+								},
+								"sink": {
+									"path": "$['summary']"
+								}
+							},
+							{
+								"source": {
+									"path": "['properties']['reasonType']"
+								},
+								"sink": {
+									"path": "$['reasonType']"
+								}
+							},
+							{
+								"source": {
+									"path": "['properties']['occuredTime']"
+								},
+								"sink": {
+									"path": "$['occuredTime']"
+								}
+							},
+							{
+								"source": {
+									"path": "['properties']['reasonChronicity']"
+								},
+								"sink": {
+									"path": "$['reasonChronicity']"
+								}
+							},
+							{
+								"source": {
+									"path": "['properties']['reportedTime']"
+								},
+								"sink": {
+									"path": "$['reportedTime']"
+								}
+							}
+						],
+						"collectionReference": "$['value']"
+					}
+				},
+				"inputs": [
+					{
+						"referenceName": "DS_KHCDE_KHC_DATAOPS_AZURE_RESOURCE_HEALTH",
+						"type": "DatasetReference",
+						"parameters": {
+							"subscriptionId": {
+								"value": "6bb7b46f-5fed-48cc-91c6-caac569de97d",
+								"type": "Expression"
+							}
+						}
+					}
+				],
+				"outputs": [
+					{
+						"referenceName": "DS_KHCDE_GENERIC_ADLS_JSON",
+						"type": "DatasetReference",
+						"parameters": {
+							"container": {
+								"value": "@activity('LU-Metadata').output.value[0].container_name",
+								"type": "Expression"
+							},
+							"blob_path": {
+								"value": "@{replace(activity('LU-Metadata').output.value[0].archival_blob_name, 'yyyyMMdd',formatDateTime(convertTimeZone(variables('extract_date'),'UTC','Eastern Standard Time'),'yyyyMMdd'))}",
+								"type": "Expression"
+							},
+							"file_name": {
+								"value": "@concat(activity('LU-Metadata').output.value[0].filename,'_',formatDateTime(convertTimeZone(variables('extract_date'),'UTC','Eastern Standard Time'),'yyyyMMddhhmmss'),'_6bb7b46f-5fed-48cc-91c6-caac569de97d','.',activity('LU-Metadata').output.value[0].pattern_type)",
+								"type": "Expression"
+							}
+						}
+					}
+				]
+			},
+			{
+				"name": "CP_Export_Resoure_Health_NONPROD-DXCOPS",
+				"description": "extract azure resource health data through  REST API",
+				"type": "Copy",
+				"dependsOn": [
+					{
+						"activity": "Get_LogAnalytics_Access_Token",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "RestSource",
+						"httpRequestTimeout": "00:07:00",
+						"requestInterval": "00.00:00:00.010",
+						"requestMethod": "GET",
+						"additionalHeaders": {
+							"Authorization": {
+								"value": "@concat('Bearer ',activity('Get_LogAnalytics_Access_Token').output.access_token)",
+								"type": "Expression"
+							}
+						},
+						"paginationRules": {
+							"AbsoluteUrl": "$.nextLink",
+							"supportRFC5988": "true"
+						}
+					},
+					"sink": {
+						"type": "JsonSink",
+						"storeSettings": {
+							"type": "AzureBlobFSWriteSettings"
+						},
+						"formatSettings": {
+							"type": "JsonWriteSettings",
+							"filePattern": "setOfObjects"
+						}
+					},
+					"enableStaging": false,
+					"translator": {
+						"type": "TabularTranslator",
+						"mappings": [
+							{
+								"source": {
+									"path": "['id']"
+								},
+								"sink": {
+									"path": "$['id']"
+								}
+							},
+							{
+								"source": {
+									"path": "['name']"
+								},
+								"sink": {
+									"path": "$['name']"
+								}
+							},
+							{
+								"source": {
+									"path": "['type']"
+								},
+								"sink": {
+									"path": "$['type']"
+								}
+							},
+							{
+								"source": {
+									"path": "['location']"
+								},
+								"sink": {
+									"path": "$['location']"
+								}
+							},
+							{
+								"source": {
+									"path": "['properties']['availabilityState']"
+								},
+								"sink": {
+									"path": "$['availabilityState']"
+								}
+							},
+							{
+								"source": {
+									"path": "['properties']['title']"
+								},
+								"sink": {
+									"path": "$['title']"
+								}
+							},
+							{
+								"source": {
+									"path": "['properties']['summary']"
+								},
+								"sink": {
+									"path": "$['summary']"
+								}
+							},
+							{
+								"source": {
+									"path": "['properties']['reasonType']"
+								},
+								"sink": {
+									"path": "$['reasonType']"
+								}
+							},
+							{
+								"source": {
+									"path": "['properties']['occuredTime']"
+								},
+								"sink": {
+									"path": "$['occuredTime']"
+								}
+							},
+							{
+								"source": {
+									"path": "['properties']['reasonChronicity']"
+								},
+								"sink": {
+									"path": "$['reasonChronicity']"
+								}
+							},
+							{
+								"source": {
+									"path": "['properties']['reportedTime']"
+								},
+								"sink": {
+									"path": "$['reportedTime']"
+								}
+							}
+						],
+						"collectionReference": "$['value']"
+					}
+				},
+				"inputs": [
+					{
+						"referenceName": "DS_KHCDE_KHC_DATAOPS_AZURE_RESOURCE_HEALTH",
+						"type": "DatasetReference",
+						"parameters": {
+							"subscriptionId": {
+								"value": "bd729b62-0dc8-4feb-a614-580abb0c4dd2",
+								"type": "Expression"
+							}
+						}
+					}
+				],
+				"outputs": [
+					{
+						"referenceName": "DS_KHCDE_GENERIC_ADLS_JSON",
+						"type": "DatasetReference",
+						"parameters": {
+							"container": {
+								"value": "@activity('LU-Metadata').output.value[0].container_name",
+								"type": "Expression"
+							},
+							"blob_path": {
+								"value": "@{replace(activity('LU-Metadata').output.value[0].archival_blob_name, 'yyyyMMdd',formatDateTime(convertTimeZone(variables('extract_date'),'UTC','Eastern Standard Time'),'yyyyMMdd'))}",
+								"type": "Expression"
+							},
+							"file_name": {
+								"value": "@concat(activity('LU-Metadata').output.value[0].filename,'_',formatDateTime(convertTimeZone(variables('extract_date'),'UTC','Eastern Standard Time'),'yyyyMMddhhmmss'),'_bd729b62-0dc8-4feb-a614-580abb0c4dd2','.',activity('LU-Metadata').output.value[0].pattern_type)",
+								"type": "Expression"
+							}
+						}
+					}
+				]
+			},
+			{
+				"name": "CP_Export_Resoure_Health_PROD-DXCOPS",
+				"description": "extract azure resource health data through  REST API",
+				"type": "Copy",
+				"dependsOn": [
+					{
+						"activity": "Get_LogAnalytics_Access_Token",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "RestSource",
+						"httpRequestTimeout": "00:07:00",
+						"requestInterval": "00.00:00:00.010",
+						"requestMethod": "GET",
+						"additionalHeaders": {
+							"Authorization": {
+								"value": "@concat('Bearer ',activity('Get_LogAnalytics_Access_Token').output.access_token)",
+								"type": "Expression"
+							}
+						},
+						"paginationRules": {
+							"AbsoluteUrl": "$.nextLink",
+							"supportRFC5988": "true"
+						}
+					},
+					"sink": {
+						"type": "JsonSink",
+						"storeSettings": {
+							"type": "AzureBlobFSWriteSettings"
+						},
+						"formatSettings": {
+							"type": "JsonWriteSettings",
+							"filePattern": "setOfObjects"
+						}
+					},
+					"enableStaging": false,
+					"translator": {
+						"type": "TabularTranslator",
+						"mappings": [
+							{
+								"source": {
+									"path": "['id']"
+								},
+								"sink": {
+									"path": "$['id']"
+								}
+							},
+							{
+								"source": {
+									"path": "['name']"
+								},
+								"sink": {
+									"path": "$['name']"
+								}
+							},
+							{
+								"source": {
+									"path": "['type']"
+								},
+								"sink": {
+									"path": "$['type']"
+								}
+							},
+							{
+								"source": {
+									"path": "['location']"
+								},
+								"sink": {
+									"path": "$['location']"
+								}
+							},
+							{
+								"source": {
+									"path": "['properties']['availabilityState']"
+								},
+								"sink": {
+									"path": "$['availabilityState']"
+								}
+							},
+							{
+								"source": {
+									"path": "['properties']['title']"
+								},
+								"sink": {
+									"path": "$['title']"
+								}
+							},
+							{
+								"source": {
+									"path": "['properties']['summary']"
+								},
+								"sink": {
+									"path": "$['summary']"
+								}
+							},
+							{
+								"source": {
+									"path": "['properties']['reasonType']"
+								},
+								"sink": {
+									"path": "$['reasonType']"
+								}
+							},
+							{
+								"source": {
+									"path": "['properties']['occuredTime']"
+								},
+								"sink": {
+									"path": "$['occuredTime']"
+								}
+							},
+							{
+								"source": {
+									"path": "['properties']['reasonChronicity']"
+								},
+								"sink": {
+									"path": "$['reasonChronicity']"
+								}
+							},
+							{
+								"source": {
+									"path": "['properties']['reportedTime']"
+								},
+								"sink": {
+									"path": "$['reportedTime']"
+								}
+							}
+						],
+						"collectionReference": "$['value']"
+					}
+				},
+				"inputs": [
+					{
+						"referenceName": "DS_KHCDE_KHC_DATAOPS_AZURE_RESOURCE_HEALTH",
+						"type": "DatasetReference",
+						"parameters": {
+							"subscriptionId": {
+								"value": "66885d0d-f78d-4674-b13d-f347f6818d67",
+								"type": "Expression"
+							}
+						}
+					}
+				],
+				"outputs": [
+					{
+						"referenceName": "DS_KHCDE_GENERIC_ADLS_JSON",
+						"type": "DatasetReference",
+						"parameters": {
+							"container": {
+								"value": "@activity('LU-Metadata').output.value[0].container_name",
+								"type": "Expression"
+							},
+							"blob_path": {
+								"value": "@{replace(activity('LU-Metadata').output.value[0].archival_blob_name, 'yyyyMMdd',formatDateTime(convertTimeZone(variables('extract_date'),'UTC','Eastern Standard Time'),'yyyyMMdd'))}",
+								"type": "Expression"
+							},
+							"file_name": {
+								"value": "@concat(activity('LU-Metadata').output.value[0].filename,'_',formatDateTime(convertTimeZone(variables('extract_date'),'UTC','Eastern Standard Time'),'yyyyMMddhhmmss'),'_66885d0d-f78d-4674-b13d-f347f6818d67','.',activity('LU-Metadata').output.value[0].pattern_type)",
+								"type": "Expression"
+							}
+						}
+					}
+				]
+			},
+			{
+				"name": "Audit_Log_CP_Export_Resoure_Health_NONPROD-DXCOPS",
+				"description": "Updates the khc_audit_log and khc_error_log tables",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "CP_Export_Resoure_Health_NONPROD-DXCOPS",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": {
+								"value": "CP_Export_Resoure_Health_NONPROD-DXCOPS",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.Application_Name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@activity('LU-Metadata').output.value[0].dataset_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_code": {
+							"value": {
+								"value": "N.A.",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_detail": {
+							"value": {
+								"value": "N.A.",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "Audit_Log_CP_Export_Resoure_Health_NonProd",
+				"description": "Updates the khc_audit_log and khc_error_log tables",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "CP_Export_Resoure_Health_NonProd",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": {
+								"value": "CP_Export_Resoure_Health_NonProd",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.Application_Name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@activity('LU-Metadata').output.value[0].dataset_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_code": {
+							"value": {
+								"value": "N.A.",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_detail": {
+							"value": {
+								"value": "N.A.",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "Audit_Log_CP_Export_Resoure_Health_PROD",
+				"description": "Updates the khc_audit_log and khc_error_log tables",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "CP_Export_Resoure_Health_PROD",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": {
+								"value": "CP_Export_Resoure_Health_PROD",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.Application_Name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@activity('LU-Metadata').output.value[0].dataset_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_code": {
+							"value": {
+								"value": "N.A.",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_detail": {
+							"value": {
+								"value": "N.A.",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			}
+		],
+		"parameters": {
+			"application_name": {
+				"type": "string",
+				"defaultValue": "khc_dataops"
+			},
+			"dataset_group": {
+				"type": "string",
+				"defaultValue": "devops"
+			},
+			"linked_service": {
+				"type": "string",
+				"defaultValue": "LS_REST_AZURE_RESOURCE_HEALTH"
+			}
+		},
+		"variables": {
+			"env": {
+				"type": "String",
+				"defaultValue": "DEV"
+			},
+			"azure_tenant_id": {
+				"type": "String",
+				"defaultValue": "3ce34e42-c07d-47bb-b72a-4ce606de6b88"
+			},
+			"extract_date": {
+				"type": "String"
+			}
+		},
+		"folder": {
+			"name": "KHC_DATAOPS/Sub_Pipeline"
+		},
+		"annotations": []
+	}
+}

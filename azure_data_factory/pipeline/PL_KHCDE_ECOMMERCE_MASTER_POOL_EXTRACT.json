@@ -1,0 +1,1517 @@
+{
+	"name": "PL_KHCDE_ECOMMERCE_MASTER_POOL_EXTRACT",
+	"properties": {
+		"description": "This ADF Pipeline, has 1 step,Extracts the Snowflake Data to Blob Files and  ",
+		"activities": [
+			{
+				"name": "EP-Snowflake_Extraction",
+				"description": "This activity executes the EP-snowflakeExtraction pipeline.\nParameters are passed from the output of enggcontainer_metadata activity. ",
+				"type": "ExecutePipeline",
+				"dependsOn": [
+					{
+						"activity": "FE_OUTBOUND_FOLDER",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"pipeline": {
+						"referenceName": "PL_KHCDE_GENERIC_SnowflakeExtraction",
+						"type": "PipelineReference"
+					},
+					"waitOnCompletion": true,
+					"parameters": {
+						"ApplicationName": {
+							"value": "@activity('LU-Metadata').output.value[0].application_name",
+							"type": "Expression"
+						},
+						"DatasetGroup": {
+							"value": "@activity('LU-Metadata').output.value[0].dataset_group",
+							"type": "Expression"
+						},
+						"ParameterJson": {
+							"value": "@activity('Get_ecom_orchestration_metadata').output.value[0].parameter_json",
+							"type": "Expression"
+						}
+					}
+				}
+			},
+			{
+				"name": "LU-Metadata",
+				"description": "This activity pulls the details of the snowflake table and blob location from khc_enggextract_metadata table which needs to extracted.",
+				"type": "Lookup",
+				"dependsOn": [
+					{
+						"activity": "DL_trigger_file",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "SqlServerSource",
+						"sqlReaderQuery": {
+							"value": "select * from khc_enggextract_metadata where adf_trigger_name = 'mexico_cpl_trigger' and active_ind = 'y'",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "DS_KHCDE_GENERIC_MSSQL_Metadata",
+						"type": "DatasetReference"
+					},
+					"firstRowOnly": false
+				}
+			},
+			{
+				"name": "SP-PipelineStart_Snowflake",
+				"description": "This Activity logs starting of pipeline in khc_audit_log table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": "I",
+							"type": "String"
+						},
+						"application_name": {
+							"value": "kroger",
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.DatasetGroup",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@pipeline().Pipeline",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@pipeline().RunId",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Processing",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-Success_03",
+				"description": "This activity logs success of  LU-MetaData activity in khc_audit_log_detail table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "LU-Metadata",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": "LU-Metadata",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Successful",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@activity('LU-Metadata').output.value[0].application_name\n",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@activity('LU-Metadata').output.value[0].dataset_group",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@pipeline().RunId",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-Success_05",
+				"description": "This activity logs success of Ep-snowflakeExtraction activity in khc_audit_log_detail table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "EP-Snowflake_Extraction",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": "EP-Snowflake_Extraction",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Successful",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@activity('LU-Metadata').output.value[0].application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@activity('LU-Metadata').output.value[0].dataset_group",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@pipeline().RunId",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "DL_trigger_file",
+				"description": "This activity deletes the trigger file.",
+				"type": "Delete",
+				"dependsOn": [
+					{
+						"activity": "Get_ecom_orchestration_metadata",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"dataset": {
+						"referenceName": "DS_KHCDE_ADLS_Blob",
+						"type": "DatasetReference",
+						"parameters": {
+							"container": {
+								"value": "@activity('Get_ecom_orchestration_metadata').output.value[0].container_name",
+								"type": "Expression"
+							},
+							"stage_path": {
+								"value": "@concat(pipeline().parameters.Trigger_path,'/',pipeline().parameters.Trigger_blob_name)",
+								"type": "Expression"
+							}
+						}
+					},
+					"enableLogging": false,
+					"storeSettings": {
+						"type": "AzureBlobFSReadSettings",
+						"recursive": true
+					}
+				}
+			},
+			{
+				"name": "SP-Success_02",
+				"description": "This activity logs success of Delete_trigger_file activity in khc_audit_log_detail table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "DL_trigger_file",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": "DL_trigger_file",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Successful",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.ApplicationName",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.DatasetGroup",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@pipeline().RunId",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-Failure_02",
+				"description": "This activity logs failure of DL_trigger_file activity in khc_audit_log_detail table and failure of pipeline in  khc_audit_log table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "DL_trigger_file",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": "U",
+							"type": "String"
+						},
+						"activity_name": {
+							"value": "DL_trigger_file",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": "Failed",
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.ApplicationName",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.DatasetGroup",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_code": {
+							"value": "N.A.",
+							"type": "String"
+						},
+						"error_detail": {
+							"value": "N.A.",
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@pipeline().RunId",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": "Failed",
+							"type": "String"
+						},
+						"skip_pipeline_audit_update": {
+							"value": "N",
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "FE_OUTBOUND_FOLDER",
+				"description": "This activity removes each extract_blob_location folder from outbound folder.",
+				"type": "ForEach",
+				"dependsOn": [
+					{
+						"activity": "LU-Metadata",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"items": {
+						"value": "@activity('LU-Metadata').output.value",
+						"type": "Expression"
+					},
+					"isSequential": true,
+					"activities": [
+						{
+							"name": "Get_Metadata_of_outbound",
+							"description": "This activity pulls the details of extract_blob_location. ",
+							"type": "GetMetadata",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"dataset": {
+									"referenceName": "DS_ADLS_NonCompressed",
+									"type": "DatasetReference",
+									"parameters": {
+										"container_name": {
+											"value": "@item().container_name",
+											"type": "Expression"
+										},
+										"stage_path": {
+											"value": "@item().extract_blob_location",
+											"type": "Expression"
+										}
+									}
+								},
+								"fieldList": [
+									"exists",
+									"childItems",
+									"itemName",
+									"itemType",
+									"lastModified"
+								],
+								"storeSettings": {
+									"type": "AzureBlobFSReadSettings",
+									"recursive": true
+								},
+								"formatSettings": {
+									"type": "BinaryReadSettings"
+								}
+							}
+						},
+						{
+							"name": "IF_outbound_folder_exists",
+							"description": "This activity checks if extract_blob_location folder exists or not. ",
+							"type": "IfCondition",
+							"dependsOn": [
+								{
+									"activity": "Get_Metadata_of_outbound",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"userProperties": [],
+							"typeProperties": {
+								"expression": {
+									"value": "@activity('Get_Metadata_of_outbound').output.exists",
+									"type": "Expression"
+								},
+								"ifTrueActivities": [
+									{
+										"name": "DL_OUTBOUND_FOLDER",
+										"description": "This activity deletes the extract_blob_location from outbound folder. ",
+										"type": "Delete",
+										"dependsOn": [],
+										"policy": {
+											"timeout": "7.00:00:00",
+											"retry": 0,
+											"retryIntervalInSeconds": 30,
+											"secureOutput": false,
+											"secureInput": false
+										},
+										"userProperties": [],
+										"typeProperties": {
+											"dataset": {
+												"referenceName": "DS_ADLS_NonCompressed",
+												"type": "DatasetReference",
+												"parameters": {
+													"container_name": {
+														"value": "@item().container_name",
+														"type": "Expression"
+													},
+													"stage_path": {
+														"value": "@item().extract_blob_location",
+														"type": "Expression"
+													}
+												}
+											},
+											"enableLogging": false,
+											"storeSettings": {
+												"type": "AzureBlobFSReadSettings",
+												"recursive": true
+											}
+										}
+									},
+									{
+										"name": "SP-Success_03_02_01",
+										"description": "This activity logs success of DL_OUTBOUND_FOLDER activity in khc_audit_log_detail table.",
+										"type": "SqlServerStoredProcedure",
+										"dependsOn": [
+											{
+												"activity": "DL_OUTBOUND_FOLDER",
+												"dependencyConditions": [
+													"Succeeded"
+												]
+											}
+										],
+										"policy": {
+											"timeout": "7.00:00:00",
+											"retry": 0,
+											"retryIntervalInSeconds": 30,
+											"secureOutput": false,
+											"secureInput": false
+										},
+										"userProperties": [],
+										"typeProperties": {
+											"storedProcedureName": "[dbo].[generic_activity_audit_log]",
+											"storedProcedureParameters": {
+												"activity_name": {
+													"value": {
+														"value": "@concat('DL_OUTBOUND_FOLDER - ',item().dataset_name)",
+														"type": "Expression"
+													},
+													"type": "String"
+												},
+												"activity_status": {
+													"value": {
+														"value": "Successful",
+														"type": "Expression"
+													},
+													"type": "String"
+												},
+												"application_name": {
+													"value": {
+														"value": "@activity('LU-Metadata').output.value[0].application_name\n",
+														"type": "Expression"
+													},
+													"type": "String"
+												},
+												"dataset_name": {
+													"value": {
+														"value": "@activity('LU-Metadata').output.value[0].dataset_group",
+														"type": "Expression"
+													},
+													"type": "String"
+												},
+												"pipeline_run_id": {
+													"value": {
+														"value": "@pipeline().RunId",
+														"type": "Expression"
+													},
+													"type": "String"
+												}
+											}
+										},
+										"linkedServiceName": {
+											"referenceName": "LS_SQL",
+											"type": "LinkedServiceReference"
+										}
+									},
+									{
+										"name": "SP-Failure_03_02_01",
+										"description": "This activity logs failure of DL_OUTBOUND_FOLDER activity in khc_audit_log_detail table and failure of pipeline in  khc_audit_log table.",
+										"type": "SqlServerStoredProcedure",
+										"dependsOn": [
+											{
+												"activity": "DL_OUTBOUND_FOLDER",
+												"dependencyConditions": [
+													"Failed"
+												]
+											}
+										],
+										"policy": {
+											"timeout": "7.00:00:00",
+											"retry": 0,
+											"retryIntervalInSeconds": 30,
+											"secureOutput": false,
+											"secureInput": false
+										},
+										"userProperties": [],
+										"typeProperties": {
+											"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+											"storedProcedureParameters": {
+												"action_ind": {
+													"value": "U",
+													"type": "String"
+												},
+												"activity_name": {
+													"value": {
+														"value": "@concat('DL_OUTBOUND_FOLDER - ',item().dataset_name)",
+														"type": "Expression"
+													},
+													"type": "String"
+												},
+												"activity_status": {
+													"value": "Failed",
+													"type": "String"
+												},
+												"application_name": {
+													"value": {
+														"value": "@activity('LU-Metadata').output.value[0].application_name",
+														"type": "Expression"
+													},
+													"type": "String"
+												},
+												"dataset_name": {
+													"value": {
+														"value": "@activity('LU-Metadata').output.value[0].dataset_group",
+														"type": "Expression"
+													},
+													"type": "String"
+												},
+												"error_code": {
+													"value": "N.A.",
+													"type": "String"
+												},
+												"error_detail": {
+													"value": "N.A.",
+													"type": "String"
+												},
+												"pipeline_run_id": {
+													"value": {
+														"value": "@pipeline().RunId",
+														"type": "Expression"
+													},
+													"type": "String"
+												},
+												"pipeline_status": {
+													"value": "Failed",
+													"type": "String"
+												},
+												"skip_pipeline_audit_update": {
+													"value": "N",
+													"type": "String"
+												}
+											}
+										},
+										"linkedServiceName": {
+											"referenceName": "LS_SQL",
+											"type": "LinkedServiceReference"
+										}
+									}
+								]
+							}
+						},
+						{
+							"name": "SP-Success_03_01",
+							"description": "This activity logs success of Get_metadata_of_outbound activity in khc_audit_log_detail table.",
+							"type": "SqlServerStoredProcedure",
+							"dependsOn": [
+								{
+									"activity": "Get_Metadata_of_outbound",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"storedProcedureName": "[dbo].[generic_activity_audit_log]",
+								"storedProcedureParameters": {
+									"activity_name": {
+										"value": "Get_metadata_of_outbound",
+										"type": "String"
+									},
+									"activity_status": {
+										"value": {
+											"value": "Successful",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"application_name": {
+										"value": {
+											"value": "@activity('LU-Metadata').output.value[0].application_name\n",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"dataset_name": {
+										"value": {
+											"value": "@activity('LU-Metadata').output.value[0].dataset_group",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_run_id": {
+										"value": {
+											"value": "@pipeline().RunId",
+											"type": "Expression"
+										},
+										"type": "String"
+									}
+								}
+							},
+							"linkedServiceName": {
+								"referenceName": "LS_SQL",
+								"type": "LinkedServiceReference"
+							}
+						},
+						{
+							"name": "SP-Success_03_02",
+							"description": "This activity logs success of IF_outbound_folder_exists activity in khc_audit_log_detail table.",
+							"type": "SqlServerStoredProcedure",
+							"dependsOn": [
+								{
+									"activity": "IF_outbound_folder_exists",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"storedProcedureName": "[dbo].[generic_activity_audit_log]",
+								"storedProcedureParameters": {
+									"activity_name": {
+										"value": "IF_outbound_folder_exists",
+										"type": "String"
+									},
+									"activity_status": {
+										"value": {
+											"value": "Successful",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"application_name": {
+										"value": {
+											"value": "@activity('LU-Metadata').output.value[0].application_name\n",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"dataset_name": {
+										"value": {
+											"value": "@activity('LU-Metadata').output.value[0].dataset_group",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_run_id": {
+										"value": {
+											"value": "@pipeline().RunId",
+											"type": "Expression"
+										},
+										"type": "String"
+									}
+								}
+							},
+							"linkedServiceName": {
+								"referenceName": "LS_SQL",
+								"type": "LinkedServiceReference"
+							}
+						},
+						{
+							"name": "SP-Failure_03_01",
+							"description": "This activity logs failure of Get_Metadata_of_outbound activity in khc_audit_log_detail table and failure of pipeline in  khc_audit_log table.",
+							"type": "SqlServerStoredProcedure",
+							"dependsOn": [
+								{
+									"activity": "Get_Metadata_of_outbound",
+									"dependencyConditions": [
+										"Failed"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+								"storedProcedureParameters": {
+									"action_ind": {
+										"value": "U",
+										"type": "String"
+									},
+									"activity_name": {
+										"value": "Get_Metadata_of_outbound",
+										"type": "String"
+									},
+									"activity_status": {
+										"value": "Failed",
+										"type": "String"
+									},
+									"application_name": {
+										"value": {
+											"value": "@activity('LU-Metadata').output.value[0].application_name",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"dataset_name": {
+										"value": {
+											"value": "@activity('LU-Metadata').output.value[0].dataset_group",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"error_code": {
+										"value": "N.A.",
+										"type": "String"
+									},
+									"error_detail": {
+										"value": "N.A.",
+										"type": "String"
+									},
+									"pipeline_run_id": {
+										"value": {
+											"value": "@pipeline().RunId",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_status": {
+										"value": "Failed",
+										"type": "String"
+									},
+									"skip_pipeline_audit_update": {
+										"value": "N",
+										"type": "String"
+									}
+								}
+							},
+							"linkedServiceName": {
+								"referenceName": "LS_SQL",
+								"type": "LinkedServiceReference"
+							}
+						},
+						{
+							"name": "SP-Failure_03_02",
+							"description": "This activity logs failure of IF_outbound_folder_exists activity in khc_audit_log_detail table and failure of pipeline in  khc_audit_log table.",
+							"type": "SqlServerStoredProcedure",
+							"dependsOn": [
+								{
+									"activity": "IF_outbound_folder_exists",
+									"dependencyConditions": [
+										"Failed"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+								"storedProcedureParameters": {
+									"action_ind": {
+										"value": "U",
+										"type": "String"
+									},
+									"activity_name": {
+										"value": "IF_outbound_folder_exists",
+										"type": "String"
+									},
+									"activity_status": {
+										"value": "Failed",
+										"type": "String"
+									},
+									"application_name": {
+										"value": {
+											"value": "@activity('LU-Metadata').output.value[0].application_name",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"dataset_name": {
+										"value": {
+											"value": "@activity('LU-Metadata').output.value[0].dataset_group",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"error_code": {
+										"value": "N.A.",
+										"type": "String"
+									},
+									"error_detail": {
+										"value": "N.A.",
+										"type": "String"
+									},
+									"pipeline_run_id": {
+										"value": {
+											"value": "@pipeline().RunId",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_status": {
+										"value": "Failed",
+										"type": "String"
+									},
+									"skip_pipeline_audit_update": {
+										"value": "N",
+										"type": "String"
+									}
+								}
+							},
+							"linkedServiceName": {
+								"referenceName": "LS_SQL",
+								"type": "LinkedServiceReference"
+							}
+						}
+					]
+				}
+			},
+			{
+				"name": "SP-Success_04",
+				"description": "This activity logs success of FE_OUTBOUND_FOLDER activity in khc_audit_log_detail table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "FE_OUTBOUND_FOLDER",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": "FE_OUTBOUND_FOLDER",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Successful",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@activity('LU-Metadata').output.value[0].application_name\n",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@activity('LU-Metadata').output.value[0].dataset_group",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@pipeline().RunId",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-Success_01",
+				"description": "This activity logs success of Get_kroger_app_orchestration_metadata activity in khc_audit_log_detail table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "Get_ecom_orchestration_metadata",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": "Get_ecom_orchestration_metadata",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Successful",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@activity('Get_ecom_orchestration_metadata').output.value[0].application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@activity('Get_ecom_orchestration_metadata').output.value[0].dataset_group",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@pipeline().RunId",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-Failure_03",
+				"description": "This activity logs failure of LU-Metadata activity in khc_audit_log_detail table and failure of pipeline in  khc_audit_log table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "LU-Metadata",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": "U",
+							"type": "String"
+						},
+						"activity_name": {
+							"value": "LU-Metadata",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": "Failed",
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@activity('LU-Metadata').output.value[0].application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@activity('LU-Metadata').output.value[0].dataset_group",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_code": {
+							"value": {
+								"value": "@activity('LU-Metadata').Error.errorCode",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_detail": {
+							"value": {
+								"value": "@activity('LU-Metadata').Error.message",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@pipeline().RunId",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": "Failed",
+							"type": "String"
+						},
+						"skip_pipeline_audit_update": {
+							"value": "N",
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-Failure_04",
+				"description": "This activity logs failure of FE_OUTBOUND_FOLDER activity in khc_audit_log_detail table and failure of pipeline in  khc_audit_log table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "FE_OUTBOUND_FOLDER",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": "U",
+							"type": "String"
+						},
+						"activity_name": {
+							"value": "FE_OUTBOUND_FOLDER",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": "Failed",
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@activity('LU-Metadata').output.value[0].application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@activity('LU-Metadata').output.value[0].dataset_group",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_code": {
+							"value": "N.A.",
+							"type": "String"
+						},
+						"error_detail": {
+							"value": "N.A.",
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@pipeline().RunId",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": "Failed",
+							"type": "String"
+						},
+						"skip_pipeline_audit_update": {
+							"value": "N",
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-Failure_01",
+				"description": "This activity logs failure of Get_kroger_app_orchestration_metadata activity in khc_audit_log_detail table and failure of pipeline in  khc_audit_log table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "Get_ecom_orchestration_metadata",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": "U",
+							"type": "String"
+						},
+						"activity_name": {
+							"value": "Get_ecom_orchestration_metadata",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": "Failed",
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.ApplicationName",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.DatasetGroup",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_code": {
+							"value": {
+								"value": "@activity('Get_ecom_orchestration_metadata').Error.errorCode",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_detail": {
+							"value": {
+								"value": "@activity('Get_ecom_orchestration_metadata').Error.message",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@pipeline().RunId",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": "Failed",
+							"type": "String"
+						},
+						"skip_pipeline_audit_update": {
+							"value": "N",
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-Failure_05",
+				"description": "This activity logs failure of EP-Snowflake_Extraction activity in khc_audit_log_detail table and failure of pipeline in  khc_audit_log table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "EP-Snowflake_Extraction",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": "U",
+							"type": "String"
+						},
+						"activity_name": {
+							"value": "EP-Snowflake_Extraction",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": "Failed",
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@activity('LU-Metadata').output.value[0].application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@activity('LU-Metadata').output.value[0].dataset_group",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_code": {
+							"value": {
+								"value": "@activity('EP-Snowflake_Extraction').Error.errorCode",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_detail": {
+							"value": {
+								"value": "@activity('EP-Snowflake_Extraction').Error.message",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@pipeline().RunId",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": "Failed",
+							"type": "String"
+						},
+						"skip_pipeline_audit_update": {
+							"value": "N",
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "Get_ecom_orchestration_metadata",
+				"description": "This activity pulls the details related to orchestration_metadata(parameter_json) process. ",
+				"type": "Lookup",
+				"dependsOn": [
+					{
+						"activity": "SP-PipelineStart_Snowflake",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "SqlServerSource",
+						"sqlReaderQuery": {
+							"value": "select * from khc_orchestration_metadata where application_name = '@{pipeline().parameters.ApplicationName}' and  active_ind  ='y'",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "DS_KHCDE_GENERIC_MSSQL_Metadata",
+						"type": "DatasetReference"
+					},
+					"firstRowOnly": false
+				}
+			}
+		],
+		"parameters": {
+			"ApplicationName": {
+				"type": "string",
+				"defaultValue": "ecommerce"
+			},
+			"DatasetGroup": {
+				"type": "string",
+				"defaultValue": "mexico_cpl_insights"
+			},
+			"Trigger_path": {
+				"type": "string",
+				"defaultValue": "sales/triggers"
+			},
+			"Trigger_blob_name": {
+				"type": "string",
+				"defaultValue": "mexico_cpl.txt"
+			}
+		},
+		"folder": {
+			"name": "Ecommerce"
+		},
+		"annotations": []
+	},
+	"type": "Microsoft.DataFactory/factories/pipelines"
+}

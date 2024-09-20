@@ -1,0 +1,1034 @@
+{
+	"name": "PL_KHCDE_CEREBRUM_LOGISTICS_JDA_EMEA_MASTER_LOAD",
+	"properties": {
+		"description": "This pipeline has been created to extract data from EMEA JDA instance ",
+		"activities": [
+			{
+				"name": "LU-Orchestration_Metadata",
+				"description": "This is the Lookup activity for orchestration metadata",
+				"type": "Lookup",
+				"dependsOn": [
+					{
+						"activity": "EP-JDA_EXTRACT",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "SqlServerSource",
+						"sqlReaderQuery": {
+							"value": "select * from khc_orchestration_metadata where application_name = '@{pipeline().parameters.ApplicationName}' and dataset_group = '@{pipeline().parameters.DatasetGroup}' and active_ind = 'y'",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "DS_KHCDE_GENERIC_MSSQL_Metadata",
+						"type": "DatasetReference"
+					},
+					"firstRowOnly": false
+				}
+			},
+			{
+				"name": "EP-DBT_Processing",
+				"description": "Execution of DBT Processing activity to ingest data from snowflake raw tables to final tables by appending the load_date_time column to the tables.",
+				"type": "ExecutePipeline",
+				"dependsOn": [
+					{
+						"activity": "EP-SnowflakeIngestion",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"pipeline": {
+						"referenceName": "PL_KHCDE_GENERIC_DBTProcessing",
+						"type": "PipelineReference"
+					},
+					"waitOnCompletion": true,
+					"parameters": {
+						"ApplicationName": {
+							"value": "@activity('LU-Orchestration_Metadata').output.value[0].application_name",
+							"type": "Expression"
+						},
+						"DatasetGroup": {
+							"value": "@activity('LU-Orchestration_Metadata').output.value[0].dataset_group",
+							"type": "Expression"
+						},
+						"ParameterJson": {
+							"value": "@activity('LU-Orchestration_Metadata').output.value[0].parameter_json",
+							"type": "Expression"
+						}
+					}
+				}
+			},
+			{
+				"name": "SP-PipelineStart",
+				"description": "Insert pipeline start Audit entry into khc_audit_log table",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": {
+								"value": "I",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.ApplicationName",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.DatasetGroup",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@{pipeline().Pipeline}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Processing",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-EP_JDA_Extract_Success",
+				"description": "This activity logs success of  Data Extract in khc_audit_log_detail table",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "EP-JDA_EXTRACT",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": {
+								"value": "EP-JDA_EXTRACT",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Successful",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@{pipeline().parameters.ApplicationName}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@{pipeline().parameters.DatasetGroup}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-EP_JDA_Extract_Failed",
+				"description": "This activity logs failure of  Data Extract in khc_audit_log_detail table",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "EP-JDA_EXTRACT",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": "U",
+							"type": "String"
+						},
+						"activity_name": {
+							"value": {
+								"value": "EP-JDA_EXTRACT",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.ApplicationName",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@{pipeline().parameters.DatasetGroup}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Failed ",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"skip_pipeline_audit_update": {
+							"value": "N",
+							"type": "String"
+						},
+						"error_code": {
+							"value": {
+								"value": "@activity('EP-JDA_EXTRACT').Error.errorCode",
+								"type": "Expression"
+							}
+						},
+						"error_detail": {
+							"value": {
+								"value": "@activity('EP-JDA_EXTRACT').Error.message",
+								"type": "Expression"
+							}
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-LU_Orchestration_Metadata_Success",
+				"description": "This activity logs activity success status to audit table",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "LU-Orchestration_Metadata",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": {
+								"value": "LU-Orchestration_Metadata",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Successful",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@{pipeline().parameters.ApplicationName}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@activity('LU-Orchestration_Metadata').output.value[0].dataset_group",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-LU_Orchestration_Metadata_Failed",
+				"description": "This activity logs activity failure status to audit table",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "LU-Orchestration_Metadata",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": "U",
+							"type": "String"
+						},
+						"activity_name": {
+							"value": {
+								"value": "LU-Orchestration_Metadata",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.ApplicationName",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@{pipeline().parameters.DatasetGroup}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Failed ",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"skip_pipeline_audit_update": {
+							"value": "N",
+							"type": "String"
+						},
+						"error_code": {
+							"value": {
+								"value": "@activity('LU-Orchestration_Metadata').Error.errorCode",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_detail": {
+							"value": {
+								"value": "@activity('LU-Orchestration_Metadata').Error.message",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "EP-SnowflakeIngestion",
+				"description": "This is the generic snowflake ingestion activity to ingest data from blob to snowflake.",
+				"type": "ExecutePipeline",
+				"dependsOn": [
+					{
+						"activity": "LU-Orchestration_Metadata",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"pipeline": {
+						"referenceName": "PL_KHCDE_GENERIC_SnowflakeIngestion",
+						"type": "PipelineReference"
+					},
+					"waitOnCompletion": true,
+					"parameters": {
+						"ApplicationName": {
+							"value": "@activity('LU-Orchestration_Metadata').output.value[0].application_name",
+							"type": "Expression"
+						},
+						"DatasetGroup": {
+							"value": "@activity('LU-Orchestration_Metadata').output.value[0].dataset_group",
+							"type": "Expression"
+						},
+						"ParameterJson": {
+							"value": "@activity('LU-Orchestration_Metadata').output.value[0].parameter_json",
+							"type": "Expression"
+						}
+					}
+				}
+			},
+			{
+				"name": "SP-EP_SFK_Ingestion_Success",
+				"description": "This activity logs activity success status to audit table",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "EP-SnowflakeIngestion",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": {
+								"value": "EP-SnowflakeIngestion",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Successful",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@{pipeline().parameters.ApplicationName}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@activity('LU-Orchestration_Metadata').output.value[0].dataset_group",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-EP_SFK_Ingestion_Failed",
+				"description": "This activity logs activity failure status to audit table",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "EP-SnowflakeIngestion",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": "U",
+							"type": "String"
+						},
+						"activity_name": {
+							"value": {
+								"value": "EP-SnowflakeIngestion",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.ApplicationName",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@{pipeline().parameters.DatasetGroup}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Failed ",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"skip_pipeline_audit_update": {
+							"value": "N",
+							"type": "String"
+						},
+						"error_code": {
+							"value": {
+								"value": "@activity('EP-SnowflakeIngestion').Error.errorCode",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_detail": {
+							"value": {
+								"value": "@activity('EP-SnowflakeIngestion').Error.message",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-EP_DBT_Success",
+				"description": "Insert pipeline activity status as success to the orchestration metadata",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "EP-DBT_Processing",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": {
+								"value": "EP-DBT_Processing",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Successful",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@{pipeline().parameters.ApplicationName}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@activity('LU-Orchestration_Metadata').output.value[0].dataset_group",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-EP_DBT_Failed",
+				"description": "This activity logs activity success status to audit table",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "EP-DBT_Processing",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": "U",
+							"type": "String"
+						},
+						"activity_name": {
+							"value": {
+								"value": "EP-DBT_Processing",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.ApplicationName",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@{pipeline().parameters.DatasetGroup}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Failed ",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"skip_pipeline_audit_update": {
+							"value": "N",
+							"type": "String"
+						},
+						"error_code": {
+							"value": {
+								"value": "@activity('EP-DBT_Processing').Error.errorCode",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_detail": {
+							"value": {
+								"value": "@activity('EP-DBT_Processing').Error.message",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "EP-JDA_EXTRACT",
+				"description": "This activity will import the data from JDA to blob location.",
+				"type": "ExecutePipeline",
+				"dependsOn": [
+					{
+						"activity": "SP-PipelineStart",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"pipeline": {
+						"referenceName": "PL_KHCDE_CEREBRUM_LOGISTICS_JDA_TO_BLOB",
+						"type": "PipelineReference"
+					},
+					"waitOnCompletion": true,
+					"parameters": {
+						"ApplicationName": {
+							"value": "@pipeline().parameters.ApplicationName",
+							"type": "Expression"
+						},
+						"DatasetGroup": {
+							"value": "@pipeline().parameters.DatasetGroup",
+							"type": "Expression"
+						}
+					}
+				}
+			},
+			{
+				"name": "SP-PipelineEnd",
+				"description": "Update the Audit entry for the pipeline  run id to success",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "EP-DBT_Processing",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": {
+								"value": "U",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.ApplicationName",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.DatasetGroup",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@{pipeline().Pipeline}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Successful",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "WB-SendDataExtractFailureEmail",
+				"description": "to send email notification",
+				"type": "WebActivity",
+				"dependsOn": [
+					{
+						"activity": "SP-EP_JDA_Extract_Failed",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"url": {
+						"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+						"type": "Expression"
+					},
+					"method": "POST",
+					"body": {
+						"value": "{ \n        \"to_email\": \"@{variables('emailTo')}\", \n        \"subject\": \"Failed during jda extraction: @{pipeline().parameters.ApplicationName}-@{pipeline().parameters.DatasetGroup}\", \n        \"body\": \"Dear All,<br><br>The cloud analytics data load process failed for the below:<br><b>Application: @{pipeline().parameters.ApplicationName}</b><br><br> Please find below the details: <br><br> Pipeline Name: @{pipeline().Pipeline} <br> Pipeline Run ID: @{pipeline().RunId}<br> Pipeline Trigger Name: @{pipeline().TriggerName}<br> Pipeline Trigger Type: @{pipeline().TriggerType}<br> Pipeline Start Time: @{pipeline().TriggerTime}<br> Activity: EP-JDA_EXTRACT<br>Next Step: Please check the dataset group and active_ind<br><br>Parameters:<br>===========<br>Application Name: @{pipeline().parameters.ApplicationName}<br>Dataset group: @{pipeline().parameters.DatasetGroup}<br><br>Error Code: @{activity('EP-JDA_EXTRACT').Error.errorCode} <br>Error Message: @{activity('EP-JDA_EXTRACT').Error.message}, check the logs. <br><br>Please take care.<br><br>Regards,<br>Cloud Analytics Team\", \n        \"importance\": \"High\"\n}",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "WB-SendSfkIngestionFailureEmail",
+				"description": "to send email notification",
+				"type": "WebActivity",
+				"dependsOn": [
+					{
+						"activity": "SP-EP_SFK_Ingestion_Failed",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"url": {
+						"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+						"type": "Expression"
+					},
+					"method": "POST",
+					"body": {
+						"value": "{ \n        \"to_email\": \"@{variables('emailTo')}\", \n        \"subject\": \"Failed during jda extraction: @{pipeline().parameters.ApplicationName}-@{pipeline().parameters.DatasetGroup}\", \n        \"body\": \"Dear All,<br><br>The cloud analytics data load process failed for the below:<br><b>Application: @{pipeline().parameters.ApplicationName}</b><br><br> Please find below the details: <br><br> Pipeline Name: @{pipeline().Pipeline} <br> Pipeline Run ID: @{pipeline().RunId}<br> Pipeline Trigger Name: @{pipeline().TriggerName}<br> Pipeline Trigger Type: @{pipeline().TriggerType}<br> Pipeline Start Time: @{pipeline().TriggerTime}<br> Activity: EP-Snowflake_Ingestion<br>Next Step: Please check the dataset group and active_ind<br><br>Parameters:<br>===========<br>Application Name: @{pipeline().parameters.ApplicationName}<br>Dataset group: @{pipeline().parameters.DatasetGroup}<br><br>Error Code: @{activity('EP-SnowflakeIngestion').Error.errorCode} <br>Error Message: @{activity('EP-SnowflakeIngestion').Error.message}, check the logs. <br><br>Please take care.<br><br>Regards,<br>Cloud Analytics Team\", \n        \"importance\": \"High\"\n}",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "WB-SendDBTFailureEmail",
+				"description": "to send email notification",
+				"type": "WebActivity",
+				"dependsOn": [
+					{
+						"activity": "SP-EP_DBT_Failed",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"url": {
+						"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+						"type": "Expression"
+					},
+					"method": "POST",
+					"body": {
+						"value": "{ \n        \"to_email\": \"@{variables('emailTo')}\", \n        \"subject\": \"Failed during jda extraction: @{pipeline().parameters.ApplicationName}-@{pipeline().parameters.DatasetGroup}\", \n        \"body\": \"Dear All,<br><br>The cloud analytics data load process failed for the below:<br><b>Application: @{pipeline().parameters.ApplicationName}</b><br><br> Please find below the details: <br><br> Pipeline Name: @{pipeline().Pipeline} <br> Pipeline Run ID: @{pipeline().RunId}<br> Pipeline Trigger Name: @{pipeline().TriggerName}<br> Pipeline Trigger Type: @{pipeline().TriggerType}<br> Pipeline Start Time: @{pipeline().TriggerTime}<br> Activity: EP-DBT_Processing<br>Next Step: Please check the dataset group and active_ind<br><br>Parameters:<br>===========<br>Application Name: @{pipeline().parameters.ApplicationName}<br>Dataset group: @{pipeline().parameters.DatasetGroup}<br><br>Error Code: @{activity('EP-DBT_Processing').Error.errorCode} <br>Error Message: @{activity('EP-DBT_Processing').Error.message}, check the logs. <br><br>Please take care.<br><br>Regards,<br>Cloud Analytics Team\", \n        \"importance\": \"High\"\n}",
+						"type": "Expression"
+					}
+				}
+			}
+		],
+		"parameters": {
+			"ApplicationName": {
+				"type": "string",
+				"defaultValue": "cerebrum_logistics_jda"
+			},
+			"DatasetGroup": {
+				"type": "string",
+				"defaultValue": "cerebrum_logistics_jda_emea_demand"
+			}
+		},
+		"variables": {
+			"emailTo": {
+				"type": "String",
+				"defaultValue": "akash.mishra@kraftheinz.com"
+			}
+		},
+		"folder": {
+			"name": "Cerebrum_Logistics_jda"
+		},
+		"annotations": []
+	},
+	"type": "Microsoft.DataFactory/factories/pipelines"
+}

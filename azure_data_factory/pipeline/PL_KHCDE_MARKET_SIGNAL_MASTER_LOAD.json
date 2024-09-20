@@ -1,0 +1,1454 @@
+{
+	"name": "PL_KHCDE_MARKET_SIGNAL_MASTER_LOAD",
+	"properties": {
+		"activities": [
+			{
+				"name": "set_date_to_process_from",
+				"description": "Calculates the date from which data is to be processed.",
+				"type": "SetVariable",
+				"dependsOn": [
+					{
+						"activity": "Pipeline_Start",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"variableName": "date_to_process_from",
+					"value": {
+						"value": "@startOfDay(getPastTime(pipeline().parameters.days_to_process,'Day'))",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "Fetch_Metadata",
+				"description": "Signal meta data look up activity,\nChecks for signal meta data from khc_orchestration_metadata table.",
+				"type": "Lookup",
+				"dependsOn": [
+					{
+						"activity": "set_date_to_process_from",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "SqlServerSource",
+						"sqlReaderQuery": {
+							"value": "select * from khc_orchestration_metadata where application_name='signal' and dataset_name='@{pipeline().parameters.dataset_name}' and data_level=2 and stage_blob_name is not null and stage_blob_name <>'' and active_ind='y'",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "DS_KHCDE_GENERIC_MSSQL_Metadata",
+						"type": "DatasetReference"
+					},
+					"firstRowOnly": false
+				}
+			},
+			{
+				"name": "Pipeline_Start",
+				"description": "This Activity logs starting of pipeline in khc_audit_log table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": "I",
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.dataset_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@pipeline().Pipeline",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@pipeline().RunId",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Processing",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "Fetch_Metadata_Audit_Detail_Success",
+				"description": "This activity logs success of Fetch_Metadata activity in khc_audit_log_detail table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "Fetch_Metadata",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": "Fetch_Metadata",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Successful",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.dataset_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@pipeline().RunId",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "Fetch_Metadata_Audit_Detail_Failure",
+				"description": "This activity logs failure of Fetch_Metadataa activity in khc_audit_log_detail table and failure of pipeline in  khc_audit_log table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "Fetch_Metadata",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": "U",
+							"type": "String"
+						},
+						"activity_name": {
+							"value": "Fetch_Metadata",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": "Failed",
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.dataset_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_code": {
+							"value": "N.A.",
+							"type": "String"
+						},
+						"error_detail": {
+							"value": "N.A.",
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@pipeline().RunId",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": "Failed",
+							"type": "String"
+						},
+						"skip_pipeline_audit_update": {
+							"value": "N",
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "copy_files_from_archive_to_stage",
+				"type": "Copy",
+				"dependsOn": [
+					{
+						"activity": "Delete_if_folder_exists",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "BinarySource",
+						"storeSettings": {
+							"type": "AzureBlobFSReadSettings",
+							"recursive": true,
+							"modifiedDatetimeStart": {
+								"value": "@variables('date_to_process_from')",
+								"type": "Expression"
+							},
+							"deleteFilesAfterCompletion": false
+						},
+						"formatSettings": {
+							"type": "BinaryReadSettings"
+						}
+					},
+					"sink": {
+						"type": "BinarySink",
+						"storeSettings": {
+							"type": "AzureBlobFSWriteSettings"
+						}
+					},
+					"enableStaging": false
+				},
+				"inputs": [
+					{
+						"referenceName": "DS_KHCDE_GENERIC_BLOB_BINARY_Folder",
+						"type": "DatasetReference",
+						"parameters": {
+							"container_name": {
+								"value": "@activity('Fetch_Metadata').output.value[0].container_name",
+								"type": "Expression"
+							},
+							"blob_name": {
+								"value": "@activity('Fetch_Metadata').output.value[0].archival_blob_name",
+								"type": "Expression"
+							}
+						}
+					}
+				],
+				"outputs": [
+					{
+						"referenceName": "DS_KHCDE_GENERIC_BLOB_BINARY_Folder",
+						"type": "DatasetReference",
+						"parameters": {
+							"container_name": {
+								"value": "@activity('Fetch_Metadata').output.value[0].container_name",
+								"type": "Expression"
+							},
+							"blob_name": {
+								"value": "@activity('Fetch_Metadata').output.value[0].stage_blob_name",
+								"type": "Expression"
+							}
+						}
+					}
+				]
+			},
+			{
+				"name": "SFK_Ingestion",
+				"description": "This activity invokes generic sfk ingestion pipeline for signal data feed ingestion to snowflake.",
+				"type": "ExecutePipeline",
+				"dependsOn": [
+					{
+						"activity": "copy_files_from_archive_to_stage",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"pipeline": {
+						"referenceName": "PL_KHCDE_GENERIC_SnowflakeIngestion",
+						"type": "PipelineReference"
+					},
+					"waitOnCompletion": true,
+					"parameters": {
+						"ApplicationName": {
+							"value": "@activity('Fetch_Metadata').output.value[0].application_name",
+							"type": "Expression"
+						},
+						"DatasetGroup": {
+							"value": "@activity('Fetch_Metadata').output.value[0].dataset_group",
+							"type": "Expression"
+						},
+						"ParameterJson": {
+							"value": "@activity('Fetch_Metadata').output.value[0].parameter_json",
+							"type": "Expression"
+						}
+					}
+				}
+			},
+			{
+				"name": "DBT_Processing",
+				"description": "This activity invokes generic DBT processing pipeline for signal data feeds.",
+				"type": "ExecutePipeline",
+				"dependsOn": [
+					{
+						"activity": "SFK_Ingestion",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"pipeline": {
+						"referenceName": "PL_KHCDE_GENERIC_DBTProcessing",
+						"type": "PipelineReference"
+					},
+					"waitOnCompletion": true,
+					"parameters": {
+						"ApplicationName": {
+							"value": "@activity('Fetch_Metadata').output.value[0].application_name",
+							"type": "Expression"
+						},
+						"DatasetGroup": {
+							"value": "@activity('Fetch_Metadata').output.value[0].dataset_group",
+							"type": "Expression"
+						},
+						"ParameterJson": {
+							"value": "@activity('Fetch_Metadata').output.value[0].parameter_json",
+							"type": "Expression"
+						}
+					}
+				}
+			},
+			{
+				"name": "SFK_Ingestion_Audit_Detail_Success",
+				"description": "This activity logs success of SFK_Ingestion activity in khc_audit_log_detail table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "SFK_Ingestion",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": "SFK_Ingestion",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Successful",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.dataset_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@pipeline().RunId",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SFK_Ingestion_Audit_Detail_Failure",
+				"description": "This activity logs failure of SFK_Ingestion activity in khc_audit_log_detail table and failure of pipeline in  khc_audit_log table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "SFK_Ingestion",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": "U",
+							"type": "String"
+						},
+						"activity_name": {
+							"value": "SFK_Ingestion",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": "Failed",
+							"type": "String"
+						},
+						"application_name": {
+							"value": "signal",
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.dataset_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_code": {
+							"value": "N.A.",
+							"type": "String"
+						},
+						"error_detail": {
+							"value": "N.A.",
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@pipeline().RunId",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": "Failed",
+							"type": "String"
+						},
+						"skip_pipeline_audit_update": {
+							"value": "N",
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "DBT_Processing_Audit_Detail_Success",
+				"description": "This activity logs success of DBT_Processing activity in khc_audit_log_detail table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "DBT_Processing",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": "DBT_Processing",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Successful",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.dataset_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@pipeline().RunId",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "DBT_Processing_Audit_Detail_Failure",
+				"description": "This activity logs failure of DBT_Processing activity in khc_audit_log_detail table and failure of pipeline in  khc_audit_log table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "DBT_Processing",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": "U",
+							"type": "String"
+						},
+						"activity_name": {
+							"value": "DBT_Processing",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": "Failed",
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.dataset_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_code": {
+							"value": "N.A.",
+							"type": "String"
+						},
+						"error_detail": {
+							"value": "N.A.",
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@pipeline().RunId",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": "Failed",
+							"type": "String"
+						},
+						"skip_pipeline_audit_update": {
+							"value": "N",
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "Pipeline_Successful",
+				"description": "This Activity logs completion of pipeline in khc_audit_log table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "DBT_Processing",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": {
+								"value": "U",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.dataset_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@pipeline().Pipeline",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@pipeline().RunId",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": "Successful",
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "copy_files_from_archive_to_stage_success",
+				"description": "This activity logs success of Fetch_Metadata activity in khc_audit_log_detail table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "copy_files_from_archive_to_stage",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": "Fetch_Metadata",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Successful",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.dataset_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@pipeline().RunId",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "copy_files_from_archive_to_stage_failuer",
+				"description": "This activity logs failure of Fetch_Metadataa activity in khc_audit_log_detail table and failure of pipeline in  khc_audit_log table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "copy_files_from_archive_to_stage",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": "U",
+							"type": "String"
+						},
+						"activity_name": {
+							"value": "Fetch_Metadata",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": "Failed",
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.dataset_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_code": {
+							"value": "N.A.",
+							"type": "String"
+						},
+						"error_detail": {
+							"value": "N.A.",
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@pipeline().RunId",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": "Failed",
+							"type": "String"
+						},
+						"skip_pipeline_audit_update": {
+							"value": "N",
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "get_metadata_of_processing_folder",
+				"type": "GetMetadata",
+				"dependsOn": [
+					{
+						"activity": "Fetch_Metadata",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"dataset": {
+						"referenceName": "DS_KHCDE_GENERIC_BLOB_BINARY_Folder",
+						"type": "DatasetReference",
+						"parameters": {
+							"container_name": {
+								"value": "@activity('Fetch_Metadata').output.value[0].container_name",
+								"type": "Expression"
+							},
+							"blob_name": {
+								"value": "@activity('Fetch_Metadata').output.value[0].stage_blob_name",
+								"type": "Expression"
+							}
+						}
+					},
+					"fieldList": [
+						"exists",
+						"childItems"
+					],
+					"storeSettings": {
+						"type": "AzureBlobFSReadSettings",
+						"recursive": true,
+						"enablePartitionDiscovery": false
+					},
+					"formatSettings": {
+						"type": "BinaryReadSettings"
+					}
+				}
+			},
+			{
+				"name": "Delete_if_folder_exists",
+				"description": "This activity checks the defined condition and deletes the processing folder.",
+				"type": "IfCondition",
+				"dependsOn": [
+					{
+						"activity": "get_metadata_of_processing_folder",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"expression": {
+						"value": "@and(activity('get_metadata_of_processing_folder').output.exists,not(equals(activity('Fetch_Metadata').output.value[0].container_name,'')))",
+						"type": "Expression"
+					},
+					"ifTrueActivities": [
+						{
+							"name": "Delete_processing_folder_failuer",
+							"description": "This activity logs failure of Fetch_Metadataa activity in khc_audit_log_detail table and failure of pipeline in  khc_audit_log table.",
+							"type": "SqlServerStoredProcedure",
+							"dependsOn": [
+								{
+									"activity": "Delete_processing_folder",
+									"dependencyConditions": [
+										"Failed"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+								"storedProcedureParameters": {
+									"action_ind": {
+										"value": "U",
+										"type": "String"
+									},
+									"activity_name": {
+										"value": "Delete_processing_folder",
+										"type": "String"
+									},
+									"activity_status": {
+										"value": "Failed",
+										"type": "String"
+									},
+									"application_name": {
+										"value": {
+											"value": "@pipeline().parameters.application_name",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"dataset_name": {
+										"value": {
+											"value": "@pipeline().parameters.dataset_name",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"error_code": {
+										"value": "N.A.",
+										"type": "String"
+									},
+									"error_detail": {
+										"value": "N.A.",
+										"type": "String"
+									},
+									"pipeline_run_id": {
+										"value": {
+											"value": "@pipeline().RunId",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_status": {
+										"value": "Failed",
+										"type": "String"
+									},
+									"skip_pipeline_audit_update": {
+										"value": "N",
+										"type": "String"
+									}
+								}
+							},
+							"linkedServiceName": {
+								"referenceName": "LS_SQL",
+								"type": "LinkedServiceReference"
+							}
+						},
+						{
+							"name": "Delete_processing_folder_success",
+							"description": "This activity logs success of Fetch_Metadata activity in khc_audit_log_detail table.",
+							"type": "SqlServerStoredProcedure",
+							"dependsOn": [
+								{
+									"activity": "Delete_processing_folder",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"storedProcedureName": "[dbo].[generic_activity_audit_log]",
+								"storedProcedureParameters": {
+									"activity_name": {
+										"value": "Delete_processing_folder",
+										"type": "String"
+									},
+									"activity_status": {
+										"value": {
+											"value": "Successful",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"application_name": {
+										"value": {
+											"value": "@pipeline().parameters.application_name",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"dataset_name": {
+										"value": {
+											"value": "@pipeline().parameters.dataset_name",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_run_id": {
+										"value": {
+											"value": "@pipeline().RunId",
+											"type": "Expression"
+										},
+										"type": "String"
+									}
+								}
+							},
+							"linkedServiceName": {
+								"referenceName": "LS_SQL",
+								"type": "LinkedServiceReference"
+							}
+						},
+						{
+							"name": "Delete_processing_folder",
+							"type": "Delete",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"dataset": {
+									"referenceName": "DS_KHCDE_GENERIC_BLOB_BINARY_Folder",
+									"type": "DatasetReference",
+									"parameters": {
+										"container_name": {
+											"value": "@activity('Fetch_Metadata').output.value[0].container_name",
+											"type": "Expression"
+										},
+										"blob_name": {
+											"value": "marketing/signal/processing",
+											"type": "Expression"
+										}
+									}
+								},
+								"enableLogging": false,
+								"storeSettings": {
+									"type": "AzureBlobFSReadSettings",
+									"recursive": true,
+									"enablePartitionDiscovery": false
+								}
+							}
+						}
+					]
+				}
+			},
+			{
+				"name": "get_metadata_of_processing_folder_success",
+				"description": "This activity logs success of Fetch_Metadata activity in khc_audit_log_detail table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "get_metadata_of_processing_folder",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": "get_metadata_of_processing_folder",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Successful",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.dataset_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@pipeline().RunId",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "get_metadata_of_processing_folder_failuer",
+				"description": "This activity logs failure of Fetch_Metadataa activity in khc_audit_log_detail table and failure of pipeline in  khc_audit_log table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "get_metadata_of_processing_folder",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": "U",
+							"type": "String"
+						},
+						"activity_name": {
+							"value": "get_metadata_of_processing_folder",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": "Failed",
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.dataset_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_code": {
+							"value": "N.A.",
+							"type": "String"
+						},
+						"error_detail": {
+							"value": "N.A.",
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@pipeline().RunId",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": "Failed",
+							"type": "String"
+						},
+						"skip_pipeline_audit_update": {
+							"value": "N",
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "Delete_if_folder_exists_failuer",
+				"description": "This activity logs failure of Fetch_Metadataa activity in khc_audit_log_detail table and failure of pipeline in  khc_audit_log table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "Delete_if_folder_exists",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": "U",
+							"type": "String"
+						},
+						"activity_name": {
+							"value": "Delete_if_folder_exists",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": "Failed",
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.dataset_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_code": {
+							"value": "N.A.",
+							"type": "String"
+						},
+						"error_detail": {
+							"value": "N.A.",
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@pipeline().RunId",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": "Failed",
+							"type": "String"
+						},
+						"skip_pipeline_audit_update": {
+							"value": "N",
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "Delete_if_folder_exists_success",
+				"description": "This activity logs success of Fetch_Metadata activity in khc_audit_log_detail table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "Delete_if_folder_exists",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": "Delete_if_folder_exists",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Successful",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.dataset_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@pipeline().RunId",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			}
+		],
+		"parameters": {
+			"days_to_process": {
+				"type": "int",
+				"defaultValue": 1
+			},
+			"application_name": {
+				"type": "string",
+				"defaultValue": "signal"
+			},
+			"dataset_name": {
+				"type": "string",
+				"defaultValue": "N.A."
+			}
+		},
+		"variables": {
+			"date_to_process_from": {
+				"type": "String"
+			}
+		},
+		"folder": {
+			"name": "Marketing_Signal"
+		},
+		"annotations": []
+	}
+}

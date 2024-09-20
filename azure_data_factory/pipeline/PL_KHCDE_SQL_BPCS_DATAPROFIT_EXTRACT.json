@@ -1,0 +1,133 @@
+{
+	"name": "PL_KHCDE_SQL_BPCS_DATAPROFIT_EXTRACT",
+	"properties": {
+		"description": "To extract the SQL Server data",
+		"activities": [
+			{
+				"name": "ForEach_lnp",
+				"type": "ForEach",
+				"dependsOn": [
+					{
+						"activity": "LU-BPCS_Metadata",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"items": {
+						"value": "@activity('LU-BPCS_Metadata').output.value",
+						"type": "Expression"
+					},
+					"activities": [
+						{
+							"name": "Copy_BPCS",
+							"type": "Copy",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"source": {
+									"type": "SqlServerSource",
+									"partitionOption": "None"
+								},
+								"sink": {
+									"type": "DelimitedTextSink",
+									"storeSettings": {
+										"type": "AzureBlobFSWriteSettings"
+									},
+									"formatSettings": {
+										"type": "DelimitedTextWriteSettings",
+										"quoteAllText": true,
+										"fileExtension": ".txt"
+									}
+								},
+								"enableStaging": false
+							},
+							"inputs": [
+								{
+									"referenceName": "DS_KHCDE_SQL_BPCS_APAC",
+									"type": "DatasetReference",
+									"parameters": {
+										"cw_table": "@{item().dataset_name}"
+									}
+								}
+							],
+							"outputs": [
+								{
+									"referenceName": "DS_KHCDE_ADLS_BPCS",
+									"type": "DatasetReference",
+									"parameters": {
+										"cw_fileName": {
+											"value": "@{concat('dbo',item().dataset_name,'.txt')}",
+											"type": "Expression"
+										},
+										"cw_containerName": {
+											"value": "@{item().container_name}",
+											"type": "Expression"
+										},
+										"cw_filePath": {
+											"value": "@{item().stage_blob_name}",
+											"type": "Expression"
+										}
+									}
+								}
+							]
+						}
+					]
+				}
+			},
+			{
+				"name": "LU-BPCS_Metadata",
+				"type": "Lookup",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "SqlServerSource",
+						"sqlReaderQuery": {
+							"value": "select * from dbo.khc_orchestration_metadata where server_name = 'LS_SQL_BPCS_APAC' and application_name = '@{pipeline().parameters.ApplicationName}' and active_ind='y' and dataset_name = 'BPCS_SalesV'",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "DS_KHCDE_GENERIC_MSSQL_Metadata",
+						"type": "DatasetReference"
+					},
+					"firstRowOnly": false
+				}
+			}
+		],
+		"parameters": {
+			"ApplicationName": {
+				"type": "string",
+				"defaultValue": "nielsen_international"
+			},
+			"ServerName": {
+				"type": "string",
+				"defaultValue": "LS_SQL_BPCS_APAC"
+			}
+		},
+		"folder": {
+			"name": "Nielsen_International/Sub_Pipelines"
+		},
+		"annotations": []
+	},
+	"type": "Microsoft.DataFactory/factories/pipelines"
+}

@@ -1,0 +1,452 @@
+{
+	"name": "PL_KHCDE_APAC_ANZ_DF_WAIT_ERROR",
+	"properties": {
+		"description": "PL_KHCDE_APAC_ANZ_DF_WAIT_ERROR",
+		"activities": [
+			{
+				"name": "Until",
+				"description": "Until loop",
+				"type": "Until",
+				"dependsOn": [
+					{
+						"activity": "SP-PipelineStart",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"expression": {
+						"value": "@equals(variables('exit_ind'), 'Y')",
+						"type": "Expression"
+					},
+					"activities": [
+						{
+							"name": "LU-SQL_Server_Metadata",
+							"description": "Look Up",
+							"type": "Lookup",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 5,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"source": {
+									"type": "SqlServerSource",
+									"sqlReaderStoredProcedureName": "[dbo].[SYS_CheckControl]",
+									"storedProcedureParameters": {
+										"TableName": {
+											"type": "String",
+											"value": {
+												"value": "@pipeline().parameters.dataset_name",
+												"type": "Expression"
+											}
+										}
+									},
+									"queryTimeout": "02:00:00",
+									"partitionOption": "None"
+								},
+								"dataset": {
+									"referenceName": "DS_KHCDE_APAC_ANZ_DF_SQL",
+									"type": "DatasetReference"
+								},
+								"firstRowOnly": false
+							}
+						},
+						{
+							"name": "If Condition1",
+							"description": "IF condition",
+							"type": "IfCondition",
+							"dependsOn": [
+								{
+									"activity": "LU-SQL_Server_Metadata",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"userProperties": [],
+							"typeProperties": {
+								"expression": {
+									"value": "@or(or(equals(int(activity('LU-SQL_Server_Metadata').output.value[0].STATUS), 0),\n   equals(int(activity('LU-SQL_Server_Metadata').output.value[0].STATUS), 2)),and(greater(int(variables('retry_count')), 5), equals(variables('exit_ind'), 'N')))",
+									"type": "Expression"
+								},
+								"ifFalseActivities": [
+									{
+										"name": "Set variable2",
+										"description": "set retry count ",
+										"type": "SetVariable",
+										"dependsOn": [
+											{
+												"activity": "Wait1",
+												"dependencyConditions": [
+													"Succeeded"
+												]
+											}
+										],
+										"userProperties": [],
+										"typeProperties": {
+											"variableName": "retry_count",
+											"value": {
+												"value": "@{add(int(variables('retry_count_temp')), 1)}",
+												"type": "Expression"
+											}
+										}
+									},
+									{
+										"name": "Set variable3",
+										"description": "set temporary variable",
+										"type": "SetVariable",
+										"dependsOn": [
+											{
+												"activity": "Set variable2",
+												"dependencyConditions": [
+													"Succeeded"
+												]
+											}
+										],
+										"userProperties": [],
+										"typeProperties": {
+											"variableName": "retry_count_temp",
+											"value": {
+												"value": "@variables('retry_count')",
+												"type": "Expression"
+											}
+										}
+									},
+									{
+										"name": "Wait1",
+										"description": "wait for 5 mins",
+										"type": "Wait",
+										"dependsOn": [],
+										"userProperties": [],
+										"typeProperties": {
+											"waitTimeInSeconds": {
+												"value": "@int(300)",
+												"type": "Expression"
+											}
+										}
+									}
+								],
+								"ifTrueActivities": [
+									{
+										"name": "Set variable1",
+										"description": "set the value",
+										"type": "SetVariable",
+										"dependsOn": [],
+										"userProperties": [],
+										"typeProperties": {
+											"variableName": "exit_ind",
+											"value": {
+												"value": "Y",
+												"type": "Expression"
+											}
+										}
+									}
+								]
+							}
+						}
+					],
+					"timeout": "7.00:00:00"
+				}
+			},
+			{
+				"name": "LU-SQL_Server_Metadata_1",
+				"description": "Lookup Activity",
+				"type": "Lookup",
+				"dependsOn": [
+					{
+						"activity": "Until",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "SqlServerSource",
+						"sqlReaderStoredProcedureName": "[dbo].[SYS_CheckControl]",
+						"storedProcedureParameters": {
+							"TableName": {
+								"type": "String",
+								"value": {
+									"value": "@pipeline().parameters.dataset_name",
+									"type": "Expression"
+								}
+							}
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "DS_KHCDE_APAC_ANZ_DF_SQL",
+						"type": "DatasetReference"
+					},
+					"firstRowOnly": false
+				}
+			},
+			{
+				"name": "If Condition2",
+				"description": "If Condition check status",
+				"type": "IfCondition",
+				"dependsOn": [
+					{
+						"activity": "LU-SQL_Server_Metadata_1",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"expression": {
+						"value": "@or(equals(int(activity('LU-SQL_Server_Metadata_1').output.value[0].Status), 0),equals(int(activity('LU-SQL_Server_Metadata_1').output.value[0].Status), 2))",
+						"type": "Expression"
+					},
+					"ifTrueActivities": [
+						{
+							"name": "LU-SQL_BPCS_Metadata",
+							"description": "Lookup Activity",
+							"type": "Lookup",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 5,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"source": {
+									"type": "SqlServerSource",
+									"sqlReaderQuery": {
+										"value": "select * from dbo.khc_orchestration_metadata where server_name in('LS_SQL_BPCS_APAC','LS_NZ_APAC_SQL') and application_name in ( 'apac_anz_df_master_data','apac_anz_df_finance','khc_finance') and active_ind='y' \nand dataset_name='@{pipeline().parameters.dataset_name}'",
+										"type": "Expression"
+									},
+									"queryTimeout": "02:00:00",
+									"partitionOption": "None"
+								},
+								"dataset": {
+									"referenceName": "DS_KHCDE_GENERIC_MSSQL_Metadata",
+									"type": "DatasetReference"
+								},
+								"firstRowOnly": false
+							}
+						},
+						{
+							"name": "EP-SQL-BPCS-APAC-DF-EXTRCT",
+							"description": "Extraction Pipeline",
+							"type": "ExecutePipeline",
+							"dependsOn": [
+								{
+									"activity": "LU-SQL_BPCS_Metadata",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"userProperties": [],
+							"typeProperties": {
+								"pipeline": {
+									"referenceName": "PL_KHCDE_APAC_ANZ_DF_SQL_BPCS_EXTRACT",
+									"type": "PipelineReference"
+								},
+								"waitOnCompletion": true,
+								"parameters": {
+									"table_name": {
+										"value": "@{activity('LU-SQL_BPCS_Metadata').output.value[0].dataset_name}",
+										"type": "Expression"
+									},
+									"container_name": {
+										"value": "@{activity('LU-SQL_BPCS_Metadata').output.value[0].container_name}",
+										"type": "Expression"
+									},
+									"stage_blob_name": {
+										"value": "@{activity('LU-SQL_BPCS_Metadata').output.value[0].stage_blob_name}",
+										"type": "Expression"
+									},
+									"file_name": {
+										"value": "@{activity('LU-SQL_BPCS_Metadata').output.value[0].filename}",
+										"type": "Expression"
+									},
+									"application_name": {
+										"value": "@{activity('LU-SQL_BPCS_Metadata').output.value[0].application_name}",
+										"type": "Expression"
+									}
+								}
+							}
+						}
+					]
+				}
+			},
+			{
+				"name": "SP-PipelineStart",
+				"description": "This Activity logs starting of pipeline in khc_audit_log table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": {
+								"value": "I",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "apac_anz_df_master_data",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.dataset_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@pipeline().Pipeline",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@pipeline().RunId",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Extract Pipeline Started.",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-Pipelinesuccesful",
+				"description": "This Activity logs completion of pipeline in khc_audit_log table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "If Condition2",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": "U",
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "apac_anz_df_master_data",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.dataset_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@{pipeline().Pipeline}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": "Successful",
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			}
+		],
+		"parameters": {
+			"dataset_name": {
+				"type": "string"
+			}
+		},
+		"variables": {
+			"exit_ind": {
+				"type": "String",
+				"defaultValue": "N"
+			},
+			"retry_count": {
+				"type": "String",
+				"defaultValue": "0"
+			},
+			"retry_count_temp": {
+				"type": "String",
+				"defaultValue": "0"
+			}
+		},
+		"folder": {
+			"name": "Apac_Anz_DF/Sub_pipeline"
+		},
+		"annotations": []
+	}
+}

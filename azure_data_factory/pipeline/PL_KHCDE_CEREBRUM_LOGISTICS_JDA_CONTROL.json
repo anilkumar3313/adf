@@ -1,0 +1,1473 @@
+{
+	"name": "PL_KHCDE_CEREBRUM_LOGISTICS_JDA_CONTROL",
+	"properties": {
+		"description": "This pipeline will check control table and evaluate if table is ready for extraction",
+		"activities": [
+			{
+				"name": "Until-FetchControlValue",
+				"description": "This activity fetches control value from EMEA extract control table",
+				"type": "Until",
+				"dependsOn": [
+					{
+						"activity": "LU-Metadata",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"expression": {
+						"value": "@equals(variables('exit_ind'),'Y')",
+						"type": "Expression"
+					},
+					"activities": [
+						{
+							"name": "LU_CEREBRUM_JDA_EXTRACT_CONTROL",
+							"description": "Lookup activity from EMEA Control table",
+							"type": "Lookup",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 5,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"source": {
+									"type": "OracleSource",
+									"oracleReaderQuery": {
+										"value": "select * from EMEA_EXTRACT_CONTROL where TABLE_NAME = '@{pipeline().parameters.Table_name}'",
+										"type": "Expression"
+									},
+									"partitionOption": "None",
+									"queryTimeout": "02:00:00"
+								},
+								"dataset": {
+									"referenceName": "DS_KHCDE_EMEA_JDA_SOURCE",
+									"type": "DatasetReference",
+									"parameters": {
+										"TableName": "EMEA_EXTRACT_CONTROL"
+									}
+								},
+								"firstRowOnly": false
+							}
+						},
+						{
+							"name": "If Condition - EvaluateControlValue",
+							"description": "Evaluating control value ",
+							"type": "IfCondition",
+							"dependsOn": [
+								{
+									"activity": "Set_Control_value",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"userProperties": [],
+							"typeProperties": {
+								"expression": {
+									"value": "@or(equals(activity('LU_CEREBRUM_JDA_EXTRACT_CONTROL').output.value[0].available,'Y'),equals(variables('retry_count'),'3'))",
+									"type": "Expression"
+								},
+								"ifFalseActivities": [
+									{
+										"name": "Wait-For_Retry",
+										"description": "600 seconds waiting time for resetting control value.",
+										"type": "Wait",
+										"dependsOn": [],
+										"userProperties": [],
+										"typeProperties": {
+											"waitTimeInSeconds": {
+												"value": "@int(600)",
+												"type": "Expression"
+											}
+										}
+									},
+									{
+										"name": "Set_retry_count_1",
+										"description": "Resetting control value",
+										"type": "SetVariable",
+										"dependsOn": [
+											{
+												"activity": "Wait-For_Retry",
+												"dependencyConditions": [
+													"Succeeded"
+												]
+											}
+										],
+										"userProperties": [],
+										"typeProperties": {
+											"variableName": "retry_count",
+											"value": {
+												"value": "@{add(int(variables('retry_count_temp')), 1)}",
+												"type": "Expression"
+											}
+										}
+									},
+									{
+										"name": "Set_retry_temp_1",
+										"description": "setting temporary value ",
+										"type": "SetVariable",
+										"dependsOn": [
+											{
+												"activity": "Set_retry_count_1",
+												"dependencyConditions": [
+													"Succeeded"
+												]
+											}
+										],
+										"userProperties": [],
+										"typeProperties": {
+											"variableName": "retry_count_temp",
+											"value": {
+												"value": "@variables('retry_count')",
+												"type": "Expression"
+											}
+										}
+									}
+								],
+								"ifTrueActivities": [
+									{
+										"name": "Set_ext_ind_True_Y",
+										"description": "Setting value as Y ",
+										"type": "SetVariable",
+										"dependsOn": [],
+										"userProperties": [],
+										"typeProperties": {
+											"variableName": "exit_ind",
+											"value": "Y"
+										}
+									}
+								]
+							}
+						},
+						{
+							"name": "Set_Control_value",
+							"description": "Setting control value",
+							"type": "SetVariable",
+							"dependsOn": [
+								{
+									"activity": "LU_CEREBRUM_JDA_EXTRACT_CONTROL",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"userProperties": [],
+							"typeProperties": {
+								"variableName": "contrl_value",
+								"value": {
+									"value": "@{activity('LU_CEREBRUM_JDA_EXTRACT_CONTROL').output.value[0].AVAILABLE}",
+									"type": "Expression"
+								}
+							}
+						}
+					],
+					"timeout": "7.00:00:00"
+				}
+			},
+			{
+				"name": "LU-Metadata",
+				"description": "This is the Lookup activity for metadata",
+				"type": "Lookup",
+				"dependsOn": [
+					{
+						"activity": "SP-PipelineStart",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "SqlServerSource",
+						"sqlReaderQuery": {
+							"value": "select\n    om.application_name,\n    ctrl.table_name,\nctrl.where_clause,\n    om.dataset_group,\n    om.server_name,\n    om.server_path as source_object_type,\n    om.filename as dso_changelog_table,\n    om.data_filename,\n    om.container_name,\n    om.archival_blob_name,\n    om.stage_blob_name,\n    om.blob_trigger_name,\n    om.data_level,\n    om.active_ind,\n    om.parent_id,\n    ctrl.dynamic_partition_ind,\n    ctrl.partition_column,\n    ctrl.incr_column_name,\nctrl.Select_Columns,\n    ctrl.last_incr_value\nfrom dbo.khc_orchestration_metadata om inner join\n( Select\n    parent_id,\nSelect_Columns,\n    table_name,\n    dynamic_partition_ind,\n    partition_column,\n    where_clause,\n    incr_column_name,\n    last_incr_value\n    from dbo.khc_data_extract_control_table\n) ctrl\non om.parent_id = ctrl.parent_id\nwhere len(trim(om.server_name)) > 0\n    and om.parent_id = '@{pipeline().parameters.parent_id}'\n  and om.dataset_group ='@{pipeline().parameters.dataset_group}'\n  and om.server_name = 'LS_ORACLE_JDA_EMEA'\n  and om.data_level=1 and om.active_ind='y'",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "DS_KHCDE_GENERIC_MSSQL_Metadata",
+						"type": "DatasetReference"
+					},
+					"firstRowOnly": false
+				}
+			},
+			{
+				"name": "If Condition-DataExtraction",
+				"description": "This activity validates the data extraction  and will copy data from JDA to blob",
+				"type": "IfCondition",
+				"dependsOn": [
+					{
+						"activity": "Until-FetchControlValue",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"expression": {
+						"value": "@equals(variables('contrl_value'),'Y')\n",
+						"type": "Expression"
+					},
+					"ifFalseActivities": [
+						{
+							"name": "Audit_Log_Data_Extraction_Failure_CT",
+							"description": "This activity logs activity failure status to audit table",
+							"type": "SqlServerStoredProcedure",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+								"storedProcedureParameters": {
+									"action_ind": {
+										"value": "U",
+										"type": "String"
+									},
+									"activity_name": {
+										"value": "Data_Extraction_JDA_to_BLOB",
+										"type": "String"
+									},
+									"activity_status": {
+										"value": "Failed",
+										"type": "String"
+									},
+									"application_name": {
+										"value": {
+											"value": "@activity('LU-Metadata').output.value[0].application_name",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"dataset_name": {
+										"value": {
+											"value": "@pipeline().parameters.Table_name",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"error_code": {
+										"value": "1002",
+										"type": "String"
+									},
+									"error_detail": {
+										"value": "Data not available as per the JDA control table - APAC_EXTRACT_CONTROL",
+										"type": "String"
+									},
+									"pipeline_run_id": {
+										"value": {
+											"value": "@pipeline().RunId",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_status": {
+										"value": "Failed",
+										"type": "String"
+									},
+									"skip_pipeline_audit_update": {
+										"value": {
+											"value": "N",
+											"type": "Expression"
+										},
+										"type": "String"
+									}
+								}
+							},
+							"linkedServiceName": {
+								"referenceName": "LS_SQL",
+								"type": "LinkedServiceReference"
+							}
+						},
+						{
+							"name": "Failed copy activity",
+							"description": "This activity will copy data to dummy file on failure of data extraction",
+							"type": "Copy",
+							"dependsOn": [
+								{
+									"activity": "Audit_Log_Data_Extraction_Failure_CT",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"source": {
+									"type": "DelimitedTextSource",
+									"storeSettings": {
+										"type": "AzureBlobFSReadSettings",
+										"recursive": true,
+										"enablePartitionDiscovery": false
+									},
+									"formatSettings": {
+										"type": "DelimitedTextReadSettings"
+									}
+								},
+								"sink": {
+									"type": "DelimitedTextSink",
+									"storeSettings": {
+										"type": "AzureBlobFSWriteSettings"
+									},
+									"formatSettings": {
+										"type": "DelimitedTextWriteSettings",
+										"quoteAllText": true,
+										"fileExtension": ".txt"
+									}
+								},
+								"enableStaging": false,
+								"translator": {
+									"type": "TabularTranslator",
+									"typeConversion": true,
+									"typeConversionSettings": {
+										"allowDataTruncation": true,
+										"treatBooleanAsNumber": false
+									}
+								}
+							},
+							"inputs": [
+								{
+									"referenceName": "DS_KHCDE_APAC_ANZ_SQL_TO_BLOB",
+									"type": "DatasetReference",
+									"parameters": {
+										"cw_fileName": "dumy",
+										"cw_containerName": "dumy",
+										"cw_filePath": "dumy"
+									}
+								}
+							],
+							"outputs": [
+								{
+									"referenceName": "DS_KHCDE_APAC_ANZ_SQL_TO_BLOB",
+									"type": "DatasetReference",
+									"parameters": {
+										"cw_fileName": "dumy",
+										"cw_containerName": "dumy",
+										"cw_filePath": "dumy"
+									}
+								}
+							]
+						}
+					],
+					"ifTrueActivities": [
+						{
+							"name": "SP-Data_Extraction_Success",
+							"description": "This activity logs activity success status to audit table ",
+							"type": "SqlServerStoredProcedure",
+							"dependsOn": [
+								{
+									"activity": "Copy data from Oracle to archive",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 5,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"storedProcedureName": "[dbo].[generic_activity_audit_log]",
+								"storedProcedureParameters": {
+									"activity_name": {
+										"value": "Copy Data from Oracle to archive",
+										"type": "String"
+									},
+									"activity_status": {
+										"value": "Successful",
+										"type": "String"
+									},
+									"application_name": {
+										"value": {
+											"value": "@activity('LU-Metadata').output.value[0].application_name",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"dataset_name": {
+										"value": {
+											"value": "@pipeline().parameters.Table_name",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_run_id": {
+										"value": {
+											"value": "@pipeline().RunId",
+											"type": "Expression"
+										},
+										"type": "String"
+									}
+								}
+							},
+							"linkedServiceName": {
+								"referenceName": "LS_SQL",
+								"type": "LinkedServiceReference"
+							}
+						},
+						{
+							"name": "SP-log_Data_Extraction_Failure",
+							"description": "This activity logs activity failure status to audit table",
+							"type": "SqlServerStoredProcedure",
+							"dependsOn": [
+								{
+									"activity": "Copy data from Oracle to archive",
+									"dependencyConditions": [
+										"Failed"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 5,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+								"storedProcedureParameters": {
+									"action_ind": {
+										"value": "U",
+										"type": "String"
+									},
+									"activity_name": {
+										"value": "Copy Data from Oracle to archive",
+										"type": "String"
+									},
+									"activity_status": {
+										"value": "Failed",
+										"type": "String"
+									},
+									"application_name": {
+										"value": {
+											"value": "@activity('LU-Metadata').output.value[0].application_name",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"dataset_name": {
+										"value": {
+											"value": "@pipeline().parameters.Table_name",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"error_code": {
+										"value": "1001",
+										"type": "String"
+									},
+									"error_detail": {
+										"value": "Data_Extraction_JDA_to_BLOB Failed",
+										"type": "String"
+									},
+									"pipeline_run_id": {
+										"value": {
+											"value": "@pipeline().RunId",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_status": {
+										"value": "Failed",
+										"type": "String"
+									},
+									"skip_pipeline_audit_update": {
+										"value": {
+											"value": "N",
+											"type": "Expression"
+										},
+										"type": "String"
+									}
+								}
+							},
+							"linkedServiceName": {
+								"referenceName": "LS_SQL",
+								"type": "LinkedServiceReference"
+							}
+						},
+						{
+							"name": "Copy data from Oracle to archive",
+							"description": "The data to be extracted from Oracle Server to BLOB file server for  JDA EMEA dataset  ",
+							"type": "Copy",
+							"dependsOn": [
+								{
+									"activity": "GET_THE_EXT_DATE",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 5,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"source": {
+									"type": "OracleSource",
+									"partitionOption": "None",
+									"queryTimeout": "02:00:00"
+								},
+								"sink": {
+									"type": "DelimitedTextSink",
+									"storeSettings": {
+										"type": "AzureBlobFSWriteSettings"
+									},
+									"formatSettings": {
+										"type": "DelimitedTextWriteSettings",
+										"quoteAllText": true,
+										"fileExtension": ".txt"
+									}
+								},
+								"enableStaging": false
+							},
+							"inputs": [
+								{
+									"referenceName": "DS_KHCDE_EMEA_JDA_SOURCE",
+									"type": "DatasetReference",
+									"parameters": {
+										"TableName": "@{pipeline().parameters.Table_name}"
+									}
+								}
+							],
+							"outputs": [
+								{
+									"referenceName": "DS_KHCDE_EMEA_JDA_SINK",
+									"type": "DatasetReference",
+									"parameters": {
+										"cw_fileName": "@{concat(pipeline().parameters.Table_name,'.csv')}",
+										"cw_containerName": "khc-enterprise-data",
+										"cw_filePath": {
+											"value": "@{replace(activity('LU-Metadata').output.value[0].archival_blob_name, 'yyyyMMdd', variables('extract_date'))}",
+											"type": "Expression"
+										}
+									}
+								}
+							]
+						},
+						{
+							"name": "COPY_TO_STAGE",
+							"description": "Copy files from land to Archive ",
+							"type": "Copy",
+							"dependsOn": [
+								{
+									"activity": "Copy data from Oracle to archive",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 5,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"source": {
+									"type": "BinarySource",
+									"storeSettings": {
+										"type": "AzureBlobFSReadSettings",
+										"recursive": true
+									},
+									"formatSettings": {
+										"type": "BinaryReadSettings"
+									}
+								},
+								"sink": {
+									"type": "BinarySink",
+									"storeSettings": {
+										"type": "AzureBlobFSWriteSettings"
+									}
+								},
+								"enableStaging": false
+							},
+							"inputs": [
+								{
+									"referenceName": "DS_KHCDE_GENERIC_BLOB_BINARY_Folder",
+									"type": "DatasetReference",
+									"parameters": {
+										"container_name": {
+											"value": "@activity('LU-Metadata').output.value[0].container_name",
+											"type": "Expression"
+										},
+										"blob_name": {
+											"value": "@{replace(activity('LU-Metadata').output.value[0].archival_blob_name, 'yyyyMMdd', variables('extract_date'))}",
+											"type": "Expression"
+										}
+									}
+								}
+							],
+							"outputs": [
+								{
+									"referenceName": "DS_KHCDE_GENERIC_BLOB_BINARY_Folder",
+									"type": "DatasetReference",
+									"parameters": {
+										"container_name": {
+											"value": "@activity('LU-Metadata').output.value[0].container_name",
+											"type": "Expression"
+										},
+										"blob_name": {
+											"value": "@activity('LU-Metadata').output.value[0].stage_blob_name",
+											"type": "Expression"
+										}
+									}
+								}
+							]
+						},
+						{
+							"name": "SP-Copy_to_Stage_Success",
+							"description": "This activity logs activity success status to audit table ",
+							"type": "SqlServerStoredProcedure",
+							"dependsOn": [
+								{
+									"activity": "COPY_TO_STAGE",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 5,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"storedProcedureName": "[dbo].[generic_activity_audit_log]",
+								"storedProcedureParameters": {
+									"activity_name": {
+										"value": "COPY_TO_STAGE",
+										"type": "String"
+									},
+									"activity_status": {
+										"value": "Successful",
+										"type": "String"
+									},
+									"application_name": {
+										"value": {
+											"value": "@activity('LU-Metadata').output.value[0].application_name",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"dataset_name": {
+										"value": {
+											"value": "@pipeline().parameters.Table_name",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_run_id": {
+										"value": {
+											"value": "@pipeline().RunId",
+											"type": "Expression"
+										},
+										"type": "String"
+									}
+								}
+							},
+							"linkedServiceName": {
+								"referenceName": "LS_SQL",
+								"type": "LinkedServiceReference"
+							}
+						},
+						{
+							"name": "SP-Copy_to_Stage_Failure",
+							"description": "This activity logs activity failure status to audit table",
+							"type": "SqlServerStoredProcedure",
+							"dependsOn": [
+								{
+									"activity": "COPY_TO_STAGE",
+									"dependencyConditions": [
+										"Failed"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 5,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+								"storedProcedureParameters": {
+									"action_ind": {
+										"value": "U",
+										"type": "String"
+									},
+									"activity_name": {
+										"value": "COPY_TO_STAGE",
+										"type": "String"
+									},
+									"activity_status": {
+										"value": "Failed",
+										"type": "String"
+									},
+									"application_name": {
+										"value": {
+											"value": "@activity('LU-Metadata').output.value[0].application_name",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"dataset_name": {
+										"value": {
+											"value": "@pipeline().parameters.Table_name",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"error_code": {
+										"value": "1001",
+										"type": "String"
+									},
+									"error_detail": {
+										"value": "Data_Extraction from stage to archive failed",
+										"type": "String"
+									},
+									"pipeline_run_id": {
+										"value": {
+											"value": "@pipeline().RunId",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_status": {
+										"value": "Failed",
+										"type": "String"
+									},
+									"skip_pipeline_audit_update": {
+										"value": {
+											"value": "N",
+											"type": "Expression"
+										},
+										"type": "String"
+									}
+								}
+							},
+							"linkedServiceName": {
+								"referenceName": "LS_SQL",
+								"type": "LinkedServiceReference"
+							}
+						},
+						{
+							"name": "GET_THE_EXT_DATE",
+							"description": "Get the Date of Extraction as of CST Time",
+							"type": "SetVariable",
+							"dependsOn": [],
+							"userProperties": [],
+							"typeProperties": {
+								"variableName": "extract_date",
+								"value": {
+									"value": "@{formatDateTime(addHours(utcNow(),-6),'yyyyMMdd')}",
+									"type": "Expression"
+								}
+							}
+						},
+						{
+							"name": "WB-SendCopyToStageFailureEmail",
+							"description": "to send email notification",
+							"type": "WebActivity",
+							"dependsOn": [
+								{
+									"activity": "SP-Copy_to_Stage_Failure",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 5,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"url": {
+									"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+									"type": "Expression"
+								},
+								"method": "POST",
+								"body": {
+									"value": "{ \n        \"to_email\": \"@{variables('emailTo')}\", \n        \"subject\": \"Failed during jda extraction: @{pipeline().parameters.application_name}-@{pipeline().parameters.dataset_group}\", \n        \"body\": \"Dear All,<br><br>The cloud analytics data load process failed for the below:<br><b>Application: @{pipeline().parameters.application_name}</b><br><br> Please find below the details: <br><br> Pipeline Name: @{pipeline().Pipeline} <br> Pipeline Run ID: @{pipeline().RunId}<br> Pipeline Trigger Name: @{pipeline().TriggerName}<br> Pipeline Trigger Type: @{pipeline().TriggerType}<br> Pipeline Start Time: @{pipeline().TriggerTime}<br> Activity: EP-CopyDataToBlob<br>Next Step: Please check the dataset group and active_ind<br><br>Parameters:<br>===========<br>Application Name: @{pipeline().parameters.application_name}<br>Dataset group: @{pipeline().parameters.dataset_group}<br><br>Error Code: @{activity('COPY_TO_STAGE').Error.errorCode} <br>Error Message: @{activity('COPY_TO_STAGE').Error.message}, check the logs. <br><br>Please take care.<br><br>Regards,<br>Cloud Analytics Team\", \n        \"importance\": \"High\"\n}",
+									"type": "Expression"
+								}
+							}
+						}
+					]
+				}
+			},
+			{
+				"name": "SP-Until-FetchControlValue_Successful",
+				"description": "This activity logs activity success status to audit table",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "Until-FetchControlValue",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": "Untill_Files_Found",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": "Successful",
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@activity('LU-Metadata').output.value[0].application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@activity('LU-Metadata').output.value[0].dataset_group",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-Until-FetchControlValue_Failed",
+				"description": "This activity logs activity failure status to audit table",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "Until-FetchControlValue",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": {
+								"value": "Untill_Files_Found",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@activity('LU-Metadata').output.value[0].application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@activity('LU-Metadata').output.value[0].dataset_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_code": {
+							"value": {
+								"value": "N.A.",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_detail": {
+							"value": {
+								"value": "Incomplete files received.",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-LU-Metadata_Success",
+				"description": "This activity logs activity success status to audit table ",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "LU-Metadata",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": {
+								"value": "LU-Metadata",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Successful",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@activity('LU-Metadata').output.value[0].application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@activity('LU-Metadata').output.value[0].dataset_group",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-LU-Metadata_Failed",
+				"description": "This activity logs activity failure status to audit table ",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "LU-Metadata",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": "U",
+							"type": "String"
+						},
+						"activity_name": {
+							"value": {
+								"value": "LU-Orchestration_Metadata",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@activity('LU-Metadata').output.value[0].application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@activity('LU-Metadata').output.value[0].dataset_group",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Failed ",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"skip_pipeline_audit_update": {
+							"value": "N",
+							"type": "String"
+						},
+						"error_code": {
+							"value": {
+								"value": "@activity('LU-Metadata').Error.errorCode",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_detail": {
+							"value": {
+								"value": "@activity('LU-Metadata').Error.message",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-PipelineStart",
+				"description": "Insert pipeline start Audit entry into khc_audit_log table",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": {
+								"value": "I",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.dataset_group",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@{pipeline().Pipeline}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Processing",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-PipelineEnd",
+				"description": "Update the Audit entry for the pipeline  run id to success",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "If Condition-DataExtraction",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": {
+								"value": "U",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.dataset_group",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@{pipeline().Pipeline}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Successful",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-If Condition-DataExtraction_Successful",
+				"description": "This activity logs activity success status to audit table",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "If Condition-DataExtraction",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": "If Condition-DataExtraction",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": "Successful",
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@activity('LU-Metadata').output.value[0].application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@activity('LU-Metadata').output.value[0].dataset_group",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-If Condition-DataExtraction_Failed",
+				"description": "This activity logs activity failure status to audit table",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "If Condition-DataExtraction",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": {
+								"value": "If Condition-DataExtraction",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@activity('LU-Metadata').output.value[0].application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@activity('LU-Metadata').output.value[0].dataset_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_code": {
+							"value": {
+								"value": "N.A.",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_detail": {
+							"value": {
+								"value": "Incomplete files received.",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			}
+		],
+		"parameters": {
+			"Table_name": {
+				"type": "string",
+				"defaultValue": "LEWANDOWSKISTATS"
+			},
+			"parent_id": {
+				"type": "string",
+				"defaultValue": "cerebrum_logistics_jda_9"
+			},
+			"dataset_group": {
+				"type": "string",
+				"defaultValue": "cerebrum_logistics_jda_emea_demand"
+			},
+			"stage_blob_name": {
+				"type": "string",
+				"defaultValue": "logistics/sap_keystone_jda/stage/lewandowskistats"
+			},
+			"application_name": {
+				"type": "string",
+				"defaultValue": "cerebrum_logistics_jda"
+			}
+		},
+		"variables": {
+			"exit_ind": {
+				"type": "String",
+				"defaultValue": "N"
+			},
+			"retry_count": {
+				"type": "String",
+				"defaultValue": "0"
+			},
+			"retry_count_temp": {
+				"type": "String",
+				"defaultValue": "0"
+			},
+			"contrl_value": {
+				"type": "String",
+				"defaultValue": "N"
+			},
+			"extract_date": {
+				"type": "String"
+			},
+			"emailTo": {
+				"type": "String",
+				"defaultValue": "akash.mishra@kraftheinz.com"
+			}
+		},
+		"folder": {
+			"name": "Cerebrum_Logistics_jda/Sub-pipeline"
+		},
+		"annotations": []
+	}
+}

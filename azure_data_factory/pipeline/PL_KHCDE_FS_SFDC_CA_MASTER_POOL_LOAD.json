@@ -1,0 +1,1278 @@
+{
+	"name": "PL_KHCDE_FS_SFDC_CA_MASTER_POOL_LOAD",
+	"properties": {
+		"description": "Master Pipeline to process Snowflake Ingestion and DBT Processing for Foodservices SFDC CA",
+		"activities": [
+			{
+				"name": "If_Dependents_Successful_EP_SFK_DBT",
+				"description": "Conditional execution for snowflake ingestion and dbt processing",
+				"type": "IfCondition",
+				"dependsOn": [
+					{
+						"activity": "Until-TriggerFound-Master",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					},
+					{
+						"activity": "Until-TriggerFound-Sales",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"expression": {
+						"value": "@and(equals(variables('exit_ind_master'), 'Y'), equals(variables('exit_ind_sales'),'Y'))",
+						"type": "Expression"
+					},
+					"ifFalseActivities": [
+						{
+							"name": "Audit_Req_Files_not_Available",
+							"description": "Stored procedure for required files not available",
+							"type": "SqlServerStoredProcedure",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 5,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+								"storedProcedureParameters": {
+									"activity_name": {
+										"value": "EP_SnowflakeIngestion",
+										"type": "String"
+									},
+									"activity_status": {
+										"value": {
+											"value": "Failed",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"application_name": {
+										"value": {
+											"value": "@pipeline().parameters.ApplicationName",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"dataset_name": {
+										"value": {
+											"value": "@pipeline().parameters.dataset_name",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"error_code": {
+										"value": {
+											"value": "N.A.",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"error_detail": {
+										"value": {
+											"value": "Req number of Files are not available to proceed with Snowflake Ingestion",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_run_id": {
+										"value": {
+											"value": "@{pipeline().RunId}",
+											"type": "Expression"
+										},
+										"type": "String"
+									}
+								}
+							},
+							"linkedServiceName": {
+								"referenceName": "LS_SQL",
+								"type": "LinkedServiceReference"
+							}
+						}
+					],
+					"ifTrueActivities": [
+						{
+							"name": "EP-SFK_DBT-Sales",
+							"description": "Execute sub pipeline for snowflake ingestion and dbt processing for sales",
+							"type": "ExecutePipeline",
+							"dependsOn": [
+								{
+									"activity": "EP-SFK_DBT-Master",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"userProperties": [],
+							"typeProperties": {
+								"pipeline": {
+									"referenceName": "PL_KHCDE_FS_SFDC_CA_SFK_DBT_LOAD",
+									"type": "PipelineReference"
+								},
+								"waitOnCompletion": true,
+								"parameters": {
+									"ApplicationName": {
+										"value": "foodservice_sfdc_sales",
+										"type": "Expression"
+									},
+									"dataset_group": {
+										"value": "sfdc_ca_sales_daily",
+										"type": "Expression"
+									}
+								}
+							}
+						},
+						{
+							"name": "Audit_SFK_DBT-Sales_Successful",
+							"description": "Stored procedure for EP-SFK_DBT-Sales activity success",
+							"type": "SqlServerStoredProcedure",
+							"dependsOn": [
+								{
+									"activity": "EP-SFK_DBT-Sales",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 5,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"storedProcedureName": "[dbo].[generic_activity_audit_log]",
+								"storedProcedureParameters": {
+									"activity_name": {
+										"value": "EP-SFK_DBT-Sales",
+										"type": "String"
+									},
+									"activity_status": {
+										"value": {
+											"value": "Successful",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"application_name": {
+										"value": {
+											"value": "@pipeline().parameters.ApplicationName",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"dataset_name": {
+										"value": {
+											"value": "@pipeline().parameters.dataset_name",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_run_id": {
+										"value": {
+											"value": "@{pipeline().RunId}",
+											"type": "Expression"
+										},
+										"type": "String"
+									}
+								}
+							},
+							"linkedServiceName": {
+								"referenceName": "LS_SQL",
+								"type": "LinkedServiceReference"
+							}
+						},
+						{
+							"name": "Audit_SFK_DBT-Sales_Failed",
+							"description": "Stored procedure for EP-SFK_DBT-Sales activity success",
+							"type": "SqlServerStoredProcedure",
+							"dependsOn": [
+								{
+									"activity": "EP-SFK_DBT-Sales",
+									"dependencyConditions": [
+										"Failed"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 5,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+								"storedProcedureParameters": {
+									"activity_name": {
+										"value": "EP-SFK_DBT-Sales",
+										"type": "String"
+									},
+									"activity_status": {
+										"value": {
+											"value": "Failed",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"application_name": {
+										"value": {
+											"value": "@pipeline().parameters.ApplicationName",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"dataset_name": {
+										"value": {
+											"value": "@pipeline().parameters.dataset_name",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"error_code": {
+										"value": {
+											"value": "N.A.",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"error_detail": {
+										"value": {
+											"value": "N.A.",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_run_id": {
+										"value": {
+											"value": "@{pipeline().RunId}",
+											"type": "Expression"
+										},
+										"type": "String"
+									}
+								}
+							},
+							"linkedServiceName": {
+								"referenceName": "LS_SQL",
+								"type": "LinkedServiceReference"
+							}
+						},
+						{
+							"name": "EP-SFK_DBT-Master",
+							"description": "Execute sub pipeline for snowflake ingestion and dbt processing for master data",
+							"type": "ExecutePipeline",
+							"dependsOn": [],
+							"userProperties": [],
+							"typeProperties": {
+								"pipeline": {
+									"referenceName": "PL_KHCDE_FS_SFDC_CA_SFK_DBT_LOAD",
+									"type": "PipelineReference"
+								},
+								"waitOnCompletion": true,
+								"parameters": {
+									"ApplicationName": {
+										"value": "foodservice_sfdc_master",
+										"type": "Expression"
+									},
+									"dataset_group": {
+										"value": "sfdc_ca_master_daily",
+										"type": "Expression"
+									}
+								}
+							}
+						},
+						{
+							"name": "Audit_SFK_DBT-Master_Successful",
+							"description": "Stored procedure for EP-SFK_DBT-Master activity success",
+							"type": "SqlServerStoredProcedure",
+							"dependsOn": [
+								{
+									"activity": "EP-SFK_DBT-Master",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 5,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"storedProcedureName": "[dbo].[generic_activity_audit_log]",
+								"storedProcedureParameters": {
+									"activity_name": {
+										"value": "EP-SFK_DBT-Master",
+										"type": "String"
+									},
+									"activity_status": {
+										"value": {
+											"value": "Successful",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"application_name": {
+										"value": {
+											"value": "@pipeline().parameters.ApplicationName",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"dataset_name": {
+										"value": {
+											"value": "@pipeline().parameters.dataset_name",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_run_id": {
+										"value": {
+											"value": "@{pipeline().RunId}",
+											"type": "Expression"
+										},
+										"type": "String"
+									}
+								}
+							},
+							"linkedServiceName": {
+								"referenceName": "LS_SQL",
+								"type": "LinkedServiceReference"
+							}
+						},
+						{
+							"name": "Audit_SFK_DBT-Master_Failed",
+							"description": "Stored procedure for EP-SFK_DBT-Master activity failure",
+							"type": "SqlServerStoredProcedure",
+							"dependsOn": [
+								{
+									"activity": "EP-SFK_DBT-Master",
+									"dependencyConditions": [
+										"Failed"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 5,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+								"storedProcedureParameters": {
+									"activity_name": {
+										"value": "EP-SFK_DBT-Master",
+										"type": "String"
+									},
+									"activity_status": {
+										"value": {
+											"value": "Failed",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"application_name": {
+										"value": {
+											"value": "@pipeline().parameters.ApplicationName",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"dataset_name": {
+										"value": {
+											"value": "@pipeline().parameters.dataset_name",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"error_code": {
+										"value": {
+											"value": "N.A.",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"error_detail": {
+										"value": {
+											"value": "N.A.",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_run_id": {
+										"value": {
+											"value": "@{pipeline().RunId}",
+											"type": "Expression"
+										},
+										"type": "String"
+									}
+								}
+							},
+							"linkedServiceName": {
+								"referenceName": "LS_SQL",
+								"type": "LinkedServiceReference"
+							}
+						}
+					]
+				}
+			},
+			{
+				"name": "Audit_Count_And_EP_SFK_DBT_Successful",
+				"description": "Stored procedure for If_Dependents_Successful_EP_SFK_DBT activity success",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "If_Dependents_Successful_EP_SFK_DBT",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": "If_Dependents_Successful_EP_SFK_DBT",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Successful",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.ApplicationName",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.dataset_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "Audit_Count_And_EP_SFK_DBT_Failed",
+				"description": "Stored procedure for If_Dependents_Successful_EP_SFK_DBT activity failure",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "If_Dependents_Successful_EP_SFK_DBT",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": "If_Dependents_Successful_EP_SFK_DBT",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.ApplicationName",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.dataset_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_code": {
+							"value": {
+								"value": "N.A.",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_detail": {
+							"value": {
+								"value": "N.A.",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "Audit_Pipeline_Start",
+				"description": "Stored procedure for pipeline start",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": {
+								"value": "I",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.ApplicationName",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.dataset_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@pipeline().Pipeline",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@pipeline().RunId",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Processing",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "Audit_Pipeline_Successful",
+				"description": "Stored procedure for pipeline end",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "If_Dependents_Successful_EP_SFK_DBT",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": "U",
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.ApplicationName",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.dataset_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@{pipeline().Pipeline}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": "Successful",
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "Until-TriggerFound-Master",
+				"description": "Until loop till all the dependent triggers are available for master data",
+				"type": "Until",
+				"dependsOn": [
+					{
+						"activity": "Audit_Pipeline_Start",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"expression": {
+						"value": "@equals(variables('exit_ind_master'), 'Y')",
+						"type": "Expression"
+					},
+					"activities": [
+						{
+							"name": "LU-Metadata-Master",
+							"description": "Lookup trigger details from sql metadata",
+							"type": "Lookup",
+							"dependsOn": [
+								{
+									"activity": "Wait-Loop-Master",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 5,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"source": {
+									"type": "SqlServerSource",
+									"sqlReaderQuery": {
+										"value": "select  application_name,stage_blob_name,container_name,blob_trigger_name,\ncount(parent_id) over (partition by application_name, dataset_name) as count_of_trigger_files \nfrom khc_orchestration_metadata\nwhere application_name like 'foodservice_sfdc_master'\nand dataset_name = 'sfdc_ca'\nand active_ind = 'y'",
+										"type": "Expression"
+									},
+									"queryTimeout": "02:00:00",
+									"partitionOption": "None"
+								},
+								"dataset": {
+									"referenceName": "DS_KHCDE_GENERIC_MSSQL_Metadata",
+									"type": "DatasetReference"
+								},
+								"firstRowOnly": false
+							}
+						},
+						{
+							"name": "GM-TriggerFiles-Master",
+							"description": "Get metadata of the blob path",
+							"type": "GetMetadata",
+							"dependsOn": [
+								{
+									"activity": "LU-Metadata-Master",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"dataset": {
+									"referenceName": "DS_KHCDE_GENERIC_BLOB_BINARY_Folder",
+									"type": "DatasetReference",
+									"parameters": {
+										"container_name": {
+											"value": "@activity('LU-Metadata-Master').output.value[0].container_name",
+											"type": "Expression"
+										},
+										"blob_name": "@substring(activity('LU-Metadata-Master').output.value[0].blob_trigger_name, 0, lastIndexOf(activity('LU-Metadata-Master').output.value[0].blob_trigger_name, '/'))"
+									}
+								},
+								"fieldList": [
+									"childItems"
+								],
+								"storeSettings": {
+									"type": "AzureBlobFSReadSettings",
+									"recursive": true
+								},
+								"formatSettings": {
+									"type": "BinaryReadSettings"
+								}
+							}
+						},
+						{
+							"name": "Wait-Loop-Master",
+							"description": "Wait activity for next check",
+							"type": "Wait",
+							"dependsOn": [],
+							"userProperties": [],
+							"typeProperties": {
+								"waitTimeInSeconds": 300
+							}
+						},
+						{
+							"name": "SV-Exit_Master",
+							"description": "Set exit_ind variable ",
+							"type": "SetVariable",
+							"dependsOn": [
+								{
+									"activity": "GM-TriggerFiles-Master",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"userProperties": [],
+							"typeProperties": {
+								"variableName": "exit_ind_master",
+								"value": {
+									"value": "@{if(not(equals(length(activity('GM-TriggerFiles-Master').output.childItems) , activity('LU-Metadata-Master').output.value[0].count_of_trigger_files)),\n'N','Y')}",
+									"type": "Expression"
+								}
+							}
+						}
+					],
+					"timeout": "0.01:00:00"
+				}
+			},
+			{
+				"name": "Until-TriggerFound-Sales",
+				"description": "Until loop till all the dependent triggers are available for sales",
+				"type": "Until",
+				"dependsOn": [
+					{
+						"activity": "Audit_Pipeline_Start",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"expression": {
+						"value": "@equals(variables('exit_ind_sales'), 'Y')",
+						"type": "Expression"
+					},
+					"activities": [
+						{
+							"name": "LU-Metadata-Sales",
+							"description": "Lookup trigger details from sql metadata",
+							"type": "Lookup",
+							"dependsOn": [
+								{
+									"activity": "Wait-Loop-Sales",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 5,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"source": {
+									"type": "SqlServerSource",
+									"sqlReaderQuery": {
+										"value": "select  application_name,stage_blob_name,container_name,blob_trigger_name,\ncount(parent_id) over (partition by application_name, dataset_name) as count_of_trigger_files \nfrom khc_orchestration_metadata\nwhere application_name like 'foodservice_sfdc_sales'\nand dataset_name = 'sfdc_ca'\nand active_ind = 'y'",
+										"type": "Expression"
+									},
+									"queryTimeout": "02:00:00",
+									"partitionOption": "None"
+								},
+								"dataset": {
+									"referenceName": "DS_KHCDE_GENERIC_MSSQL_Metadata",
+									"type": "DatasetReference"
+								},
+								"firstRowOnly": false
+							}
+						},
+						{
+							"name": "GM-TriggerFiles-Sales",
+							"description": "Get metadata of the blob path",
+							"type": "GetMetadata",
+							"dependsOn": [
+								{
+									"activity": "LU-Metadata-Sales",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"dataset": {
+									"referenceName": "DS_KHCDE_GENERIC_BLOB_BINARY_Folder",
+									"type": "DatasetReference",
+									"parameters": {
+										"container_name": {
+											"value": "@activity('LU-Metadata-Sales').output.value[0].container_name",
+											"type": "Expression"
+										},
+										"blob_name": "@substring(activity('LU-Metadata-Sales').output.value[0].blob_trigger_name, 0, lastIndexOf(activity('LU-Metadata-Sales').output.value[0].blob_trigger_name, '/'))"
+									}
+								},
+								"fieldList": [
+									"childItems"
+								],
+								"storeSettings": {
+									"type": "AzureBlobFSReadSettings",
+									"recursive": true
+								},
+								"formatSettings": {
+									"type": "BinaryReadSettings"
+								}
+							}
+						},
+						{
+							"name": "Wait-Loop-Sales",
+							"description": "Wait activity for next check",
+							"type": "Wait",
+							"dependsOn": [],
+							"userProperties": [],
+							"typeProperties": {
+								"waitTimeInSeconds": 300
+							}
+						},
+						{
+							"name": "SV-Exit_Sales",
+							"description": "Set exit_ind variable ",
+							"type": "SetVariable",
+							"dependsOn": [
+								{
+									"activity": "GM-TriggerFiles-Sales",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"userProperties": [],
+							"typeProperties": {
+								"variableName": "exit_ind_sales",
+								"value": {
+									"value": "@{if(not(equals(length(activity('GM-TriggerFiles-Sales').output.childItems) , activity('LU-Metadata-Sales').output.value[0].count_of_trigger_files)), 'N','Y')}",
+									"type": "Expression"
+								}
+							}
+						}
+					],
+					"timeout": "0.01:00:00"
+				}
+			},
+			{
+				"name": "Audit_Until-TriggerFound-Master_Successful",
+				"description": "Stored procedure for Until-TriggerFound-Master activity success",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "Until-TriggerFound-Master",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": "Until-TriggerFound-Master",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Successful",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.ApplicationName",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.dataset_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "Audit_Until-TriggerFound-Master_Failed",
+				"description": "Stored procedure for Until-TriggerFound-Master activity failure",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "Until-TriggerFound-Master",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": "Until-TriggerFound-Master",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.ApplicationName",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.dataset_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_code": {
+							"value": {
+								"value": "N.A.",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_detail": {
+							"value": {
+								"value": "N.A.",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "Audit_Until-TriggerFound-Sales_Successful",
+				"description": "Stored procedure for Until-TriggerFound-Sales activity success",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "Until-TriggerFound-Sales",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": "Until-TriggerFound-Sales",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Successful",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.ApplicationName",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.dataset_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "Audit_Until-TriggerFound-Sales_Failed",
+				"description": "Stored procedure for Until-TriggerFound-Sales activity failure",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "Until-TriggerFound-Sales",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": "Until-TriggerFound-Sales",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.ApplicationName",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.dataset_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_code": {
+							"value": {
+								"value": "N.A.",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_detail": {
+							"value": {
+								"value": "N.A.",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			}
+		],
+		"concurrency": 1,
+		"parameters": {
+			"ApplicationName": {
+				"type": "string",
+				"defaultValue": "foodservice_sfdc_%"
+			},
+			"dataset_name": {
+				"type": "string",
+				"defaultValue": "sfdc_ca"
+			}
+		},
+		"variables": {
+			"exit_ind_master": {
+				"type": "String",
+				"defaultValue": "N"
+			},
+			"exit_ind_sales": {
+				"type": "String",
+				"defaultValue": "N"
+			}
+		},
+		"folder": {
+			"name": "Foodservice_SFDC"
+		},
+		"annotations": []
+	}
+}

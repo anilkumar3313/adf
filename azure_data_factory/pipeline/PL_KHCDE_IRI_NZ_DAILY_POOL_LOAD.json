@@ -1,0 +1,3017 @@
+{
+	"name": "PL_KHCDE_IRI_NZ_DAILY_POOL_LOAD",
+	"properties": {
+		"description": "PL_KHCDE_IRI_NZ_DAILY_POOL_LOAD",
+		"activities": [
+			{
+				"name": "LU-Metadata",
+				"description": "LU-Metadata",
+				"type": "Lookup",
+				"dependsOn": [
+					{
+						"activity": "EP-SQL_BPCS_Extract",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "SqlServerSource",
+						"sqlReaderQuery": {
+							"value": "select distinct application_name, dataset_group, parameter_json from khc_orchestration_metadata \nwhere application_name = 'iri_international' and  data_level = 2 and active_ind = 'y' and server_name = 'LS_SQL_BPCS_APAC'",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "DS_KHCDE_GENERIC_MSSQL_Metadata",
+						"type": "DatasetReference"
+					},
+					"firstRowOnly": false
+				}
+			},
+			{
+				"name": "EP-SnowflakeIngestion",
+				"description": "EP-SnowflakeIngestion",
+				"type": "ExecutePipeline",
+				"dependsOn": [
+					{
+						"activity": "LU-Metadata",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"pipeline": {
+						"referenceName": "PL_KHCDE_GENERIC_SnowflakeIngestion",
+						"type": "PipelineReference"
+					},
+					"waitOnCompletion": true,
+					"parameters": {
+						"ApplicationName": {
+							"value": "@{activity('LU-Metadata').output.value[0].application_name}",
+							"type": "Expression"
+						},
+						"DatasetGroup": {
+							"value": "@{activity('LU-Metadata').output.value[0].dataset_group}",
+							"type": "Expression"
+						},
+						"ParameterJson": {
+							"value": "@{activity('LU-Metadata').output.value[0].parameter_json}",
+							"type": "Expression"
+						}
+					}
+				}
+			},
+			{
+				"name": "EP-DBT_Processing",
+				"description": "EP-DBT_Processing",
+				"type": "ExecutePipeline",
+				"dependsOn": [
+					{
+						"activity": "LU-Metadata_DBT",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"pipeline": {
+						"referenceName": "PL_KHCDE_GENERIC_DBTProcessing",
+						"type": "PipelineReference"
+					},
+					"waitOnCompletion": true,
+					"parameters": {
+						"ApplicationName": {
+							"value": "@{activity('LU-Metadata_DBT').output.value[0].application_name}",
+							"type": "Expression"
+						},
+						"DatasetGroup": {
+							"value": "@{activity('LU-Metadata_DBT').output.value[0].dataset_group}",
+							"type": "Expression"
+						},
+						"ParameterJson": {
+							"value": "@{activity('LU-Metadata_DBT').output.value[0].parameter_json}",
+							"type": "Expression"
+						}
+					}
+				}
+			},
+			{
+				"name": "SP-PipelineStart_Snowflake",
+				"description": "SP-PipelineStart_Snowflake",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "EP-Sfk_Ingestion_Check",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": {
+								"value": "I",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "iri_international",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@{pipeline().Pipeline}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Processing",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-ActivityFailed05",
+				"description": "SP-ActivityFailed05",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "EP-SnowflakeIngestion",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": "EP_SnowflakeIngestion",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@activity('LU-Metadata').output.value[0].application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@activity('LU-Metadata').output.value[0].dataset_group",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_code": {
+							"value": {
+								"value": "N.A.",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_detail": {
+							"value": {
+								"value": "N.A.",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-ActivitySuccess06",
+				"description": "SP-ActivitySuccess06",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "EP-DBT_Processing",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": "EP_DBT_Processing",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Successful",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@activity('LU-Metadata').output.value[0].application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@activity('LU-Metadata').output.value[0].dataset_group",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-ActivityFailed06",
+				"description": "SP-ActivityFailed06",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "EP-DBT_Processing",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": "EP_DBT_Processing",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@activity('LU-Metadata').output.value[0].application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@activity('LU-Metadata').output.value[0].dataset_group",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_code": {
+							"value": {
+								"value": "N.A.",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_detail": {
+							"value": {
+								"value": "N.A.",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-ActivitySuccess02",
+				"description": "SP-ActivitySuccess02",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "LU-Metadata",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": "Metadata",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Successful",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@activity('LU-Metadata').output.value[0].application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@activity('LU-Metadata').output.value[0].dataset_group",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-ActivityFailed02",
+				"description": "SP-ActivityFailed02",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "LU-Metadata",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": "Metadata",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@activity('LU-Metadata').output.value[0].application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@activity('LU-Metadata').output.value[0].dataset_group",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_code": {
+							"value": {
+								"value": "N.A.",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_detail": {
+							"value": {
+								"value": "N.A.",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "EP-SQL_BPCS_Extract",
+				"description": "EP-SQL_BPCS_Extract",
+				"type": "ExecutePipeline",
+				"dependsOn": [
+					{
+						"activity": "SP-PipelineStart_Snowflake",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"pipeline": {
+						"referenceName": "PL_KHCDE_IRI_NZ_SQL_BPCS_ANZ_EXTRACT",
+						"type": "PipelineReference"
+					},
+					"waitOnCompletion": true,
+					"parameters": {
+						"ServerName": ""
+					}
+				}
+			},
+			{
+				"name": "SP-ActivitySuccess01",
+				"description": "SP-ActivitySuccess01",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "EP-SQL_BPCS_Extract",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": {
+								"value": "EP-SQL_BPCS_Extract",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Success",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "iri_international",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-ActivityFailed01",
+				"description": "SP-ActivityFailed01",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "EP-SQL_BPCS_Extract",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": {
+								"value": "EP-SQL_BPCS_Extract",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "iri_international",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_code": {
+							"value": {
+								"value": "NA",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_detail": {
+							"value": {
+								"value": "NA",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "LU-Metadata_DBT",
+				"description": "LU-Metadata_DBT",
+				"type": "Lookup",
+				"dependsOn": [
+					{
+						"activity": "EP-SnowflakeIngestion",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "SqlServerSource",
+						"sqlReaderQuery": {
+							"value": "select distinct application_name, dataset_group, parameter_json  from khc_orchestration_metadata where application_name = 'iri_international' \nand  data_level = 2 and active_ind = 'y' and dataset_name = 'iri_anz_gold'",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "DS_KHCDE_GENERIC_MSSQL_Metadata",
+						"type": "DatasetReference"
+					},
+					"firstRowOnly": false
+				}
+			},
+			{
+				"name": "EP-Sfk_Ingestion_Check",
+				"description": "EP-Sfk_Ingestion_Check",
+				"type": "ExecutePipeline",
+				"dependsOn": [
+					{
+						"activity": "SP-ActivitySTART01",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"pipeline": {
+						"referenceName": "PL_KHCDE_IRI_NZ_SFK_INGESTION_CHECK",
+						"type": "PipelineReference"
+					},
+					"waitOnCompletion": true
+				}
+			},
+			{
+				"name": "Lookup1",
+				"description": "Lookup1",
+				"type": "Lookup",
+				"dependsOn": [
+					{
+						"activity": "SP-ActivitySuccess06",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "SqlServerSource",
+						"sqlReaderQuery": "select * from khc_orchestration_metadata where dataset_group='iri_international_nz_bpcs_trigger'",
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "DS_KHCDE_GENERIC_MSSQL_Metadata",
+						"type": "DatasetReference"
+					}
+				}
+			},
+			{
+				"name": "EP-SnowflakExtraction",
+				"description": "EP-SnowflakExtraction",
+				"type": "ExecutePipeline",
+				"dependsOn": [
+					{
+						"activity": "Lookup1",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"pipeline": {
+						"referenceName": "PL_KHCDE_GENERIC_SnowflakeExtraction",
+						"type": "PipelineReference"
+					},
+					"waitOnCompletion": true,
+					"parameters": {
+						"ApplicationName": {
+							"value": "@{activity('Lookup1').output.firstRow.application_name}",
+							"type": "Expression"
+						},
+						"DatasetGroup": {
+							"value": "@{activity('Lookup1').output.firstRow.dataset_group}",
+							"type": "Expression"
+						},
+						"ParameterJson": {
+							"value": "@{activity('Lookup1').output.firstRow.parameter_json}",
+							"type": "Expression"
+						}
+					}
+				}
+			},
+			{
+				"name": "Copy BLOB to BPCS_Product",
+				"description": "Copy BLOB to BPCS_Product",
+				"type": "Copy",
+				"dependsOn": [
+					{
+						"activity": "Copy BLOB to BPCS_Market",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "DelimitedTextSource",
+						"storeSettings": {
+							"type": "AzureBlobFSReadSettings",
+							"recursive": true,
+							"enablePartitionDiscovery": false
+						},
+						"formatSettings": {
+							"type": "DelimitedTextReadSettings"
+						}
+					},
+					"sink": {
+						"type": "SqlServerSink",
+						"preCopyScript": "delete from dbo.db_productt"
+					},
+					"enableStaging": false,
+					"translator": {
+						"type": "TabularTranslator",
+						"mappings": [
+							{
+								"source": {
+									"name": "COUNTRY",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "Country",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "PROD_TAG",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "PROD_TAG",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "BARCODE",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "BarCode",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "PRODUCTSHORTDESC",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "ProductShortDesc",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "PRODUCTLONGDESC",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "ProductLongDesc",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "PROD_PARENT_TAG",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "ProdParentTag",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "CATEGORY",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "Category",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "SEGMENT",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "Segment",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "SUBSEGMENT",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "SubSegment",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "BRAND",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "Brand",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "SUBBRAND",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "SubBrand",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "MANUFACTURER",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "Manufacturer",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "COMPETITOR",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "Competitor",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "VARIETY",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "Variety",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "PACKTYPE",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "PackType",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "PACKSIZERANGE",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "PackSizeRange",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "FORM",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "Form",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "COMPETITIVESET",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "CompetitiveSet",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "TYPE",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "Type",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "PROMOTIONALGROUP",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "PromotionalGroup",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "CONTROLLEDLABEL",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "ControlledLabel",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "LEVELNAME",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "LevelName",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "LEVELNUMBER",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "LevelNumber",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "AISLEINSTORE",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "AisleInStore",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "BABYSTAGE",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "BabyStage",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "BLENDTYPE",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "BlendType",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "BRANDEDVSPRIVATELABEL",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "BrandedVsPrivateLabel",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "BREWINGMETHOD",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "BrewingMethod",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "CAFFEINECLAIM",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "CaffeineClaim",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "CARBOHYDRATETYPE",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "CarbohydrateType",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "CARBONATIONINFORMATION",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "CarbonationInformation",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "COUNT",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "Count",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "CUISINETYPE",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "CuisineType",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "FLAVOURCLASS",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "FlavourClass",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "FLAVOURGROUPS",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "FlavourGroups",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "FLAVOURPRESENCE",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "FlavourPresence",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "FLAVOURPROFILE",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "FlavourProfile",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "FLAVOUR",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "Flavour",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "FREEFROMCLAIM",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "FreeFromClaim",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "HEALTHCLAIM",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "HealthClaim",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "JUICETYPE",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "JuiceType",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "NATURALCLAIM",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "NaturalClaim",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "OCCASION",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "Occasion",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "ORGANICCLAIM",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "OrganicClaim",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "ORIGIN",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "Origin",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "PACKCOUNT",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "PackCount",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "PACKAGEMATERIAL",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "PackageMaterial",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "PACKAGETYPE",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "PackageType",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "PACKAGE",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "Package",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "PLANTBASED",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "PlantBased",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "PROTEINCLAIM",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "ProteinClaim",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "PROTEINTYPE",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "ProteinType",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "PULPTYPE",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "PulpType",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "RETAILERVIEW",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "RetailerView",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "ROASTTYPE",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "RoastType",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "SALTCLAIM",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "SaltClaim",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "SERVINGSIZE",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "ServingSize",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "SUBCATEGORY",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "SubCategory",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "SUBFORM",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "SubForm",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "SUGARCONTENT",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "SugarContent",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "SUPERCATEGORY",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "SuperCategory",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "SWEETNER",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "Sweetener",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "TIER",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "Tier",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "TOTALSIZE",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "TotalSize",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "VEGANCLAIM",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "VeganClaim",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "VOLUMEEQUIVALENCY",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "VolumeEquivalency",
+									"type": "Int32",
+									"physicalType": "int"
+								}
+							},
+							{
+								"source": {
+									"name": "WATERTYPE",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "WaterType",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "HWABCANALYSISCODE",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "HWABCAnalysisCode",
+									"type": "String",
+									"physicalType": "char"
+								}
+							},
+							{
+								"source": {
+									"name": "HWABCANALYSISDESC",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "HWABCAnalysisDesc",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "HWSKU",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "HWSKU",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "HWSKUDESC",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "HWSKUDesc",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "HWCATEGORY",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "HWCategory",
+									"type": "String",
+									"physicalType": "char"
+								}
+							},
+							{
+								"source": {
+									"name": "HWCATEGORYDESC",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "HWCategoryDesc",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "HWSUBCATEGORY",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "HWSubCategory",
+									"type": "String",
+									"physicalType": "char"
+								}
+							},
+							{
+								"source": {
+									"name": "HWSUBCATEGORYDESC",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "HWSubCategoryDesc",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "HWSEGMENT",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "HWSegment",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "HWSEGMENTDESC",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "HWSegmentDesc",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "HWPRICEGROUP",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "HWPriceGroup",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "HWPRICEGROUPDESC",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "HWPriceGroupDesc",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "HWBRAND",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "HWBrand",
+									"type": "String",
+									"physicalType": "char"
+								}
+							},
+							{
+								"source": {
+									"name": "HWBRANDDESC",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "HWBrandDesc",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "HWPRIVATELABEL",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "HWPrivateLabel",
+									"type": "String",
+									"physicalType": "char"
+								}
+							},
+							{
+								"source": {
+									"name": "HWPROMOTIONGROUP",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "HWPromotionGroup",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "HWPROMOTIONGROUPDESC",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "HWPromotionGroupDesc",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "HWSHIPPERBARCODE",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "HWShipperBarcode",
+									"type": "String",
+									"physicalType": "char"
+								}
+							},
+							{
+								"source": {
+									"name": "HWUPS",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "HWUPS",
+									"type": "Decimal",
+									"physicalType": "decimal",
+									"scale": 3,
+									"precision": 13
+								}
+							},
+							{
+								"source": {
+									"name": "HWCOGS",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "HWCogs",
+									"type": "Decimal",
+									"physicalType": "decimal",
+									"scale": 5,
+									"precision": 16
+								}
+							},
+							{
+								"source": {
+									"name": "HWDISTNCLASSID",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "HWDistnClassID",
+									"type": "Int32",
+									"physicalType": "int"
+								}
+							},
+							{
+								"source": {
+									"name": "HWDISTNCLASSDESC",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "HWDistnClassDesc",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "HWSKUTYPEID",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "HWSkuTypeID",
+									"type": "Int32",
+									"physicalType": "int"
+								}
+							},
+							{
+								"source": {
+									"name": "HWSKUTYPEDESC",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "HWSkuTypeDesc",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "HWDISPLAYPRIORITY",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "HWDisplayPriority",
+									"type": "Boolean",
+									"physicalType": "bit"
+								}
+							},
+							{
+								"source": {
+									"name": "HWPELCATEGORYDESC",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "HWPELCategoryDesc",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "HWCATEGORYPRIORITY",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "HWCategoryPriority",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "HWRANGEPRIORITY",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "HWRangePriority",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "SORTORDER",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "SortOrder",
+									"type": "Int32",
+									"physicalType": "int"
+								}
+							}
+						],
+						"typeConversion": true,
+						"typeConversionSettings": {
+							"allowDataTruncation": true,
+							"treatBooleanAsNumber": false
+						}
+					}
+				},
+				"inputs": [
+					{
+						"referenceName": "DS_KHCDE_NIELSEN_NZ_BPCS_SQL_SOURCE",
+						"type": "DatasetReference",
+						"parameters": {
+							"filename": "iri_anz_product_dim.csv"
+						}
+					}
+				],
+				"outputs": [
+					{
+						"referenceName": "DS_KHCDE_SQL_BPCS_APAC",
+						"type": "DatasetReference",
+						"parameters": {
+							"cw_table": "db_productt"
+						}
+					}
+				]
+			},
+			{
+				"name": "SP-ActivitySTART01",
+				"description": "SP-ActivitySTART01",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": {
+								"value": "I",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "iri_international",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "extraction",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "NA",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "NA",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-ActivitySuccess06_copy1",
+				"description": "SP-ActivitySuccess06",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "Copy BLOB to BPCS_Product",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": "U",
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "iri_international",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "product",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@{pipeline().Pipeline}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": "Successful",
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-ActivityFAiled",
+				"description": "SP-ActivityFAiled",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "Copy BLOB to BPCS_Product",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": "U",
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "iri_international",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "market",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@{pipeline().Pipeline}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": "Failed",
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-ActivitySuccess06_control_table_start",
+				"description": "SP-ActivitySuccess06",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "SP-ActivitySuccess06_copy1",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[SYS_UpdateControlSFStatus]",
+					"storedProcedureParameters": {
+						"TableName": {
+							"value": {
+								"value": "IRI_ANZ_SCANDATA_SQL_PROMODB",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"Status": {
+							"value": {
+								"value": "1",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"Comments": {
+							"value": "Starting load from Snowflake",
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_APAC_EXPORT_SQL",
+					"type": "LinkedServiceReference",
+					"parameters": {
+						"KeyVaultSecretName": "khcde-kv-sec-apac-anz-irisfkinbnd-sql-conn-string"
+					}
+				}
+			},
+			{
+				"name": "SP-ActivitySuccess06_control_table_end",
+				"description": "SP-ActivitySuccess06",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "Copy_promodb",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[SYS_UpdateControlSFStatus]",
+					"storedProcedureParameters": {
+						"TableName": {
+							"value": {
+								"value": "IRI_ANZ_SCANDATA_SQL_PROMODB",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"Status": {
+							"value": {
+								"value": "0",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"Comments": {
+							"value": "Starting load from Snowflake",
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_APAC_EXPORT_SQL",
+					"type": "LinkedServiceReference",
+					"parameters": {
+						"KeyVaultSecretName": "khcde-kv-sec-apac-anz-irisfkinbnd-sql-conn-string"
+					}
+				}
+			},
+			{
+				"name": "Copy_promodb",
+				"description": "Copy_promodb",
+				"type": "Copy",
+				"dependsOn": [
+					{
+						"activity": "SP-ActivitySuccess06_control_table_start",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "DelimitedTextSource",
+						"storeSettings": {
+							"type": "AzureBlobFSReadSettings",
+							"recursive": true,
+							"enablePartitionDiscovery": false
+						},
+						"formatSettings": {
+							"type": "DelimitedTextReadSettings"
+						}
+					},
+					"sink": {
+						"type": "SqlServerSink",
+						"preCopyScript": "delete from IRI_ANZ_SQL_PROMODB_FACT"
+					},
+					"enableStaging": false,
+					"translator": {
+						"type": "TabularTranslator",
+						"mappings": [
+							{
+								"source": {
+									"name": "COUNTRY",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "Country",
+									"type": "String",
+									"physicalType": "char"
+								}
+							},
+							{
+								"source": {
+									"name": "KEYACCOUNTDISTRICT",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "KeyAccountDistrict",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "KEYACCOUNT",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "KeyAccount",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "DISTRICT",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "District",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "SCANDATALEVEL",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "ScanDataLevel",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "HWSUBCATEGORY",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "HWSubCategory",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "HWPROMOTIONGROUP",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "HWPromotionGroup",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "WEEKCOMMENCING",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "WeekCommencing",
+									"type": "DateTime",
+									"physicalType": "date"
+								}
+							},
+							{
+								"source": {
+									"name": "UNITSALES",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "UnitSales",
+									"type": "Decimal",
+									"physicalType": "decimal",
+									"scale": 0,
+									"precision": 38
+								}
+							},
+							{
+								"source": {
+									"name": "AVGPROMOPRICE",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "AveragePromoPrice",
+									"type": "Decimal",
+									"physicalType": "decimal",
+									"scale": 5,
+									"precision": 20
+								}
+							}
+						],
+						"typeConversion": true,
+						"typeConversionSettings": {
+							"allowDataTruncation": true,
+							"treatBooleanAsNumber": false
+						}
+					}
+				},
+				"inputs": [
+					{
+						"referenceName": "DS_KHCDE_NIELSEN_NZ_BPCS_SQL_SOURCE",
+						"type": "DatasetReference",
+						"parameters": {
+							"filename": "iri_anz_sql_promodb_fact.csv"
+						}
+					}
+				],
+				"outputs": [
+					{
+						"referenceName": "DS_KHCDE_APAC_IRL_PROMO_SQL",
+						"type": "DatasetReference",
+						"parameters": {
+							"key_vault_secret_name": "khcde-kv-sec-apac-anz-irisfkinbnd-sql-conn-string",
+							"Table_name": "IRI_ANZ_SQL_PROMODB_FACT"
+						}
+					}
+				]
+			},
+			{
+				"name": "Copy BLOB to BPCS_Market",
+				"description": "Copy BLOB to BPCS_Market",
+				"type": "Copy",
+				"dependsOn": [
+					{
+						"activity": "EP-SnowflakExtraction",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "DelimitedTextSource",
+						"storeSettings": {
+							"type": "AzureBlobFSReadSettings",
+							"recursive": true,
+							"enablePartitionDiscovery": false
+						},
+						"formatSettings": {
+							"type": "DelimitedTextReadSettings"
+						}
+					},
+					"sink": {
+						"type": "SqlServerSink",
+						"preCopyScript": "delete from dbo.db_markett"
+					},
+					"enableStaging": false,
+					"translator": {
+						"type": "TabularTranslator",
+						"mappings": [
+							{
+								"source": {
+									"name": "COUNTRY",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "Country",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "GEOG_TAG",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "GEOG_TAG",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "GEOG_DESCRIPTION",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "GEOG_DESCRIPTION",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "GEOG_TYPE",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "GEOG_TYPE",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "GEOG_PARENT_TAG",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "GEOG_PARENT_TAG",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "GEOG_HIER_NUM",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "GEOG_HIER_NUM",
+									"type": "Int32",
+									"physicalType": "int"
+								}
+							},
+							{
+								"source": {
+									"name": "GEOG_HIER_NAME",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "GEOG_HIER_NAME",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "GEOG_HIER_LEVEL_NUM",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "GEOG_HIER_LEVEL_NUM",
+									"type": "Int32",
+									"physicalType": "int"
+								}
+							},
+							{
+								"source": {
+									"name": "GEOG_HIER_LEVEL_NAME",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "GEOG_HIER_LEVEL_NAME",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "TERRITORY_GEOG_TAG",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "TERRITORY_GEOG_TAG",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "TERRITORY_GEOG_DESCRIPTION",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "TERRITORY_GEOG_DESCRIPTION",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "NO",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "No",
+									"type": "Int16",
+									"physicalType": "smallint"
+								}
+							},
+							{
+								"source": {
+									"name": "STREET",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "Street",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "HWREGIONID",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "HWRegionID",
+									"type": "Int32",
+									"physicalType": "int"
+								}
+							},
+							{
+								"source": {
+									"name": "HWREGIONDESCRIPTION",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "HWRegionDesc",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "HWPROVINCEID",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "HWProvinceID",
+									"type": "Int32",
+									"physicalType": "int"
+								}
+							},
+							{
+								"source": {
+									"name": "HWPROVINCEDESCRIPTION",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "HWProvinceDesc",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "HWTOWNID",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "HWTownID",
+									"type": "Int32",
+									"physicalType": "int"
+								}
+							},
+							{
+								"source": {
+									"name": "HWTOWNDESCRIPTION",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "HWTownDesc",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "HWMARKETLEVELID",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "HWMarketLevelID",
+									"type": "Int32",
+									"physicalType": "int"
+								}
+							},
+							{
+								"source": {
+									"name": "HWMARKETLEVELDESCRIPTION",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "HWMarketLevelDesc",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "HWRETAILERID",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "HWRetailerID",
+									"type": "Int32",
+									"physicalType": "int"
+								}
+							},
+							{
+								"source": {
+									"name": "HWRETAILERCLASSIFICATION",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "HWRetailerClassification",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "HWPRIMARYTMID",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "HWPrimaryTMID",
+									"type": "Int32",
+									"physicalType": "int"
+								}
+							},
+							{
+								"source": {
+									"name": "HWPRIMARYTMDESCRIPTION",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "HWPrimaryTMDesc",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "HWPROMOTIONREGIONID",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "HWPromotionRegionID",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "HWPROMOTIONREGIONDESCRIPTION",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "HWPromotionRegionDesc",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "HWKEYACCOUNTID",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "HWKeyAccountID",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "HWKEYACCOUNTDESCRIPTION",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "HWKeyAccountDesc",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "HWNATIONALACCOUNTID",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "HWNationalAccountID",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "HWNATIONALACCOUNTDESCRIPTION",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "HWNationalAccountDesc",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "SORTORDER",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "SortOrder",
+									"type": "Int32",
+									"physicalType": "int"
+								}
+							},
+							{
+								"source": {
+									"name": "HWFOODSTUFFSSTOREID",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "HWFoodStuffsStoreID",
+									"type": "Int32",
+									"physicalType": "int"
+								}
+							},
+							{
+								"source": {
+									"name": "HWDISTRICT",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "HWDistrict",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							},
+							{
+								"source": {
+									"name": "HWDISTRICTDESCRIPTION",
+									"type": "String",
+									"physicalType": "String"
+								},
+								"sink": {
+									"name": "HWDistrictDescription",
+									"type": "String",
+									"physicalType": "varchar"
+								}
+							}
+						],
+						"typeConversion": true,
+						"typeConversionSettings": {
+							"allowDataTruncation": true,
+							"treatBooleanAsNumber": false
+						}
+					}
+				},
+				"inputs": [
+					{
+						"referenceName": "DS_KHCDE_NIELSEN_NZ_BPCS_SQL_SOURCE",
+						"type": "DatasetReference",
+						"parameters": {
+							"filename": "iri_anz_market_dim.csv"
+						}
+					}
+				],
+				"outputs": [
+					{
+						"referenceName": "DS_KHCDE_SQL_BPCS_APAC",
+						"type": "DatasetReference",
+						"parameters": {
+							"cw_table": "db_markett"
+						}
+					}
+				]
+			}
+		],
+		"folder": {
+			"name": "IRI_International"
+		},
+		"annotations": []
+	}
+}

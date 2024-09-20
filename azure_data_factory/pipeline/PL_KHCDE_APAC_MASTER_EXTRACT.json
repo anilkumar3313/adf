@@ -1,0 +1,774 @@
+{
+	"name": "PL_KHCDE_APAC_MASTER_EXTRACT",
+	"properties": {
+		"description": "To extract the data from various databases SQL server, Oracle and  DB2",
+		"activities": [
+			{
+				"name": "SP-PipelineStart",
+				"description": "This Activity logs starting of pipeline in khc_audit_log table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": {
+								"value": "I",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.adf_trigger_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@pipeline().Pipeline",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@pipeline().RunId",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Generic_Extract started",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-PipelineSuccess01",
+				"description": "This Activity logs completion of pipeline in khc_audit_log table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "EP_SQL_EXTRACT",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					},
+					{
+						"activity": "EP-ORC_EXTRACT",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					},
+					{
+						"activity": "EP_DB2_EXTRACT",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					},
+					{
+						"activity": "EP_ANZ_SQL_EXTRACT",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": {
+								"value": "U",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@activity('LU-Metadata').output.value[0].dataset_group",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@{pipeline().Pipeline}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Successful",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-ActivityAndPipelineFailed01",
+				"description": "This activity logs failure of LU-Metadata activity in khc_audit_log_detail table and failure of pipeline in  khc_audit_log table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "EP_SQL_EXTRACT",
+						"dependencyConditions": [
+							"Failed"
+						]
+					},
+					{
+						"activity": "EP-ORC_EXTRACT",
+						"dependencyConditions": [
+							"Failed"
+						]
+					},
+					{
+						"activity": "EP_DB2_EXTRACT",
+						"dependencyConditions": [
+							"Failed"
+						]
+					},
+					{
+						"activity": "EP_ANZ_SQL_EXTRACT",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": {
+								"value": "AF-DBTTriggerLoad",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@activity('LU-Metadata').output.value[0].dataset_group",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_code": {
+							"value": {
+								"value": "N.A.",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_detail": {
+							"value": {
+								"value": "N.A.",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "WB-SendSuccessEmail",
+				"description": "Send email notification upon successful completion of the pipeline",
+				"type": "WebActivity",
+				"dependsOn": [
+					{
+						"activity": "ForEach_Row",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"url": {
+						"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+						"type": "Expression"
+					},
+					"method": "POST",
+					"body": {
+						"value": "{ \n        \"to_email\": \"@{variables('emailTo')}\", \n        \"subject\": \"Successful execution of pipeline: @{pipeline().parameters.application_name} - @{split(pipeline().parameters.adf_trigger_name,'.')[0]}\", \n        \"body\": \"Dear All,<br><br>The cloud analytics data load process successfull for the Application: @{pipeline().parameters.application_name}<br> Please find below the details: <br><br> Pipeline Name: @{pipeline().Pipeline} <br> Pipeline Run ID: @{pipeline().RunId}<br> Pipeline Trigger Name: @{pipeline().TriggerName}<br> Pipeline Trigger Type: @{pipeline().TriggerType}<br> Pipeline Start Time: @{pipeline().TriggerTime}<br><br>Parameters:<br>===========<br>Application Name: @{pipeline().parameters.application_name}<br>ADF TriggerName: @{pipeline().parameters.adf_trigger_name}<br><br><br>Regards,<br>Cloud Analytics Team\", \n        \"importance\": \"Low\"\n}",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "WB-SendFailureEmail01",
+				"description": "Send email notification upon failure of data extraction",
+				"type": "WebActivity",
+				"dependsOn": [
+					{
+						"activity": "SP-ActivityAndPipelineFailed01",
+						"dependencyConditions": [
+							"Completed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"url": {
+						"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+						"type": "Expression"
+					},
+					"method": "POST",
+					"body": {
+						"value": "{ \n        \"to_email\": \"@{variables('emailTo')}\", \n        \"subject\": \"Failed Snowflake Ingestion: @{pipeline().parameters.application_name} - @{split(pipeline().parameters.adf_trigger_name,'.')[0]}\", \n        \"body\": \"Dear All,<br><br>The data extraction process failed for the Application: @{pipeline().parameters.application_name}<br> Please find below the details: <br><br> Pipeline Name: @{pipeline().Pipeline} <br> Pipeline Run ID: @{pipeline().RunId}<br> Pipeline Trigger Name: @{pipeline().TriggerName}<br> Pipeline Trigger Type: @{pipeline().TriggerType}<br> Pipeline Start Time: @{pipeline().TriggerTime}<br> Activity: LU-Metadata<br>Next Step: Please check the DatasetGroup and active_ind<br><br>Parameters:<br>===========<br>Application Name: @{pipeline().parameters.application_name}<br>ADF TriggerName: @{pipeline().parameters.adf_trigger_name}<br><br>Please take care.<br><br>Regards,<br>Cloud Analytics Team\", \n        \"importance\": \"High\"\n}",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "EP_SQL_EXTRACT",
+				"description": "Extracts data from various databases of SQL server based on the keyvault secret names",
+				"type": "ExecutePipeline",
+				"dependsOn": [
+					{
+						"activity": "LU-Metadata",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"pipeline": {
+						"referenceName": "PL_KHCDE_SUB_APAC_SQL_EXTRACT",
+						"type": "PipelineReference"
+					},
+					"waitOnCompletion": true,
+					"parameters": {
+						"application_name": {
+							"value": "@pipeline().parameters.application_name",
+							"type": "Expression"
+						},
+						"adf_trigger_name": {
+							"value": "@pipeline().parameters.adf_trigger_name",
+							"type": "Expression"
+						}
+					}
+				}
+			},
+			{
+				"name": "EP-ORC_EXTRACT",
+				"description": "Extracts data from various databases of Oracle based on the keyvault secret names",
+				"type": "ExecutePipeline",
+				"dependsOn": [
+					{
+						"activity": "LU-Metadata",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"pipeline": {
+						"referenceName": "PL_KHCDE_SUB_APAC_ORACLE_EXTRACT",
+						"type": "PipelineReference"
+					},
+					"waitOnCompletion": true,
+					"parameters": {
+						"application_name": {
+							"value": "@pipeline().parameters.application_name",
+							"type": "Expression"
+						},
+						"adf_trigger_name": {
+							"value": "@pipeline().parameters.adf_trigger_name",
+							"type": "Expression"
+						}
+					}
+				}
+			},
+			{
+				"name": "ForEach_Row",
+				"description": "For each entry in metadata creates blob trigger file",
+				"type": "ForEach",
+				"dependsOn": [
+					{
+						"activity": "SP-PipelineSuccess01",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"items": {
+						"value": "@activity('LU-Metadata').output.value",
+						"type": "Expression"
+					},
+					"isSequential": true,
+					"activities": [
+						{
+							"name": "SP-PipelineFailedEnd03",
+							"description": "This activity logs failure of  create event trigger file in khc_audit_log_detail table.",
+							"type": "SqlServerStoredProcedure",
+							"dependsOn": [
+								{
+									"activity": "CREATE_TRIGGER_FILE_EVENT",
+									"dependencyConditions": [
+										"Failed"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+								"storedProcedureParameters": {
+									"action_ind": {
+										"value": {
+											"value": "U",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"application_name": {
+										"value": {
+											"value": "@{item().application_name}",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"dataset_name": {
+										"value": {
+											"value": "@{item().dataset_group}",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_name": {
+										"value": {
+											"value": "@{pipeline().Pipeline}",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_run_id": {
+										"value": {
+											"value": "@{pipeline().RunId}",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_status": {
+										"value": {
+											"value": "Failed",
+											"type": "Expression"
+										},
+										"type": "String"
+									}
+								}
+							},
+							"linkedServiceName": {
+								"referenceName": "LS_SQL",
+								"type": "LinkedServiceReference"
+							}
+						},
+						{
+							"name": "SP-PipelineSuccess03",
+							"description": "This activity logs success of  creating event trigger file in khc_audit_log_detail table.",
+							"type": "SqlServerStoredProcedure",
+							"dependsOn": [
+								{
+									"activity": "CREATE_TRIGGER_FILE_EVENT",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+								"storedProcedureParameters": {
+									"action_ind": {
+										"value": {
+											"value": "U",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"application_name": {
+										"value": {
+											"value": "@{item().application_name}",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"dataset_name": {
+										"value": {
+											"value": "@{item().dataset_group}",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_name": {
+										"value": {
+											"value": "@{pipeline().Pipeline}",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_run_id": {
+										"value": {
+											"value": "@{pipeline().RunId}",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_status": {
+										"value": {
+											"value": "Successful",
+											"type": "Expression"
+										},
+										"type": "String"
+									}
+								}
+							},
+							"linkedServiceName": {
+								"referenceName": "LS_SQL",
+								"type": "LinkedServiceReference"
+							}
+						},
+						{
+							"name": "CREATE_TRIGGER_FILE_EVENT",
+							"description": "This copy activity creates trigger file for each entry in metadata",
+							"type": "Copy",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"source": {
+									"type": "SqlServerSource",
+									"sqlReaderQuery": {
+										"value": "select current_timestamp",
+										"type": "Expression"
+									},
+									"queryTimeout": "02:00:00",
+									"partitionOption": "None"
+								},
+								"sink": {
+									"type": "DelimitedTextSink",
+									"storeSettings": {
+										"type": "AzureBlobFSWriteSettings"
+									},
+									"formatSettings": {
+										"type": "DelimitedTextWriteSettings",
+										"quoteAllText": true,
+										"fileExtension": ".txt"
+									}
+								},
+								"enableStaging": false,
+								"translator": {
+									"type": "TabularTranslator",
+									"typeConversion": true,
+									"typeConversionSettings": {
+										"allowDataTruncation": true,
+										"treatBooleanAsNumber": false
+									}
+								}
+							},
+							"inputs": [
+								{
+									"referenceName": "DS_KHCDE_GENERIC_MSSQL_Metadata",
+									"type": "DatasetReference"
+								}
+							],
+							"outputs": [
+								{
+									"referenceName": "DS_KHCDE_GENERIC_BLOB_CSV_FolderFile",
+									"type": "DatasetReference",
+									"parameters": {
+										"container_name": "khc-enterprise-data",
+										"blob_name": {
+											"value": "@if(contains(item().blob_trigger_name, '/'), substring(item().blob_trigger_name, 0, lastIndexOf(item().blob_trigger_name, '/')), 'master_data/triggers')\n\n",
+											"type": "Expression"
+										},
+										"file_name": {
+											"value": "@if(contains(item().blob_trigger_name, '/'), last(split(item().blob_trigger_name, '/')), item().blob_trigger_name)",
+											"type": "Expression"
+										},
+										"field_delimiter": ","
+									}
+								}
+							]
+						}
+					]
+				}
+			},
+			{
+				"name": "LU-Metadata",
+				"description": "This activity pulls the details related to application_name and adf_trigger_name from orchestration_metadata. ",
+				"type": "Lookup",
+				"dependsOn": [
+					{
+						"activity": "SP-PipelineStart",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "SqlServerSource",
+						"sqlReaderQuery": {
+							"value": "select om.*\nfrom khc_orchestration_metadata om inner join dbo.khc_data_extract_control_table ctrl\non om.parent_id = ctrl.parent_id\nwhere om.application_name in ('@{pipeline().parameters.application_name}')\nand om.active_ind = 'y' and data_level>=2\nand om.adf_trigger_name in ('@{pipeline().parameters.adf_trigger_name}')",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "DS_KHCDE_GENERIC_MSSQL_Metadata",
+						"type": "DatasetReference"
+					},
+					"firstRowOnly": false
+				}
+			},
+			{
+				"name": "WB-SendFailureEmail02",
+				"description": "Send email notification upon failure of event file creation",
+				"type": "WebActivity",
+				"dependsOn": [
+					{
+						"activity": "ForEach_Row",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"url": {
+						"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+						"type": "Expression"
+					},
+					"method": "POST",
+					"body": {
+						"value": "{ \n        \"to_email\": \"@{variables('emailTo')}\", \n        \"subject\": \"Failed Snowflake Ingestion: @{pipeline().parameters.application_name} - @{split(pipeline().parameters.adf_trigger_name,'.')[0]}\", \n        \"body\": \"Dear All,<br><br>The cloud analytics data load process failed for the Application: @{pipeline().parameters.application_name}<br> Please find below the details: <br><br> Pipeline Name: @{pipeline().Pipeline} <br> Pipeline Run ID: @{pipeline().RunId}<br> Pipeline Trigger Name: @{pipeline().TriggerName}<br> Pipeline Trigger Type: @{pipeline().TriggerType}<br> Pipeline Start Time: @{pipeline().TriggerTime}<br> Activity: LU-Metadata<br>Next Step: Please check the DatasetGroup and active_ind<br><br>Parameters:<br>===========<br>Application Name: @{pipeline().parameters.application_name}<br>ADF TriggerName: @{pipeline().parameters.adf_trigger_name}<br><br>Please take care.<br><br>Regards,<br>Cloud Analytics Team\", \n        \"importance\": \"High\"\n}",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "EP_DB2_EXTRACT",
+				"description": "This activity extracts db2 data.",
+				"type": "ExecutePipeline",
+				"dependsOn": [
+					{
+						"activity": "LU-Metadata",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"pipeline": {
+						"referenceName": "PL_KHCDE_SUB_APAC_DB2_EXTRACT",
+						"type": "PipelineReference"
+					},
+					"waitOnCompletion": true,
+					"parameters": {
+						"application_name": {
+							"value": "@pipeline().parameters.application_name",
+							"type": "Expression"
+						},
+						"adf_trigger_name": {
+							"value": "@pipeline().parameters.adf_trigger_name",
+							"type": "Expression"
+						}
+					}
+				}
+			},
+			{
+				"name": "EP_ANZ_SQL_EXTRACT",
+				"description": "Extracts data for DCSales  application from  SQL server based",
+				"type": "ExecutePipeline",
+				"dependsOn": [
+					{
+						"activity": "LU-Metadata",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"pipeline": {
+						"referenceName": "PL_KHCDE_SUB_APAC_ANZ_SQL_EXTRACT",
+						"type": "PipelineReference"
+					},
+					"waitOnCompletion": true,
+					"parameters": {
+						"application_name": {
+							"value": "@pipeline().parameters.application_name",
+							"type": "Expression"
+						},
+						"adf_trigger_name": {
+							"value": "@pipeline().parameters.adf_trigger_name",
+							"type": "Expression"
+						}
+					}
+				}
+			}
+		],
+		"parameters": {
+			"application_name": {
+				"type": "string",
+				"defaultValue": "apac_anz_df_master_data"
+			},
+			"adf_trigger_name": {
+				"type": "string",
+				"defaultValue": "apac_anz_df_trigger.txt"
+			}
+		},
+		"variables": {
+			"emailTo": {
+				"type": "String",
+				"defaultValue": "8cd7b897.Heinz365.onmicrosoft.com@amer.teams.ms"
+			}
+		},
+		"folder": {
+			"name": "Apac_Master"
+		},
+		"annotations": []
+	},
+	"type": "Microsoft.DataFactory/factories/pipelines"
+}

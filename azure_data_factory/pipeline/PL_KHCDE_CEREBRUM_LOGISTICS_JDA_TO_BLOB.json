@@ -1,0 +1,721 @@
+{
+	"name": "PL_KHCDE_CEREBRUM_LOGISTICS_JDA_TO_BLOB",
+	"properties": {
+		"description": "This pipeline has been created to fetch data from JDA table to Blob location.",
+		"activities": [
+			{
+				"name": "ForEach",
+				"description": "This activity will check the control table for each record.",
+				"type": "ForEach",
+				"dependsOn": [
+					{
+						"activity": "LU-Orchestration_Metadata",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"items": {
+						"value": "@activity('LU-Orchestration_Metadata').output.value",
+						"type": "Expression"
+					},
+					"isSequential": false,
+					"activities": [
+						{
+							"name": "PL_KHCDE_CEREBRUM_LOGISTICS_JDA_CONTROL",
+							"description": "This pipeline will fetch the data from Control Table and will copy data from JDA to Blob.",
+							"type": "ExecutePipeline",
+							"dependsOn": [],
+							"userProperties": [],
+							"typeProperties": {
+								"pipeline": {
+									"referenceName": "PL_KHCDE_CEREBRUM_LOGISTICS_JDA_CONTROL",
+									"type": "PipelineReference"
+								},
+								"waitOnCompletion": true,
+								"parameters": {
+									"Table_name": {
+										"value": "@{item().TABLE_NAME}",
+										"type": "Expression"
+									},
+									"parent_id": {
+										"value": "@{item().parent_id}",
+										"type": "Expression"
+									},
+									"dataset_group": {
+										"value": "@{item().dataset_group}",
+										"type": "Expression"
+									},
+									"stage_blob_name": {
+										"value": "@{item().stage_blob_name}",
+										"type": "Expression"
+									},
+									"application_name": {
+										"value": "@{item().application_name}",
+										"type": "Expression"
+									}
+								}
+							}
+						},
+						{
+							"name": "SP-PL_KHCDE_CEREBRUM_LOGISTICS_JDA_CONTROL_SUCCESS",
+							"description": "This activity logs success of  JDA CONTROL pipeline in khc_audit_log_detail table",
+							"type": "SqlServerStoredProcedure",
+							"dependsOn": [
+								{
+									"activity": "PL_KHCDE_CEREBRUM_LOGISTICS_JDA_CONTROL",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"storedProcedureName": "[dbo].[generic_activity_audit_log]",
+								"storedProcedureParameters": {
+									"activity_name": {
+										"value": {
+											"value": "EP-PL_KHCDE_CEREBRUM_LOGISTICS_JDA_CONTROL",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"activity_status": {
+										"value": {
+											"value": "Successful",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"application_name": {
+										"value": {
+											"value": "@{pipeline().parameters.ApplicationName}",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"dataset_name": {
+										"value": {
+											"value": "@{pipeline().parameters.DatasetGroup}",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_run_id": {
+										"value": {
+											"value": "@{pipeline().RunId}",
+											"type": "Expression"
+										},
+										"type": "String"
+									}
+								}
+							},
+							"linkedServiceName": {
+								"referenceName": "LS_SQL",
+								"type": "LinkedServiceReference"
+							}
+						},
+						{
+							"name": "SP-PL_KHCDE_CEREBRUM_LOGISTICS_JDA_CONTROL_FAILED",
+							"description": "This activity logs failure of  Data Extract in khc_audit_log_detail table",
+							"type": "SqlServerStoredProcedure",
+							"dependsOn": [
+								{
+									"activity": "PL_KHCDE_CEREBRUM_LOGISTICS_JDA_CONTROL",
+									"dependencyConditions": [
+										"Failed"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+								"storedProcedureParameters": {
+									"action_ind": {
+										"value": "U",
+										"type": "String"
+									},
+									"activity_name": {
+										"value": {
+											"value": "EP-PL_KHCDE_CEREBRUM_LOGISTICS_JDA_CONTRL",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"activity_status": {
+										"value": {
+											"value": "Failed",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"application_name": {
+										"value": {
+											"value": "@pipeline().parameters.ApplicationName",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"dataset_name": {
+										"value": {
+											"value": "@{pipeline().parameters.DatasetGroup}",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_run_id": {
+										"value": {
+											"value": "@{pipeline().RunId}",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_status": {
+										"value": {
+											"value": "Failed ",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"skip_pipeline_audit_update": {
+										"value": "N",
+										"type": "String"
+									},
+									"error_code": {
+										"value": {
+											"value": "@activity('PL_KHCDE_CEREBRUM_LOGISTICS_JDA_CONTROL').Error.errorCode",
+											"type": "Expression"
+										}
+									},
+									"error_detail": {
+										"value": {
+											"value": "@activity('PL_KHCDE_CEREBRUM_LOGISTICS_JDA_CONTROL').Error.message",
+											"type": "Expression"
+										}
+									}
+								}
+							},
+							"linkedServiceName": {
+								"referenceName": "LS_SQL",
+								"type": "LinkedServiceReference"
+							}
+						}
+					]
+				}
+			},
+			{
+				"name": "LU-Orchestration_Metadata",
+				"description": "This is the Lookup activity for orchestration metadata",
+				"type": "Lookup",
+				"dependsOn": [
+					{
+						"activity": "SP-PipelineStart",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "SqlServerSource",
+						"sqlReaderQuery": {
+							"value": "select\n    om.application_name,\n    ctrl.table_name,\nctrl.where_clause,\n    om.dataset_group,\n    om.server_name,\n    om.server_path as source_object_type,\n    om.filename as dso_changelog_table,\n    om.data_filename,\n    om.container_name,\n    om.archival_blob_name,\n    om.stage_blob_name,\n    om.blob_trigger_name,\n    om.data_level,\n    om.active_ind,\n    om.parent_id,\n    ctrl.dynamic_partition_ind,\n    ctrl.partition_column,\n    ctrl.incr_column_name,\nctrl.Select_Columns,\n    ctrl.last_incr_value\nfrom dbo.khc_orchestration_metadata om inner join\n( Select\n    parent_id,\nSelect_Columns,\n    table_name,\n    dynamic_partition_ind,\n    partition_column,\n    where_clause,\n    incr_column_name,\n    last_incr_value\n    from dbo.khc_data_extract_control_table\n) ctrl\non om.parent_id = ctrl.parent_id\nwhere len(trim(om.server_name)) > 0\n    and om.application_name like '@{pipeline().parameters.applicationname}'\n  and om.dataset_group ='@{pipeline().parameters.datasetgroup}'\n  and om.server_name = 'LS_ORACLE_JDA_EMEA'\n  and om.data_level=1 and om.active_ind='y'",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "DS_KHCDE_GENERIC_MSSQL_Metadata",
+						"type": "DatasetReference"
+					},
+					"firstRowOnly": false
+				}
+			},
+			{
+				"name": "SP-Data_Extraction_Success",
+				"description": "This activity logs success of  Data Extract in khc_audit_log_detail table",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "ForEach",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": "Data Extraction",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": "Successful",
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@{activity('LU-Orchestration_Metadata').output.value[0].application_name}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@{activity('LU-Orchestration_Metadata').output.value[0].dataset_group}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@pipeline().RunId",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-Data_Extraction_Failure",
+				"description": "This activity logs failure of Data Extract in khc_audit_log_detail table and failure of pipeline in  khc_audit_log table",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "ForEach",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": "U",
+							"type": "String"
+						},
+						"activity_name": {
+							"value": "APAC_ANZ_JDA_ORACLE_EXTRACTION",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": "Failed",
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@{activity('LU-Orchestration_Metadata').output.value[0].application_name}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@{activity('LU-Orchestration_Metadata').output.value[0].dataset_group}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_code": {
+							"value": "",
+							"type": "String"
+						},
+						"error_detail": {
+							"value": "",
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@pipeline().RunId",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": "Failed",
+							"type": "String"
+						},
+						"skip_pipeline_audit_update": {
+							"value": "N",
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-PipelineEnd",
+				"description": "Update the Audit entry for the pipeline  run id to success",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "ForEach",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": {
+								"value": "U",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@{activity('LU-Orchestration_Metadata').output.value[0].application_name}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@{activity('LU-Orchestration_Metadata').output.value[0].dataset_group}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@{pipeline().Pipeline}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Successful",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-LU_Orchestration_Metadata_Success",
+				"description": "This activity logs activity success status to audit table ",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "LU-Orchestration_Metadata",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": {
+								"value": "LU-Orchestration_Metadata",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Successful",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@{pipeline().parameters.ApplicationName}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@activity('LU-Orchestration_Metadata').output.value[0].dataset_group",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-LU_Orchestration_Metadata_Failed",
+				"description": "This activity logs activity failure status to audit table ",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "LU-Orchestration_Metadata",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": "U",
+							"type": "String"
+						},
+						"activity_name": {
+							"value": {
+								"value": "LU-Orchestration_Metadata",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.ApplicationName",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@{pipeline().parameters.DatasetGroup}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Failed ",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"skip_pipeline_audit_update": {
+							"value": "N",
+							"type": "String"
+						},
+						"error_code": {
+							"value": {
+								"value": "@activity('LU-Orchestration_Metadata').Error.errorCode",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_detail": {
+							"value": {
+								"value": "@activity('LU-Orchestration_Metadata').Error.message",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-PipelineStart",
+				"description": "Insert pipeline start Audit entry into khc_audit_log table",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": {
+								"value": "I",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.ApplicationName",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.DatasetGroup",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@{pipeline().Pipeline}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Processing",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			}
+		],
+		"parameters": {
+			"ApplicationName": {
+				"type": "string",
+				"defaultValue": "sap_keystone_master_data"
+			},
+			"DatasetGroup": {
+				"type": "string",
+				"defaultValue": "cerebrum_logistics_jda_emea"
+			}
+		},
+		"variables": {
+			"exit_ind": {
+				"type": "String",
+				"defaultValue": "N"
+			},
+			"retry_count": {
+				"type": "String"
+			},
+			"retry_count_temp": {
+				"type": "String"
+			}
+		},
+		"folder": {
+			"name": "Cerebrum_Logistics_jda/Sub-pipeline"
+		},
+		"annotations": []
+	}
+}

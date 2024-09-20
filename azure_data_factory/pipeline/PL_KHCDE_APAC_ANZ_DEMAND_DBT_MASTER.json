@@ -1,0 +1,672 @@
+{
+	"name": "PL_KHCDE_APAC_ANZ_DEMAND_DBT_MASTER",
+	"properties": {
+		"activities": [
+			{
+				"name": "If Condition1",
+				"type": "IfCondition",
+				"dependsOn": [
+					{
+						"activity": "Get_MetadataSQL",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					},
+					{
+						"activity": "Get_MetadataOracle",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"expression": {
+						"value": "@and(equals(int(activity('Get_MetadataSQL').output.exists),1),equals(int(activity('Get_MetadataOracle').output.exists), 1))",
+						"type": "Expression"
+					},
+					"ifFalseActivities": [
+						{
+							"name": "SP-PipelineStart_Master_copy1",
+							"type": "SqlServerStoredProcedure",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+								"storedProcedureParameters": {
+									"action_ind": {
+										"value": {
+											"value": "I",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"application_name": {
+										"value": {
+											"value": "APAC ANZ DEMAND",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"dataset_name": {
+										"value": {
+											"value": "demand_data",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_name": {
+										"value": {
+											"value": "@{pipeline().Pipeline}",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_run_id": {
+										"value": {
+											"value": "@{pipeline().RunId}",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_status": {
+										"value": {
+											"value": "Processing",
+											"type": "Expression"
+										},
+										"type": "String"
+									}
+								}
+							},
+							"linkedServiceName": {
+								"referenceName": "LS_SQL",
+								"type": "LinkedServiceReference"
+							}
+						},
+						{
+							"name": "SP-PipelineSuccess_Master_copy1",
+							"type": "SqlServerStoredProcedure",
+							"dependsOn": [
+								{
+									"activity": "SP-PipelineStart_Master_copy1",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+								"storedProcedureParameters": {
+									"action_ind": {
+										"value": {
+											"value": "U",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"application_name": {
+										"value": {
+											"value": "APAC ANZ DEMAND",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"dataset_name": {
+										"value": {
+											"value": "demand_data",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_name": {
+										"value": {
+											"value": "@{pipeline().Pipeline}",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_run_id": {
+										"value": {
+											"value": "@{pipeline().RunId}",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_status": {
+										"value": {
+											"value": "Skip",
+											"type": "Expression"
+										},
+										"type": "String"
+									}
+								}
+							},
+							"linkedServiceName": {
+								"referenceName": "LS_SQL",
+								"type": "LinkedServiceReference"
+							}
+						}
+					],
+					"ifTrueActivities": [
+						{
+							"name": "PL_KHCDE_GENERIC_DBTProcessing",
+							"type": "ExecutePipeline",
+							"dependsOn": [
+								{
+									"activity": "LU-Metadata",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"userProperties": [],
+							"typeProperties": {
+								"pipeline": {
+									"referenceName": "PL_KHCDE_GENERIC_DBTProcessing",
+									"type": "PipelineReference"
+								},
+								"waitOnCompletion": true,
+								"parameters": {
+									"ApplicationName": {
+										"value": "@{activity('LU-Metadata').output.value[0].application_name}",
+										"type": "Expression"
+									},
+									"DatasetGroup": {
+										"value": "@{activity('LU-Metadata').output.value[0].dataset_group}",
+										"type": "Expression"
+									},
+									"ParameterJson": {
+										"value": "@{activity('LU-Metadata').output.value[0].parameter_json}",
+										"type": "Expression"
+									}
+								}
+							}
+						},
+						{
+							"name": "LU-Metadata",
+							"type": "Lookup",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"source": {
+									"type": "SqlServerSource",
+									"sqlReaderQuery": {
+										"value": "select * from khc_orchestration_metadata where application_name in ('apac_anz_logistics') and\n  active_ind = 'y' and data_level=2 and dataset_group = 'demand_data'",
+										"type": "Expression"
+									},
+									"queryTimeout": "02:00:00",
+									"partitionOption": "None"
+								},
+								"dataset": {
+									"referenceName": "DS_KHCDE_GENERIC_MSSQL_Metadata",
+									"type": "DatasetReference"
+								},
+								"firstRowOnly": false
+							}
+						},
+						{
+							"name": "SP-PipelineFailed_Master",
+							"type": "SqlServerStoredProcedure",
+							"dependsOn": [
+								{
+									"activity": "PL_KHCDE_GENERIC_DBTProcessing",
+									"dependencyConditions": [
+										"Failed"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+								"storedProcedureParameters": {
+									"action_ind": {
+										"value": {
+											"value": "U",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"application_name": {
+										"value": {
+											"value": "@{activity('LU-Metadata').output.value[0].application_name}",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"dataset_name": {
+										"value": {
+											"value": "@{activity('LU-Metadata').output.value[0].dataset_group}",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_name": {
+										"value": {
+											"value": "@{pipeline().Pipeline}",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_run_id": {
+										"value": {
+											"value": "@{pipeline().RunId}",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_status": {
+										"value": {
+											"value": "Failed",
+											"type": "Expression"
+										},
+										"type": "String"
+									}
+								}
+							},
+							"linkedServiceName": {
+								"referenceName": "LS_SQL",
+								"type": "LinkedServiceReference"
+							}
+						},
+						{
+							"name": "SP-PipelineStart_Master",
+							"type": "SqlServerStoredProcedure",
+							"dependsOn": [
+								{
+									"activity": "LU-Metadata",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+								"storedProcedureParameters": {
+									"action_ind": {
+										"value": {
+											"value": "I",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"application_name": {
+										"value": {
+											"value": "@{activity('LU-Metadata').output.value[0].application_name}",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"dataset_name": {
+										"value": {
+											"value": "@{activity('LU-Metadata').output.value[0].dataset_group}",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_name": {
+										"value": {
+											"value": "@{pipeline().Pipeline}",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_run_id": {
+										"value": {
+											"value": "@{pipeline().RunId}",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_status": {
+										"value": {
+											"value": "Processing",
+											"type": "Expression"
+										},
+										"type": "String"
+									}
+								}
+							},
+							"linkedServiceName": {
+								"referenceName": "LS_SQL",
+								"type": "LinkedServiceReference"
+							}
+						},
+						{
+							"name": "Delete SQL Trigger file",
+							"type": "Delete",
+							"dependsOn": [
+								{
+									"activity": "PL_KHCDE_GENERIC_DBTProcessing",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"dataset": {
+									"referenceName": "DS_KHCDE_APAC_ANZ_SQL_TO_BLOB",
+									"type": "DatasetReference",
+									"parameters": {
+										"cw_fileName": "Trigger_sql.csv",
+										"cw_containerName": "khc-enterprise-data",
+										"cw_filePath": "logistics/demand_planning/apac_anz_demand/DEMANTRA/TRIGGER"
+									}
+								},
+								"enableLogging": false,
+								"storeSettings": {
+									"type": "AzureBlobFSReadSettings",
+									"recursive": true,
+									"enablePartitionDiscovery": false
+								}
+							}
+						},
+						{
+							"name": "Delete Oracle Trigger file",
+							"type": "Delete",
+							"dependsOn": [
+								{
+									"activity": "PL_KHCDE_GENERIC_DBTProcessing",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"dataset": {
+									"referenceName": "DS_KHCDE_APAC_ANZ_SQL_TO_BLOB",
+									"type": "DatasetReference",
+									"parameters": {
+										"cw_fileName": "Trigger_oracle.csv",
+										"cw_containerName": "khc-enterprise-data",
+										"cw_filePath": "logistics/demand_planning/apac_anz_demand/DEMANTRA/TRIGGER"
+									}
+								},
+								"enableLogging": false,
+								"storeSettings": {
+									"type": "AzureBlobFSReadSettings",
+									"recursive": true,
+									"enablePartitionDiscovery": false
+								}
+							}
+						},
+						{
+							"name": "SP-PipelineSuccess_Master",
+							"type": "SqlServerStoredProcedure",
+							"dependsOn": [
+								{
+									"activity": "PL_KHCDE_GENERIC_DBTProcessing",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+								"storedProcedureParameters": {
+									"action_ind": {
+										"value": {
+											"value": "U",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"application_name": {
+										"value": {
+											"value": "@{activity('LU-Metadata').output.value[0].application_name}",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"dataset_name": {
+										"value": {
+											"value": "@{activity('LU-Metadata').output.value[0].dataset_group}",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_name": {
+										"value": {
+											"value": "@{pipeline().Pipeline}",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_run_id": {
+										"value": {
+											"value": "@{pipeline().RunId}",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_status": {
+										"value": {
+											"value": "Successful",
+											"type": "Expression"
+										},
+										"type": "String"
+									}
+								}
+							},
+							"linkedServiceName": {
+								"referenceName": "LS_SQL",
+								"type": "LinkedServiceReference"
+							}
+						},
+						{
+							"name": "WB-SendEmail_master_04_PL_Success_dbt",
+							"type": "WebActivity",
+							"dependsOn": [
+								{
+									"activity": "SP-PipelineSuccess_Master",
+									"dependencyConditions": [
+										"Completed"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"url": {
+									"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+									"type": "Expression"
+								},
+								"method": "POST",
+								"body": {
+									"value": "{ \n        \"to_email\": \"@{if(equals(pipeline().globalParameters.AZURE_ENV,'PROD'),'DL_APAC_MiddlewareNotifications@kraftheinz.com;bfc2b500.Heinz365.onmicrosoft.com@amer.teams.ms','yatish.singla@kraftHeinz.com')}\", \n        \"subject\": \"@{pipeline().parameters.ApplicationName} Demand DBT - Success\", \n        \"body\": \"Dear All,<br><br>The APAC ANZ Data Load Process Succeeded for the Application: <b>@{pipeline().parameters.ApplicationName} Demand</b><br> Please find below the details: <br><br> Pipeline Name: @{pipeline().Pipeline} <br> Pipeline Run ID: @{pipeline().RunId}<br><br> Pipeline Trigger Type: @{pipeline().TriggerType}<br> Pipeline Start Time: @{pipeline().TriggerTime}<br><br>Parameters:<br>===========<br>Application Name: @{pipeline().parameters.ApplicationName}<br><br>Regards,<br>Cloud Analytics Team\", \n        \"importance\": \"Low\"\n}",
+									"type": "Expression"
+								}
+							}
+						},
+						{
+							"name": "WB-SendFailureEmail_master_SI_dbt",
+							"type": "WebActivity",
+							"dependsOn": [
+								{
+									"activity": "SP-PipelineFailed_Master",
+									"dependencyConditions": [
+										"Completed"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"url": {
+									"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+									"type": "Expression"
+								},
+								"method": "POST",
+								"body": {
+									"value": "{ \n        \"to_email\": \"@{if(equals(pipeline().globalParameters.AZURE_ENV,'PROD'),'DL_APAC_MiddlewareNotifications@kraftheinz.com;bfc2b500.Heinz365.onmicrosoft.com@amer.teams.ms','yatish.singla@kraftHeinz.com')}\", \n        \"subject\": \"@{pipeline().parameters.ApplicationName} Demand -Failure: DBT Activity\", \n        \"body\": \"Dear All,<br><br>The APAC ANZ Data Load Process Failed for the Application: <b>@{pipeline().parameters.ApplicationName} Demand</b><br>Error Note: <b>DBT Activity failed</b><br><br> Please find below the details: <br><br>    Pipeline Name: @{pipeline().Pipeline} <br> Pipeline Run ID: @{pipeline().RunId}<br> Pipeline Trigger Name: @{pipeline().TriggerName}<br> Pipeline Trigger Type: @{pipeline().TriggerType}<br> Pipeline Start Time: @{pipeline().TriggerTime}<br> Activity: LU-Metadata activity has failed.Please check the metadata<br>Parameters:<br>===========<br>Application Name: @{pipeline().parameters.ApplicationName}<br><br> <br><br>Please take care.<br><br>Regards,<br>Cloud Analytics Team\", \n        \"importance\": \"High\"\n}",
+									"type": "Expression"
+								}
+							}
+						}
+					]
+				}
+			},
+			{
+				"name": "Get_MetadataSQL",
+				"type": "GetMetadata",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"dataset": {
+						"referenceName": "DS_KHCDE_APAC_ANZ_SQL_TO_BLOB",
+						"type": "DatasetReference",
+						"parameters": {
+							"cw_fileName": "Trigger_sql.csv",
+							"cw_containerName": "khc-enterprise-data",
+							"cw_filePath": "logistics/demand_planning/apac_anz_demand/DEMANTRA/TRIGGER"
+						}
+					},
+					"fieldList": [
+						"exists"
+					],
+					"storeSettings": {
+						"type": "AzureBlobFSReadSettings",
+						"recursive": true,
+						"enablePartitionDiscovery": false
+					},
+					"formatSettings": {
+						"type": "DelimitedTextReadSettings"
+					}
+				}
+			},
+			{
+				"name": "Get_MetadataOracle",
+				"type": "GetMetadata",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"dataset": {
+						"referenceName": "DS_KHCDE_APAC_ANZ_SQL_TO_BLOB",
+						"type": "DatasetReference",
+						"parameters": {
+							"cw_fileName": "Trigger_oracle.csv",
+							"cw_containerName": "khc-enterprise-data",
+							"cw_filePath": "logistics/demand_planning/apac_anz_demand/DEMANTRA/TRIGGER"
+						}
+					},
+					"fieldList": [
+						"exists"
+					],
+					"storeSettings": {
+						"type": "AzureBlobFSReadSettings",
+						"recursive": true,
+						"enablePartitionDiscovery": false
+					},
+					"formatSettings": {
+						"type": "DelimitedTextReadSettings"
+					}
+				}
+			}
+		],
+		"concurrency": 1,
+		"parameters": {
+			"ApplicationName": {
+				"type": "string",
+				"defaultValue": "APAC ANZ"
+			}
+		},
+		"variables": {
+			"x": {
+				"type": "Boolean"
+			},
+			"y": {
+				"type": "Boolean"
+			}
+		},
+		"folder": {
+			"name": "Apac_Anz"
+		},
+		"annotations": []
+	}
+}

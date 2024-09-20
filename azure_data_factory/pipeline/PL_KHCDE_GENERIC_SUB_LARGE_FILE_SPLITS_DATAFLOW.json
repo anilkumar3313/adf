@@ -1,0 +1,212 @@
+{
+	"name": "PL_KHCDE_GENERIC_SUB_LARGE_FILE_SPLITS_DATAFLOW",
+	"properties": {
+		"description": "Executes Data Flow for each file passed in to the pipeline",
+		"activities": [
+			{
+				"name": "GM-Files",
+				"type": "GetMetadata",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"dataset": {
+						"referenceName": "DS_KHCDE_GENERIC_BLOB_BINARY_Folder",
+						"type": "DatasetReference",
+						"parameters": {
+							"container_name": {
+								"value": "@{pipeline().parameters.container_name}",
+								"type": "Expression"
+							},
+							"blob_name": {
+								"value": "@{pipeline().parameters.stage_blob_name}",
+								"type": "Expression"
+							}
+						}
+					},
+					"fieldList": [
+						"childItems"
+					],
+					"storeSettings": {
+						"type": "AzureBlobFSReadSettings",
+						"recursive": true
+					},
+					"formatSettings": {
+						"type": "BinaryReadSettings"
+					}
+				}
+			},
+			{
+				"name": "FE-File",
+				"type": "ForEach",
+				"dependsOn": [
+					{
+						"activity": "GM-Files",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"items": {
+						"value": "@activity('GM-Files').output.childItems",
+						"type": "Expression"
+					},
+					"activities": [
+						{
+							"name": "GM-Size",
+							"type": "GetMetadata",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"dataset": {
+									"referenceName": "DS_KHCDE_GENERIC_BLOB_BINARY_FolderFile",
+									"type": "DatasetReference",
+									"parameters": {
+										"container_name": {
+											"value": "@{pipeline().parameters.container_name}",
+											"type": "Expression"
+										},
+										"blob_name": {
+											"value": "@{pipeline().parameters.stage_blob_name}",
+											"type": "Expression"
+										},
+										"file_name": {
+											"value": "@{item().name}",
+											"type": "Expression"
+										}
+									}
+								},
+								"fieldList": [
+									"itemName",
+									"size"
+								],
+								"storeSettings": {
+									"type": "AzureBlobFSReadSettings",
+									"recursive": true
+								},
+								"formatSettings": {
+									"type": "BinaryReadSettings"
+								}
+							}
+						},
+						{
+							"name": "IF-Above10Gb",
+							"type": "IfCondition",
+							"dependsOn": [
+								{
+									"activity": "GM-Size",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"userProperties": [],
+							"typeProperties": {
+								"expression": {
+									"value": "@greater(int(activity('GM-Size').output.size), 10000000000)",
+									"type": "Expression"
+								},
+								"ifTrueActivities": [
+									{
+										"name": "SplitLarge",
+										"type": "ExecuteDataFlow",
+										"dependsOn": [],
+										"policy": {
+											"timeout": "7.00:00:00",
+											"retry": 0,
+											"retryIntervalInSeconds": 30,
+											"secureOutput": false,
+											"secureInput": false
+										},
+										"userProperties": [],
+										"typeProperties": {
+											"dataflow": {
+												"referenceName": "DF_KHCDE_GENERIC_SPLIT_LARGE_FILES",
+												"type": "DataFlowReference",
+												"parameters": {
+													"container_name": {
+														"value": "'@{pipeline().parameters.container_name}'",
+														"type": "Expression"
+													},
+													"blob_name": {
+														"value": "'@{pipeline().parameters.stage_blob_name}'",
+														"type": "Expression"
+													},
+													"file_name": {
+														"value": "'@{activity('GM-Size').output.itemName}'",
+														"type": "Expression"
+													},
+													"file_size": {
+														"value": "'@{activity('GM-Size').output.size}'",
+														"type": "Expression"
+													}
+												},
+												"datasetParameters": {
+													"SourceSplitLargeFiles": {
+														"container_name": {
+															"value": "@{pipeline().parameters.container_name}",
+															"type": "Expression"
+														},
+														"blob_name": {
+															"value": "@{pipeline().parameters.stage_blob_name}",
+															"type": "Expression"
+														},
+														"file_name": {
+															"value": "@{activity('GM-Size').output.itemName}",
+															"type": "Expression"
+														}
+													},
+													"AfterSplit": {
+														"container_name": {
+															"value": "@{pipeline().parameters.container_name}",
+															"type": "Expression"
+														},
+														"blob_name": {
+															"value": "@{pipeline().parameters.stage_blob_name}",
+															"type": "Expression"
+														}
+													}
+												}
+											},
+											"compute": {
+												"coreCount": 8,
+												"computeType": "General"
+											}
+										}
+									}
+								]
+							}
+						}
+					]
+				}
+			}
+		],
+		"parameters": {
+			"container_name": {
+				"type": "string"
+			},
+			"stage_blob_name": {
+				"type": "string"
+			}
+		},
+		"folder": {
+			"name": "Generic_Frameworks/Sub_Pipelines"
+		},
+		"annotations": []
+	}
+}

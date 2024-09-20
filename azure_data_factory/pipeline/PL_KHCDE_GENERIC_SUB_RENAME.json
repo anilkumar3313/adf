@@ -1,0 +1,667 @@
+{
+	"name": "PL_KHCDE_GENERIC_SUB_RENAME",
+	"properties": {
+		"description": "This pipeline is used fot Renaming of files.",
+		"activities": [
+			{
+				"name": "GM-Filename",
+				"description": "List file at stage locaiton which needs to be renamed.",
+				"type": "GetMetadata",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "0.00:10:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"dataset": {
+						"referenceName": "DS_KHCDE_GENERIC_BLOB_BINARY_Folder",
+						"type": "DatasetReference",
+						"parameters": {
+							"container_name": {
+								"value": "@{pipeline().parameters.container_name}",
+								"type": "Expression"
+							},
+							"blob_name": {
+								"value": "@{pipeline().parameters.stage_blob_name}",
+								"type": "Expression"
+							}
+						}
+					},
+					"fieldList": [
+						"childItems"
+					],
+					"storeSettings": {
+						"type": "AzureBlobFSReadSettings",
+						"recursive": true
+					},
+					"formatSettings": {
+						"type": "BinaryReadSettings"
+					}
+				}
+			},
+			{
+				"name": "FE-Filename",
+				"description": "Process each file at stage location .",
+				"type": "ForEach",
+				"dependsOn": [
+					{
+						"activity": "GM-Filename",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"items": {
+						"value": "@activity('GM-Filename').output.childItems",
+						"type": "Expression"
+					},
+					"isSequential": false,
+					"activities": [
+						{
+							"name": "IF-FileFound",
+							"type": "IfCondition",
+							"dependsOn": [],
+							"userProperties": [],
+							"typeProperties": {
+								"expression": {
+									"value": "@contains(item().name, replace(substring(pipeline().parameters.data_filename, length(pipeline().parameters.rename_prefix), sub(length(pipeline().parameters.data_filename), length(pipeline().parameters.rename_prefix))), '*', ''))",
+									"type": "Expression"
+								},
+								"ifTrueActivities": [
+									{
+										"name": "CP-Rename",
+										"type": "Copy",
+										"dependsOn": [],
+										"policy": {
+											"timeout": "7.00:00:00",
+											"retry": 0,
+											"retryIntervalInSeconds": 30,
+											"secureOutput": false,
+											"secureInput": false
+										},
+										"userProperties": [],
+										"typeProperties": {
+											"source": {
+												"type": "BinarySource",
+												"storeSettings": {
+													"type": "AzureBlobFSReadSettings",
+													"recursive": true
+												},
+												"formatSettings": {
+													"type": "BinaryReadSettings"
+												}
+											},
+											"sink": {
+												"type": "BinarySink",
+												"storeSettings": {
+													"type": "AzureBlobFSWriteSettings"
+												}
+											},
+											"enableStaging": false,
+											"validateDataConsistency": false
+										},
+										"inputs": [
+											{
+												"referenceName": "DS_KHCDE_GENERIC_BLOB_BINARY_FolderFile",
+												"type": "DatasetReference",
+												"parameters": {
+													"container_name": {
+														"value": "@{pipeline().parameters.container_name}",
+														"type": "Expression"
+													},
+													"blob_name": {
+														"value": "@{pipeline().parameters.stage_blob_name}",
+														"type": "Expression"
+													},
+													"file_name": {
+														"value": "@{item().name}",
+														"type": "Expression"
+													}
+												}
+											}
+										],
+										"outputs": [
+											{
+												"referenceName": "DS_KHCDE_GENERIC_BLOB_BINARY_FolderFile",
+												"type": "DatasetReference",
+												"parameters": {
+													"container_name": {
+														"value": "@{pipeline().parameters.container_name}",
+														"type": "Expression"
+													},
+													"blob_name": {
+														"value": "@{pipeline().parameters.stage_blob_name}",
+														"type": "Expression"
+													},
+													"file_name": {
+														"value": "@{concat(pipeline().parameters.rename_prefix, item().name)}",
+														"type": "Expression"
+													}
+												}
+											}
+										]
+									},
+									{
+										"name": "DL-Rename",
+										"type": "Delete",
+										"dependsOn": [
+											{
+												"activity": "CP-Rename",
+												"dependencyConditions": [
+													"Succeeded"
+												]
+											}
+										],
+										"policy": {
+											"timeout": "0.00:10:00",
+											"retry": 0,
+											"retryIntervalInSeconds": 30,
+											"secureOutput": false,
+											"secureInput": false
+										},
+										"userProperties": [],
+										"typeProperties": {
+											"dataset": {
+												"referenceName": "DS_KHCDE_GENERIC_BLOB_BINARY_FolderFile",
+												"type": "DatasetReference",
+												"parameters": {
+													"container_name": {
+														"value": "@{pipeline().parameters.container_name}",
+														"type": "Expression"
+													},
+													"blob_name": {
+														"value": "@{pipeline().parameters.stage_blob_name}",
+														"type": "Expression"
+													},
+													"file_name": {
+														"value": "@{item().name}",
+														"type": "Expression"
+													}
+												}
+											},
+											"enableLogging": false,
+											"storeSettings": {
+												"type": "AzureBlobFSReadSettings",
+												"recursive": true
+											}
+										}
+									},
+									{
+										"name": "SP-ActivitySuccess01",
+										"type": "SqlServerStoredProcedure",
+										"dependsOn": [
+											{
+												"activity": "CP-Rename",
+												"dependencyConditions": [
+													"Succeeded"
+												]
+											}
+										],
+										"policy": {
+											"timeout": "0.00:10:00",
+											"retry": 50,
+											"retryIntervalInSeconds": 30,
+											"secureOutput": false,
+											"secureInput": false
+										},
+										"userProperties": [],
+										"typeProperties": {
+											"storedProcedureName": "[dbo].[generic_activity_audit_log]",
+											"storedProcedureParameters": {
+												"activity_name": {
+													"value": {
+														"value": "CP-Rename",
+														"type": "Expression"
+													},
+													"type": "String"
+												},
+												"application_name": {
+													"value": {
+														"value": "@{pipeline().parameters.application_name}",
+														"type": "Expression"
+													},
+													"type": "String"
+												},
+												"dataset_name": {
+													"value": {
+														"value": "@{pipeline().parameters.dataset_name}",
+														"type": "Expression"
+													},
+													"type": "String"
+												},
+												"pipeline_run_id": {
+													"value": {
+														"value": "@{pipeline().parameters.pipeline_run_id}",
+														"type": "Expression"
+													},
+													"type": "String"
+												},
+												"activity_status": {
+													"value": {
+														"value": "Successful",
+														"type": "Expression"
+													},
+													"type": "String"
+												}
+											}
+										},
+										"linkedServiceName": {
+											"referenceName": "LS_SQL",
+											"type": "LinkedServiceReference"
+										}
+									},
+									{
+										"name": "SP-ActivityError01",
+										"type": "SqlServerStoredProcedure",
+										"dependsOn": [
+											{
+												"activity": "CP-Rename",
+												"dependencyConditions": [
+													"Failed"
+												]
+											}
+										],
+										"policy": {
+											"timeout": "0.00:10:00",
+											"retry": 50,
+											"retryIntervalInSeconds": 30,
+											"secureOutput": false,
+											"secureInput": false
+										},
+										"userProperties": [],
+										"typeProperties": {
+											"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+											"storedProcedureParameters": {
+												"activity_name": {
+													"value": {
+														"value": "CP-Rename",
+														"type": "Expression"
+													},
+													"type": "String"
+												},
+												"application_name": {
+													"value": {
+														"value": "@{pipeline().parameters.application_name}",
+														"type": "Expression"
+													},
+													"type": "String"
+												},
+												"dataset_name": {
+													"value": {
+														"value": "@{pipeline().parameters.dataset_name}",
+														"type": "Expression"
+													},
+													"type": "String"
+												},
+												"error_code": {
+													"value": {
+														"value": "@{activity('CP-Rename').output.errors[0].Code}",
+														"type": "Expression"
+													},
+													"type": "String"
+												},
+												"error_detail": {
+													"value": {
+														"value": "@{activity('CP-Rename').output.errors[0].Message}",
+														"type": "Expression"
+													},
+													"type": "String"
+												},
+												"pipeline_run_id": {
+													"value": {
+														"value": "@{pipeline().parameters.pipeline_run_id}",
+														"type": "Expression"
+													},
+													"type": "String"
+												},
+												"activity_status": {
+													"value": {
+														"value": "Failed",
+														"type": "Expression"
+													},
+													"type": "String"
+												},
+												"skip_pipeline_audit_update": {
+													"value": {
+														"value": "Y",
+														"type": "Expression"
+													},
+													"type": "String"
+												}
+											}
+										},
+										"linkedServiceName": {
+											"referenceName": "LS_SQL",
+											"type": "LinkedServiceReference"
+										}
+									},
+									{
+										"name": "SP-ActivitySuccess02",
+										"type": "SqlServerStoredProcedure",
+										"dependsOn": [
+											{
+												"activity": "DL-Rename",
+												"dependencyConditions": [
+													"Succeeded"
+												]
+											}
+										],
+										"policy": {
+											"timeout": "0.00:10:00",
+											"retry": 50,
+											"retryIntervalInSeconds": 30,
+											"secureOutput": false,
+											"secureInput": false
+										},
+										"userProperties": [],
+										"typeProperties": {
+											"storedProcedureName": "[dbo].[generic_activity_audit_log]",
+											"storedProcedureParameters": {
+												"activity_name": {
+													"value": {
+														"value": "DL-Rename",
+														"type": "Expression"
+													},
+													"type": "String"
+												},
+												"application_name": {
+													"value": {
+														"value": "@{pipeline().parameters.application_name}",
+														"type": "Expression"
+													},
+													"type": "String"
+												},
+												"dataset_name": {
+													"value": {
+														"value": "@{pipeline().parameters.dataset_name}",
+														"type": "Expression"
+													},
+													"type": "String"
+												},
+												"pipeline_run_id": {
+													"value": {
+														"value": "@{pipeline().parameters.pipeline_run_id}",
+														"type": "Expression"
+													},
+													"type": "String"
+												},
+												"activity_status": {
+													"value": {
+														"value": "Successful",
+														"type": "Expression"
+													},
+													"type": "String"
+												}
+											}
+										},
+										"linkedServiceName": {
+											"referenceName": "LS_SQL",
+											"type": "LinkedServiceReference"
+										}
+									},
+									{
+										"name": "SP-ActivityError02",
+										"type": "SqlServerStoredProcedure",
+										"dependsOn": [
+											{
+												"activity": "DL-Rename",
+												"dependencyConditions": [
+													"Failed"
+												]
+											}
+										],
+										"policy": {
+											"timeout": "0.00:10:00",
+											"retry": 50,
+											"retryIntervalInSeconds": 30,
+											"secureOutput": false,
+											"secureInput": false
+										},
+										"userProperties": [],
+										"typeProperties": {
+											"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+											"storedProcedureParameters": {
+												"activity_name": {
+													"value": {
+														"value": "DL-Rename",
+														"type": "Expression"
+													},
+													"type": "String"
+												},
+												"application_name": {
+													"value": {
+														"value": "@{pipeline().parameters.application_name}",
+														"type": "Expression"
+													},
+													"type": "String"
+												},
+												"dataset_name": {
+													"value": {
+														"value": "@{pipeline().parameters.dataset_name}",
+														"type": "Expression"
+													},
+													"type": "String"
+												},
+												"error_code": {
+													"value": {
+														"value": "@{activity('DL-Rename').Error.errorCode}",
+														"type": "Expression"
+													},
+													"type": "String"
+												},
+												"error_detail": {
+													"value": {
+														"value": "@{activity('DL-Rename').Error.message}",
+														"type": "Expression"
+													},
+													"type": "String"
+												},
+												"pipeline_run_id": {
+													"value": {
+														"value": "@{pipeline().parameters.pipeline_run_id}",
+														"type": "Expression"
+													},
+													"type": "String"
+												},
+												"activity_status": {
+													"value": {
+														"value": "Failed",
+														"type": "Expression"
+													},
+													"type": "String"
+												},
+												"skip_pipeline_audit_update": {
+													"value": {
+														"value": "Y",
+														"type": "Expression"
+													},
+													"type": "String"
+												}
+											}
+										},
+										"linkedServiceName": {
+											"referenceName": "LS_SQL",
+											"type": "LinkedServiceReference"
+										}
+									},
+									{
+										"name": "CP-ReraiseError01",
+										"type": "Copy",
+										"dependsOn": [
+											{
+												"activity": "SP-ActivityError01",
+												"dependencyConditions": [
+													"Succeeded"
+												]
+											}
+										],
+										"policy": {
+											"timeout": "7.00:00:00",
+											"retry": 0,
+											"retryIntervalInSeconds": 30,
+											"secureOutput": false,
+											"secureInput": false
+										},
+										"userProperties": [],
+										"typeProperties": {
+											"source": {
+												"type": "BinarySource",
+												"storeSettings": {
+													"type": "AzureBlobStorageReadSettings",
+													"recursive": true
+												}
+											},
+											"sink": {
+												"type": "BinarySink",
+												"storeSettings": {
+													"type": "AzureBlobStorageWriteSettings"
+												}
+											},
+											"enableStaging": false,
+											"validateDataConsistency": false
+										},
+										"inputs": [
+											{
+												"referenceName": "DS_KHCDE_GENERIC_BLOB_BINARY_Folder",
+												"type": "DatasetReference",
+												"parameters": {
+													"container_name": {
+														"value": "doesNotExist_Input",
+														"type": "Expression"
+													},
+													"blob_name": {
+														"value": "doesNotExist_Input",
+														"type": "Expression"
+													}
+												}
+											}
+										],
+										"outputs": [
+											{
+												"referenceName": "DS_KHCDE_GENERIC_BLOB_BINARY_Folder",
+												"type": "DatasetReference",
+												"parameters": {
+													"container_name": {
+														"value": "doesNotExist_Output",
+														"type": "Expression"
+													},
+													"blob_name": {
+														"value": "doesNotExist_Output",
+														"type": "Expression"
+													}
+												}
+											}
+										]
+									},
+									{
+										"name": "CP-ReraiseError02",
+										"type": "Copy",
+										"dependsOn": [
+											{
+												"activity": "SP-ActivityError02",
+												"dependencyConditions": [
+													"Succeeded"
+												]
+											}
+										],
+										"policy": {
+											"timeout": "7.00:00:00",
+											"retry": 0,
+											"retryIntervalInSeconds": 30,
+											"secureOutput": false,
+											"secureInput": false
+										},
+										"userProperties": [],
+										"typeProperties": {
+											"source": {
+												"type": "BinarySource",
+												"storeSettings": {
+													"type": "AzureBlobStorageReadSettings",
+													"recursive": true
+												}
+											},
+											"sink": {
+												"type": "BinarySink",
+												"storeSettings": {
+													"type": "AzureBlobStorageWriteSettings"
+												}
+											},
+											"enableStaging": false,
+											"validateDataConsistency": false
+										},
+										"inputs": [
+											{
+												"referenceName": "DS_KHCDE_GENERIC_BLOB_BINARY_Folder",
+												"type": "DatasetReference",
+												"parameters": {
+													"container_name": {
+														"value": "doesNotExist_Input",
+														"type": "Expression"
+													},
+													"blob_name": {
+														"value": "doesNotExist_Input",
+														"type": "Expression"
+													}
+												}
+											}
+										],
+										"outputs": [
+											{
+												"referenceName": "DS_KHCDE_GENERIC_BLOB_BINARY_Folder",
+												"type": "DatasetReference",
+												"parameters": {
+													"container_name": {
+														"value": "doesNotExist_Output",
+														"type": "Expression"
+													},
+													"blob_name": {
+														"value": "doesNotExist_Output",
+														"type": "Expression"
+													}
+												}
+											}
+										]
+									}
+								]
+							}
+						}
+					]
+				}
+			}
+		],
+		"parameters": {
+			"application_name": {
+				"type": "string"
+			},
+			"dataset_name": {
+				"type": "string"
+			},
+			"data_filename": {
+				"type": "string"
+			},
+			"container_name": {
+				"type": "string"
+			},
+			"stage_blob_name": {
+				"type": "string"
+			},
+			"rename_prefix": {
+				"type": "string"
+			},
+			"pipeline_run_id": {
+				"type": "string"
+			}
+		},
+		"folder": {
+			"name": "Generic_Frameworks/Sub_Pipelines"
+		},
+		"annotations": []
+	},
+	"type": "Microsoft.DataFactory/factories/pipelines"
+}

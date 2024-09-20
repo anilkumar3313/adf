@@ -1,0 +1,2051 @@
+{
+	"name": "PL_KHCDE_SUB_PRODUCT_LINE_PROFITABILITY_MASTER_POOL_LOAD",
+	"properties": {
+		"description": "This Pipeline Process the data in below steps 1. Extracts Data from source to blob 2. Load the stage tables in snowflake and 3.Transform to the final base tables using dbt. 4.Extract the data from the final table and push to 112 server",
+		"activities": [
+			{
+				"name": "LU-Metadata",
+				"description": "This will get the row from the orchestration metadata table for the trigger application and dataset",
+				"type": "Lookup",
+				"dependsOn": [
+					{
+						"activity": "set_env_variable",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "SqlServerSource",
+						"sqlReaderQuery": {
+							"value": "select\nparent_id\n,dependent_id\n,application_name\n,dataset_name\n,server_name\n,replace(server_path, '<env>', '@{variables('env')}') as server_path\n,filename\n,data_filename\n,pattern_type\n,rename_prefix\n,file_zip_ind\n,file_checksum_ind\n,checksum_filename\n,field_delimiter\n,container_name\n,stage_blob_name\n,archival_blob_name\n,blob_trigger_name\n,dbt_trigger_name\n,adf_trigger_name\n,dataset_group\n,snowflake_role\n,warehouse_size\n,snowflake_database\n,snowflake_schema\n,stage_table_name\n,snowflake_stage_name\n,snowflake_file_format\n,dbt_exec_mode\n,dbt_name\n,parameter_json\n,CASE WHEN ( '@{pipeline().parameters.delete_file_from_source}' IS NULL OR trim('@{pipeline().parameters.delete_file_from_source}') ='' )  OR trim('@{pipeline().parameters.delete_file_from_source}') NOT IN ('n','y') THEN ISNULL(JSON_VALUE(REPLACE(parameter_json,'''','\"'),'$.conVar.param6.value'),'y')\n       ELSE trim('@{pipeline().parameters.delete_file_from_source}') END DELETE_FILES_FROM_SOURCE\n,CASE WHEN ( '@{pipeline().parameters.delete_file_from_stage}' IS NULL OR trim('@{pipeline().parameters.delete_file_from_stage}') ='' ) OR trim('@{pipeline().parameters.delete_file_from_stage}') NOT IN ('n','y') THEN ISNULL(JSON_VALUE(REPLACE(parameter_json,'''','\"'),'$.conVar.param7.value'),'y') \n\t   ELSE trim('@{pipeline().parameters.delete_file_from_stage}') end DELETE_FILES_FROM_STAGE\n,data_level\n,audit_add_user_name\n,audit_add_timestamp\n,audit_update_username\n,audit_update_timestamp\n,active_ind\nfrom khc_orchestration_metadata where application_name = '@{pipeline().parameters.ApplicationName}' and dataset_group = '@{pipeline().parameters.Dataset_group}' and data_level = 1 and active_ind = 'y'",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "DS_KHCDE_GENERIC_MSSQL_Metadata",
+						"type": "DatasetReference"
+					},
+					"firstRowOnly": false
+				}
+			},
+			{
+				"name": "SP-PipelineStart",
+				"description": "This Activity logs starting of pipeline in khc_audit_log table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": {
+								"value": "I",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.ApplicationName",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@{pipeline().parameters.Dataset_Group}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@pipeline().Pipeline",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@pipeline().RunId",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Processing",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-ActivitySuccess01",
+				"description": "This activity logs LU-Metadata activity success in audit log",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "LU-Metadata",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": "Metadata",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Successful",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.ApplicationName",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@{pipeline().parameters.Dataset_group}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-ActivityFailed01",
+				"description": "This activity logs LU-Metadata activity Failure in audit log",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "LU-Metadata",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": "Metadata",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.ApplicationName",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@{pipeline().parameters.Dataset_group}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_code": {
+							"value": {
+								"value": "N.A.",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_detail": {
+							"value": {
+								"value": "N.A.",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "ForEach_Meta",
+				"description": "Copy data from 112 server to blob for each file",
+				"type": "ForEach",
+				"dependsOn": [
+					{
+						"activity": "LU-Metadata_for_112",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"items": {
+						"value": "@activity('LU-Metadata_for_112').output.value",
+						"type": "Expression"
+					},
+					"isSequential": false,
+					"activities": [
+						{
+							"name": "CP-FS_ORACLE_APPS_112-ToLand",
+							"type": "Copy",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 5,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"source": {
+									"type": "BinarySource",
+									"storeSettings": {
+										"type": "FileServerReadSettings",
+										"recursive": false,
+										"wildcardFileName": {
+											"value": "@{item().filename}",
+											"type": "Expression"
+										},
+										"deleteFilesAfterCompletion": false
+									},
+									"formatSettings": {
+										"type": "BinaryReadSettings"
+									}
+								},
+								"sink": {
+									"type": "BinarySink",
+									"storeSettings": {
+										"type": "AzureBlobFSWriteSettings"
+									}
+								},
+								"enableStaging": false,
+								"skipErrorFile": {
+									"fileMissing": false
+								},
+								"validateDataConsistency": false
+							},
+							"inputs": [
+								{
+									"referenceName": "DS_KHCDE_GENERIC_FS_ORACLE_APPs_112_BINARY_Folder",
+									"type": "DatasetReference",
+									"parameters": {
+										"fs_path": {
+											"value": "@{item().server_path}",
+											"type": "Expression"
+										}
+									}
+								}
+							],
+							"outputs": [
+								{
+									"referenceName": "DS_KHCDE_GENERIC_BLOB_BINARY_Folder",
+									"type": "DatasetReference",
+									"parameters": {
+										"container_name": {
+											"value": "@{item().container_name}",
+											"type": "Expression"
+										},
+										"blob_name": {
+											"value": "@{concat(replace(item().archival_blob_name, 'yyyyMMdd', 'processing'), '/land')}",
+											"type": "Expression"
+										}
+									}
+								}
+							]
+						},
+						{
+							"name": "IF-goAhead",
+							"type": "IfCondition",
+							"dependsOn": [
+								{
+									"activity": "CP-FS_ORACLE_APPS_112-ToLand",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"userProperties": [],
+							"typeProperties": {
+								"expression": {
+									"value": "@greater(int(activity('CP-FS_ORACLE_APPS_112-ToLand').output.filesWritten),0)",
+									"type": "Expression"
+								},
+								"ifFalseActivities": [
+									{
+										"name": "SP-Pipeline_End_Skipped",
+										"type": "SqlServerStoredProcedure",
+										"dependsOn": [],
+										"policy": {
+											"timeout": "7.00:00:00",
+											"retry": 5,
+											"retryIntervalInSeconds": 30,
+											"secureOutput": false,
+											"secureInput": false
+										},
+										"userProperties": [],
+										"typeProperties": {
+											"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+											"storedProcedureParameters": {
+												"action_ind": {
+													"value": {
+														"value": "U",
+														"type": "Expression"
+													},
+													"type": "String"
+												},
+												"application_name": {
+													"value": {
+														"value": "@{item().application_name}",
+														"type": "Expression"
+													},
+													"type": "String"
+												},
+												"dataset_name": {
+													"value": {
+														"value": "@{item().dataset_name}",
+														"type": "Expression"
+													},
+													"type": "String"
+												},
+												"pipeline_name": {
+													"value": {
+														"value": "@{pipeline().Pipeline}",
+														"type": "Expression"
+													},
+													"type": "String"
+												},
+												"pipeline_run_id": {
+													"value": {
+														"value": "@{pipeline().RunId}",
+														"type": "Expression"
+													},
+													"type": "String"
+												},
+												"pipeline_status": {
+													"value": {
+														"value": "Skipped",
+														"type": "Expression"
+													},
+													"type": "String"
+												}
+											}
+										},
+										"linkedServiceName": {
+											"referenceName": "LS_SQL",
+											"type": "LinkedServiceReference"
+										}
+									}
+								],
+								"ifTrueActivities": [
+									{
+										"name": "EP-Sub_Master",
+										"type": "ExecutePipeline",
+										"dependsOn": [],
+										"userProperties": [],
+										"typeProperties": {
+											"pipeline": {
+												"referenceName": "PL_KHCDE_GENERIC_SUB_MASTER",
+												"type": "PipelineReference"
+											},
+											"waitOnCompletion": true,
+											"parameters": {
+												"application_name": {
+													"value": "@{item().application_name}",
+													"type": "Expression"
+												},
+												"dataset_name": {
+													"value": "@{item().dataset_name}",
+													"type": "Expression"
+												},
+												"sftp_path": {
+													"value": "@{item().server_path}",
+													"type": "Expression"
+												},
+												"sftp_filename": {
+													"value": "@{item().filename}",
+													"type": "Expression"
+												},
+												"data_filename": {
+													"value": "@{item().data_filename}",
+													"type": "Expression"
+												},
+												"checksum_filename": {
+													"value": "@{item().checksum_filename}",
+													"type": "Expression"
+												},
+												"sftp_file_zip_ind": {
+													"value": "@{item().file_zip_ind}",
+													"type": "Expression"
+												},
+												"sftp_file_checksum_ind": {
+													"value": "@{item().file_checksum_ind}",
+													"type": "Expression"
+												},
+												"container_name": {
+													"value": "@{item().container_name}",
+													"type": "Expression"
+												},
+												"archival_blob_name": {
+													"value": "@{item().archival_blob_name}",
+													"type": "Expression"
+												},
+												"stage_blob_name": {
+													"value": "@{item().stage_blob_name}",
+													"type": "Expression"
+												},
+												"pattern_type": {
+													"value": "@{item().pattern_type}",
+													"type": "Expression"
+												},
+												"field_delimiter": {
+													"value": "@{item().field_delimiter}",
+													"type": "Expression"
+												},
+												"rename_prefix": {
+													"value": "@{item().rename_prefix}",
+													"type": "Expression"
+												},
+												"blob_trigger_name": {
+													"value": "@{item().blob_trigger_name}",
+													"type": "Expression"
+												},
+												"parent_id": {
+													"value": "@{item().parent_id}",
+													"type": "Expression"
+												},
+												"dependent_id": {
+													"value": "@{item().dependent_id}",
+													"type": "Expression"
+												},
+												"adf_trigger_name": {
+													"value": "@{item().adf_trigger_name}",
+													"type": "Expression"
+												},
+												"dataset_group": {
+													"value": "@{item().dataset_group}",
+													"type": "Expression"
+												},
+												"data_level": {
+													"value": "@{item().data_level}",
+													"type": "Expression"
+												},
+												"active_ind": {
+													"value": "@{item().active_ind}",
+													"type": "Expression"
+												},
+												"pipeline_name": {
+													"value": "@{pipeline().Pipeline}",
+													"type": "Expression"
+												},
+												"pipeline_run_id": {
+													"value": "@{pipeline().RunId}",
+													"type": "Expression"
+												},
+												"stage_delete_ind": {
+													"value": "@{item().DELETE_FILES_FROM_STAGE}",
+													"type": "Expression"
+												}
+											}
+										}
+									},
+									{
+										"name": "EP-DeleteStage",
+										"type": "ExecutePipeline",
+										"dependsOn": [
+											{
+												"activity": "EP-Sub_Master",
+												"dependencyConditions": [
+													"Failed"
+												]
+											}
+										],
+										"userProperties": [],
+										"typeProperties": {
+											"pipeline": {
+												"referenceName": "PL_KHCDE_GENERIC_SUB_STAGEDelete",
+												"type": "PipelineReference"
+											},
+											"waitOnCompletion": true,
+											"parameters": {
+												"container_name": {
+													"value": "@{item().container_name}",
+													"type": "Expression"
+												},
+												"blob_name": {
+													"value": "@{item().stage_blob_name}",
+													"type": "Expression"
+												},
+												"activity_name": {
+													"value": "DL-Stage",
+													"type": "Expression"
+												},
+												"application_name": {
+													"value": "@{item().application_name}",
+													"type": "Expression"
+												},
+												"dataset_name": {
+													"value": "@{item().dataset_name}",
+													"type": "Expression"
+												},
+												"pipeline_run_id": {
+													"value": "@{pipeline().RunId}",
+													"type": "Expression"
+												},
+												"stage_delete_ind": {
+													"value": "@{item().DELETE_FILES_FROM_STAGE}",
+													"type": "Expression"
+												}
+											}
+										}
+									},
+									{
+										"name": "SP-Pipeline_End_Failed01",
+										"type": "SqlServerStoredProcedure",
+										"dependsOn": [
+											{
+												"activity": "EP-Sub_Master",
+												"dependencyConditions": [
+													"Failed"
+												]
+											}
+										],
+										"policy": {
+											"timeout": "7.00:00:00",
+											"retry": 5,
+											"retryIntervalInSeconds": 30,
+											"secureOutput": false,
+											"secureInput": false
+										},
+										"userProperties": [],
+										"typeProperties": {
+											"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+											"storedProcedureParameters": {
+												"action_ind": {
+													"value": {
+														"value": "U",
+														"type": "Expression"
+													},
+													"type": "String"
+												},
+												"application_name": {
+													"value": {
+														"value": "@{item().application_name}",
+														"type": "Expression"
+													},
+													"type": "String"
+												},
+												"dataset_name": {
+													"value": {
+														"value": "@{item().dataset_name}",
+														"type": "Expression"
+													},
+													"type": "String"
+												},
+												"pipeline_name": {
+													"value": {
+														"value": "@{pipeline().Pipeline}",
+														"type": "Expression"
+													},
+													"type": "String"
+												},
+												"pipeline_run_id": {
+													"value": {
+														"value": "@{pipeline().RunId}",
+														"type": "Expression"
+													},
+													"type": "String"
+												},
+												"pipeline_status": {
+													"value": {
+														"value": "Failed",
+														"type": "Expression"
+													},
+													"type": "String"
+												}
+											}
+										},
+										"linkedServiceName": {
+											"referenceName": "LS_SQL",
+											"type": "LinkedServiceReference"
+										}
+									},
+									{
+										"name": "EP-DeleteLand_Success",
+										"type": "ExecutePipeline",
+										"dependsOn": [
+											{
+												"activity": "EP-Sub_Master",
+												"dependencyConditions": [
+													"Succeeded"
+												]
+											}
+										],
+										"userProperties": [],
+										"typeProperties": {
+											"pipeline": {
+												"referenceName": "PL_KHCDE_GENERIC_SUB_BLOBDeleteAll",
+												"type": "PipelineReference"
+											},
+											"waitOnCompletion": true,
+											"parameters": {
+												"container_name": {
+													"value": "@{item().container_name}",
+													"type": "Expression"
+												},
+												"blob_name": {
+													"value": "@{concat(replace(item().archival_blob_name, 'yyyyMMdd', 'processing'), '/land')}",
+													"type": "Expression"
+												},
+												"activity_name": {
+													"value": "DL-Land",
+													"type": "Expression"
+												},
+												"application_name": {
+													"value": "@{item().application_name}",
+													"type": "Expression"
+												},
+												"dataset_name": {
+													"value": "@{item().dataset_name}",
+													"type": "Expression"
+												},
+												"pipeline_run_id": {
+													"value": "@{pipeline().RunId}",
+													"type": "Expression"
+												}
+											}
+										}
+									},
+									{
+										"name": "SP-Pipeline_End_Successful",
+										"type": "SqlServerStoredProcedure",
+										"dependsOn": [
+											{
+												"activity": "EP-DeleteLand_Success",
+												"dependencyConditions": [
+													"Succeeded"
+												]
+											}
+										],
+										"policy": {
+											"timeout": "7.00:00:00",
+											"retry": 5,
+											"retryIntervalInSeconds": 30,
+											"secureOutput": false,
+											"secureInput": false
+										},
+										"userProperties": [],
+										"typeProperties": {
+											"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+											"storedProcedureParameters": {
+												"action_ind": {
+													"value": {
+														"value": "U",
+														"type": "Expression"
+													},
+													"type": "String"
+												},
+												"application_name": {
+													"value": {
+														"value": "@{item().application_name}",
+														"type": "Expression"
+													},
+													"type": "String"
+												},
+												"dataset_name": {
+													"value": {
+														"value": "@{item().dataset_name}",
+														"type": "Expression"
+													},
+													"type": "String"
+												},
+												"pipeline_name": {
+													"value": {
+														"value": "@{pipeline().Pipeline}",
+														"type": "Expression"
+													},
+													"type": "String"
+												},
+												"pipeline_run_id": {
+													"value": {
+														"value": "@{pipeline().RunId}",
+														"type": "Expression"
+													},
+													"type": "String"
+												},
+												"pipeline_status": {
+													"value": {
+														"value": "Successful",
+														"type": "Expression"
+													},
+													"type": "String"
+												}
+											}
+										},
+										"linkedServiceName": {
+											"referenceName": "LS_SQL",
+											"type": "LinkedServiceReference"
+										}
+									},
+									{
+										"name": "SP-Pipeline_End_Failed02",
+										"type": "SqlServerStoredProcedure",
+										"dependsOn": [
+											{
+												"activity": "EP-DeleteLand_Success",
+												"dependencyConditions": [
+													"Failed"
+												]
+											}
+										],
+										"policy": {
+											"timeout": "7.00:00:00",
+											"retry": 5,
+											"retryIntervalInSeconds": 30,
+											"secureOutput": false,
+											"secureInput": false
+										},
+										"userProperties": [],
+										"typeProperties": {
+											"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+											"storedProcedureParameters": {
+												"action_ind": {
+													"value": {
+														"value": "U",
+														"type": "Expression"
+													},
+													"type": "String"
+												},
+												"application_name": {
+													"value": {
+														"value": "@{item().application_name}",
+														"type": "Expression"
+													},
+													"type": "String"
+												},
+												"dataset_name": {
+													"value": {
+														"value": "@{item().dataset_name}",
+														"type": "Expression"
+													},
+													"type": "String"
+												},
+												"pipeline_name": {
+													"value": {
+														"value": "@{pipeline().Pipeline}",
+														"type": "Expression"
+													},
+													"type": "String"
+												},
+												"pipeline_run_id": {
+													"value": {
+														"value": "@{pipeline().RunId}",
+														"type": "Expression"
+													},
+													"type": "String"
+												},
+												"pipeline_status": {
+													"value": {
+														"value": "Failed",
+														"type": "Expression"
+													},
+													"type": "String"
+												}
+											}
+										},
+										"linkedServiceName": {
+											"referenceName": "LS_SQL",
+											"type": "LinkedServiceReference"
+										}
+									},
+									{
+										"name": "EP-DeleteLand_Fail",
+										"type": "ExecutePipeline",
+										"dependsOn": [
+											{
+												"activity": "EP-Sub_Master",
+												"dependencyConditions": [
+													"Failed"
+												]
+											}
+										],
+										"userProperties": [],
+										"typeProperties": {
+											"pipeline": {
+												"referenceName": "PL_KHCDE_GENERIC_SUB_BLOBDeleteAll",
+												"type": "PipelineReference"
+											},
+											"waitOnCompletion": true,
+											"parameters": {
+												"container_name": {
+													"value": "@{item().container_name}",
+													"type": "Expression"
+												},
+												"blob_name": {
+													"value": "@{concat(replace(item().archival_blob_name, 'yyyyMMdd', 'processing'), '/land')}",
+													"type": "Expression"
+												},
+												"activity_name": {
+													"value": "DL-Land",
+													"type": "Expression"
+												},
+												"application_name": {
+													"value": "@{item().application_name}",
+													"type": "Expression"
+												},
+												"dataset_name": {
+													"value": "@{item().dataset_name}",
+													"type": "Expression"
+												},
+												"pipeline_run_id": {
+													"value": "@{pipeline().RunId}",
+													"type": "Expression"
+												}
+											}
+										}
+									},
+									{
+										"name": "EP-DeleteTemp",
+										"type": "ExecutePipeline",
+										"dependsOn": [
+											{
+												"activity": "EP-Sub_Master",
+												"dependencyConditions": [
+													"Failed"
+												]
+											}
+										],
+										"userProperties": [],
+										"typeProperties": {
+											"pipeline": {
+												"referenceName": "PL_KHCDE_GENERIC_SUB_BLOBDeleteAll",
+												"type": "PipelineReference"
+											},
+											"waitOnCompletion": true,
+											"parameters": {
+												"container_name": {
+													"value": "@{item().container_name}",
+													"type": "Expression"
+												},
+												"blob_name": {
+													"value": "@{concat(replace(item().archival_blob_name, 'yyyyMMdd', 'processing'), '/temp')}",
+													"type": "Expression"
+												},
+												"activity_name": {
+													"value": "DL-Temp",
+													"type": "Expression"
+												},
+												"application_name": {
+													"value": "@{item().application_name}",
+													"type": "Expression"
+												},
+												"dataset_name": {
+													"value": "@{item().dataset_name}",
+													"type": "Expression"
+												},
+												"pipeline_run_id": {
+													"value": "@{pipeline().RunId}",
+													"type": "Expression"
+												}
+											}
+										}
+									},
+									{
+										"name": "EP-DeleteWork",
+										"type": "ExecutePipeline",
+										"dependsOn": [
+											{
+												"activity": "EP-Sub_Master",
+												"dependencyConditions": [
+													"Failed"
+												]
+											}
+										],
+										"userProperties": [],
+										"typeProperties": {
+											"pipeline": {
+												"referenceName": "PL_KHCDE_GENERIC_SUB_BLOBDeleteAll",
+												"type": "PipelineReference"
+											},
+											"waitOnCompletion": true,
+											"parameters": {
+												"container_name": {
+													"value": "@{item().container_name}",
+													"type": "Expression"
+												},
+												"blob_name": {
+													"value": "@{concat(replace(item().archival_blob_name, 'yyyyMMdd', 'processing'), '/work')}",
+													"type": "Expression"
+												},
+												"activity_name": {
+													"value": "DL-Work",
+													"type": "Expression"
+												},
+												"application_name": {
+													"value": "@{item().application_name}",
+													"type": "Expression"
+												},
+												"dataset_name": {
+													"value": "@{item().dataset_name}",
+													"type": "Expression"
+												},
+												"pipeline_run_id": {
+													"value": "@{pipeline().RunId}",
+													"type": "Expression"
+												}
+											}
+										}
+									}
+								]
+							}
+						},
+						{
+							"name": "SP-Server Copy Part 2",
+							"type": "SqlServerStoredProcedure",
+							"dependsOn": [
+								{
+									"activity": "CP-FS_ORACLE_APPS_112-ToLand",
+									"dependencyConditions": [
+										"Failed"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 5,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+								"storedProcedureParameters": {
+									"activity_name": {
+										"value": {
+											"value": "CP-FS_ORACLE_APPS_112-ToLand",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"activity_status": {
+										"value": {
+											"value": "Failed",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"application_name": {
+										"value": {
+											"value": "@{item().application_name}",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"dataset_name": {
+										"value": {
+											"value": "@{item().dataset_name}",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"error_code": {
+										"value": {
+											"value": "N.A.",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"error_detail": {
+										"value": {
+											"value": "N.A.",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_run_id": {
+										"value": {
+											"value": "@{pipeline().RunId}",
+											"type": "Expression"
+										},
+										"type": "String"
+									}
+								}
+							},
+							"linkedServiceName": {
+								"referenceName": "LS_SQL",
+								"type": "LinkedServiceReference"
+							}
+						},
+						{
+							"name": "If Condition-DLserver",
+							"type": "IfCondition",
+							"dependsOn": [
+								{
+									"activity": "IF-goAhead",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"userProperties": [],
+							"typeProperties": {
+								"expression": {
+									"value": "@equals(item().DELETE_FILES_FROM_SOURCE,'y')",
+									"type": "Expression"
+								},
+								"ifTrueActivities": [
+									{
+										"name": "SP-ServerDelete",
+										"type": "SqlServerStoredProcedure",
+										"dependsOn": [
+											{
+												"activity": "Delete-FilesinSourceLocation",
+												"dependencyConditions": [
+													"Succeeded"
+												]
+											}
+										],
+										"policy": {
+											"timeout": "7.00:00:00",
+											"retry": 5,
+											"retryIntervalInSeconds": 30,
+											"secureOutput": false,
+											"secureInput": false
+										},
+										"userProperties": [],
+										"typeProperties": {
+											"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+											"storedProcedureParameters": {
+												"activity_name": {
+													"value": {
+														"value": "Delete-FilesinSourceLocation",
+														"type": "Expression"
+													},
+													"type": "String"
+												},
+												"activity_status": {
+													"value": {
+														"value": "Failed",
+														"type": "Expression"
+													},
+													"type": "String"
+												},
+												"application_name": {
+													"value": {
+														"value": "@{item().application_name}",
+														"type": "Expression"
+													},
+													"type": "String"
+												},
+												"dataset_name": {
+													"value": {
+														"value": "@{item().dataset_name}",
+														"type": "Expression"
+													},
+													"type": "String"
+												},
+												"error_code": {
+													"value": {
+														"value": "N.A.",
+														"type": "Expression"
+													},
+													"type": "String"
+												},
+												"error_detail": {
+													"value": {
+														"value": "N.A.",
+														"type": "Expression"
+													},
+													"type": "String"
+												},
+												"pipeline_run_id": {
+													"value": {
+														"value": "@{pipeline().RunId}",
+														"type": "Expression"
+													},
+													"type": "String"
+												}
+											}
+										},
+										"linkedServiceName": {
+											"referenceName": "LS_SQL",
+											"type": "LinkedServiceReference"
+										}
+									},
+									{
+										"name": "Delete-FilesinSourceLocation",
+										"description": "Deletes the files in source location to have the fresh files for next run",
+										"type": "Delete",
+										"dependsOn": [],
+										"policy": {
+											"timeout": "7.00:00:00",
+											"retry": 5,
+											"retryIntervalInSeconds": 30,
+											"secureOutput": false,
+											"secureInput": false
+										},
+										"userProperties": [],
+										"typeProperties": {
+											"dataset": {
+												"referenceName": "DS_KHCDE_GENERIC_FS_ORACLE_APPs_112_BINARY_Folder",
+												"type": "DatasetReference",
+												"parameters": {
+													"fs_path": {
+														"value": "@{item().server_path}",
+														"type": "Expression"
+													}
+												}
+											},
+											"enableLogging": false,
+											"storeSettings": {
+												"type": "FileServerReadSettings",
+												"recursive": true,
+												"wildcardFileName": {
+													"value": "@{item().filename}*",
+													"type": "Expression"
+												},
+												"enablePartitionDiscovery": false
+											}
+										}
+									}
+								]
+							}
+						}
+					]
+				}
+			},
+			{
+				"name": "SP-PipelineFailed",
+				"description": "This activity logs pipeline failure in audit log",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "EP-DBT_Processing",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": {
+								"value": "U",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@{pipeline().parameters.ApplicationName}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@{pipeline().parameters.Dataset_group}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@{pipeline().Pipeline}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SuccessEmailSender",
+				"description": "This activity sends the success email when the pipeline is successfully completed",
+				"type": "WebActivity",
+				"dependsOn": [
+					{
+						"activity": "If-Pre_Post_allocation_loads",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"url": {
+						"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+						"type": "Expression"
+					},
+					"method": "POST",
+					"body": {
+						"value": "{ \n\"to_email\":\"@{variables('to_emails')}\", \n\"subject\":\"SST NA Load process Successful\", \n\"body\": \"Data Load and extract process has been completed Successfully for application @{pipeline().parameters.ApplicationName}. The pipelinename is @{pipeline().Pipeline}. The pipelineid is @{pipeline().RunId}. The Dataset name is @{pipeline().parameters.Dataset_group}\",\n\"importance\": \"Low\"\n}\n",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "SP-ActivityFailed05",
+				"description": "This activity logs Snowflake ingestion failure in audit log",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "EP-SnowflakeIngestion",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": "EP_SnowflakeIngestion",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.ApplicationName",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@{pipeline().parameters.Dataset_group}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_code": {
+							"value": {
+								"value": "N.A.",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_detail": {
+							"value": {
+								"value": "N.A.",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-SnowflakePipelineFailed",
+				"description": "This activity logs pipeline failure in audit log",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "EP-SnowflakeIngestion",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": {
+								"value": "U",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@{pipeline().parameters.ApplicationName}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@{pipeline().parameters.Dataset_group}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@{pipeline().Pipeline}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "FailureEmailSender_Snowflake",
+				"description": "This activity sends the failure email when the snowflake ingestion has failed",
+				"type": "WebActivity",
+				"dependsOn": [
+					{
+						"activity": "SP-ActivityFailed05",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"url": {
+						"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+						"type": "Expression"
+					},
+					"method": "POST",
+					"body": {
+						"value": "{\n\"to_email\":\"@{variables('to_emails')}\",\n\"subject\":\" SST NA Snowflake ingestion load Process failed\",\n\"body\": \"The application name is @{pipeline().parameters.ApplicationName}. The pipelinename is @{pipeline().Pipeline}. The pipelineid is @{pipeline().RunId}. The Dataset name is @{pipeline().parameters.Dataset_group}\",\n\"importance\": \"High\"\n}",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "EP-SnowflakeIngestion",
+				"description": "This pipeline will ingest the staging files for the given dataset group.",
+				"type": "ExecutePipeline",
+				"dependsOn": [
+					{
+						"activity": "ForEach_Meta",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"pipeline": {
+						"referenceName": "PL_KHCDE_GENERIC_SnowflakeIngestion",
+						"type": "PipelineReference"
+					},
+					"waitOnCompletion": true,
+					"parameters": {
+						"ApplicationName": {
+							"value": "@{activity('LU-Metadata').output.value[0].application_name}",
+							"type": "Expression"
+						},
+						"DatasetGroup": {
+							"value": "@{activity('LU-Metadata').output.value[0].dataset_group}",
+							"type": "Expression"
+						},
+						"ParameterJson": {
+							"value": "@{activity('LU-Metadata').output.value[0].parameter_json}",
+							"type": "Expression"
+						}
+					}
+				}
+			},
+			{
+				"name": "LU-Metadata_for_112",
+				"description": "This will get the row from the orchestration metadata table for the application with 112 server",
+				"type": "Lookup",
+				"dependsOn": [
+					{
+						"activity": "LU-Metadata",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "SqlServerSource",
+						"sqlReaderQuery": {
+							"value": "select\nparent_id\n,dependent_id\n,application_name\n,dataset_name\n,server_name\n,replace(server_path, '<env>', '@{variables('env')}') as server_path\n,filename\n,data_filename\n,pattern_type\n,rename_prefix\n,file_zip_ind\n,file_checksum_ind\n,checksum_filename\n,field_delimiter\n,container_name\n,stage_blob_name\n,archival_blob_name\n,blob_trigger_name\n,dbt_trigger_name\n,adf_trigger_name\n,dataset_group\n,snowflake_role\n,warehouse_size\n,snowflake_database\n,snowflake_schema\n,stage_table_name\n,snowflake_stage_name\n,snowflake_file_format\n,dbt_exec_mode\n,dbt_name\n,parameter_json\n,CASE WHEN ( '@{pipeline().parameters.delete_file_from_source}' IS NULL OR trim('@{pipeline().parameters.delete_file_from_source}') ='' )  OR trim('@{pipeline().parameters.delete_file_from_source}') NOT IN ('n','y') THEN ISNULL(JSON_VALUE(REPLACE(parameter_json,'''','\"'),'$.conVar.param6.value'),'y')\n       ELSE trim('@{pipeline().parameters.delete_file_from_source}') END DELETE_FILES_FROM_SOURCE\n,CASE WHEN ( '@{pipeline().parameters.delete_file_from_stage}' IS NULL OR trim('@{pipeline().parameters.delete_file_from_stage}') ='' ) OR trim('@{pipeline().parameters.delete_file_from_stage}') NOT IN ('n','y') THEN ISNULL(JSON_VALUE(REPLACE(parameter_json,'''','\"'),'$.conVar.param7.value'),'y') \n\t   ELSE trim('@{pipeline().parameters.delete_file_from_stage}') end DELETE_FILES_FROM_STAGE\n,data_level\n,audit_add_user_name\n,audit_add_timestamp\n,audit_update_username\n,audit_update_timestamp\n,active_ind\nfrom khc_orchestration_metadata where application_name = '@{pipeline().parameters.ApplicationName}' and dataset_group = '@{pipeline().parameters.Dataset_group}' and data_level = 1 and active_ind = 'y' and server_name='LS_FS_ORACLE_APPS_112_PLP'",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "DS_KHCDE_GENERIC_MSSQL_Metadata",
+						"type": "DatasetReference"
+					},
+					"firstRowOnly": false
+				}
+			},
+			{
+				"name": "EP-DBT_Processing",
+				"description": "This pipeline will perform DBT processing.",
+				"type": "ExecutePipeline",
+				"dependsOn": [
+					{
+						"activity": "EP-SnowflakeIngestion",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"pipeline": {
+						"referenceName": "PL_KHCDE_GENERIC_DBTProcessing",
+						"type": "PipelineReference"
+					},
+					"waitOnCompletion": true,
+					"parameters": {
+						"ApplicationName": {
+							"value": "@{activity('LU-Metadata').output.value[0].application_name}",
+							"type": "Expression"
+						},
+						"DatasetGroup": {
+							"value": "@{activity('LU-Metadata').output.value[0].dataset_group}",
+							"type": "Expression"
+						},
+						"ParameterJson": {
+							"value": "@{activity('LU-Metadata').output.value[0].parameter_json}",
+							"type": "Expression"
+						}
+					}
+				}
+			},
+			{
+				"name": "FailureEmailSender_dbt",
+				"description": "This activity sends the failure email when the dbt processing has failed",
+				"type": "WebActivity",
+				"dependsOn": [
+					{
+						"activity": "EP-DBT_Processing",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"url": {
+						"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+						"type": "Expression"
+					},
+					"method": "POST",
+					"body": {
+						"value": "{\n\"to_email\":\"@{variables('to_emails')}\", \n\"subject\":\"SST NA DBT load Process failed\",\n\"body\": \"The application name is @{pipeline().parameters.ApplicationName}. The pipelinename is @{pipeline().Pipeline}. The pipelineid is @{pipeline().RunId}. The Dataset name is @{pipeline().parameters.Dataset_group}\",\n\"importance\": \"High\"\n}\n",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "FailureEmailSender",
+				"description": "This activity sends the failure email when the pipeline has failed",
+				"type": "WebActivity",
+				"dependsOn": [
+					{
+						"activity": "SP-ActivityFailed08",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"url": {
+						"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+						"type": "Expression"
+					},
+					"method": "POST",
+					"body": {
+						"value": "{\n\"to_email\":\"@{variables('to_emails')}\", \n\"subject\":\"SST NA extract push Process failed\",\n\"body\": \"The application name is @{pipeline().parameters.ApplicationName}. The pipelinename is @{pipeline().Pipeline}. The pipelineid is @{pipeline().RunId}. The Dataset name is @{pipeline().parameters.Dataset_group}\",\n\"importance\": \"High\"\n}\n",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "SP-ActivityFailed08",
+				"description": "This activity logs extract push failure in audit log",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "If-Pre_Post_allocation_loads",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": {
+								"value": "EP-Extract_push",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@{pipeline().parameters.ApplicationName}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@{pipeline().parameters.Dataset_group}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_code": {
+							"value": {
+								"value": "N.A.",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_detail": {
+							"value": {
+								"value": "N.A.",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "Start_SuccessEmailSender",
+				"description": "This activity sends the success email when the pipeline is successfully started",
+				"type": "WebActivity",
+				"dependsOn": [
+					{
+						"activity": "set_env_variable",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"url": {
+						"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+						"type": "Expression"
+					},
+					"method": "POST",
+					"body": {
+						"value": "{ \n\"to_email\":\"@{variables('to_emails')}\", \n\"subject\":\"SST NA Load process has started\", \n\"body\": \"Data Load and extract process has been started for application @{pipeline().parameters.ApplicationName}. The pipelinename is @{pipeline().Pipeline}. The pipelineid is @{pipeline().RunId}. The Dataset name is @{pipeline().parameters.Dataset_group}\",\n\"importance\": \"Low\"\n}\n",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "set_env_variable",
+				"description": "Set the variable - ENV from global parameters - AZURE_ENV",
+				"type": "SetVariable",
+				"dependsOn": [
+					{
+						"activity": "SP-PipelineStart",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"variableName": "env",
+					"value": {
+						"value": "@pipeline().globalParameters.AZURE_ENV",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "SP-PipelineFailed1",
+				"description": "This activity logs pipeline failure in audit log",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "SP-ActivityFailed08",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": {
+								"value": "U",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@{pipeline().parameters.ApplicationName}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@{pipeline().parameters.Dataset_group}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@{pipeline().Pipeline}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-PipelineSuccess1",
+				"description": "This activity logs pipeline success in audit log",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "If-Pre_Post_allocation_loads",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": {
+								"value": "U",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@{pipeline().parameters.ApplicationName}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@{pipeline().parameters.Dataset_group}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@{pipeline().Pipeline}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Successful",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "If-Pre_Post_allocation_loads",
+				"description": "If condition filter to execute the extract pipeline",
+				"type": "IfCondition",
+				"dependsOn": [
+					{
+						"activity": "EP-DBT_Processing",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"expression": {
+						"value": "@or(equals(pipeline().parameters.Dataset_group,'CATALYST_ALLOCATION_DATA'),equals(pipeline().parameters.Dataset_group,'CATALYST_DATA'))",
+						"type": "Expression"
+					},
+					"ifTrueActivities": [
+						{
+							"name": "EP-Extract_push",
+							"description": "This will perform data extraction to blob and  push to 112 server",
+							"type": "ExecutePipeline",
+							"dependsOn": [],
+							"userProperties": [],
+							"typeProperties": {
+								"pipeline": {
+									"referenceName": "PL_KHCDE_PRODUCT_LINE_PROFITABILITY_EXTRACT_PUSH",
+									"type": "PipelineReference"
+								},
+								"waitOnCompletion": true,
+								"parameters": {
+									"ApplicationName": {
+										"value": "@{activity('LU-Metadata').output.value[0].application_name}",
+										"type": "Expression"
+									},
+									"DatasetGroup": {
+										"value": "@{activity('LU-Metadata').output.value[0].dataset_group}",
+										"type": "Expression"
+									}
+								}
+							}
+						}
+					]
+				}
+			},
+			{
+				"name": "Execute Pipeline-Reports",
+				"description": "Executes pipeline for generating different email alerts and reports",
+				"type": "ExecutePipeline",
+				"dependsOn": [
+					{
+						"activity": "If-Pre_Post_allocation_loads",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"pipeline": {
+						"referenceName": "PL_KHCDE_PRODUCT_LINE_PROFITABILITY_REPORT_SENDER",
+						"type": "PipelineReference"
+					},
+					"waitOnCompletion": true,
+					"parameters": {
+						"ApplicationName": {
+							"value": "@pipeline().parameters.ApplicationName",
+							"type": "Expression"
+						},
+						"Dataset_group": {
+							"value": "@pipeline().parameters.Dataset_group",
+							"type": "Expression"
+						}
+					}
+				}
+			}
+		],
+		"parameters": {
+			"ApplicationName": {
+				"type": "string"
+			},
+			"Dataset_group": {
+				"type": "string"
+			},
+			"sap_schema": {
+				"type": "string"
+			},
+			"delete_file_from_source": {
+				"type": "string"
+			},
+			"delete_file_from_stage": {
+				"type": "string"
+			}
+		},
+		"variables": {
+			"exit": {
+				"type": "String",
+				"defaultValue": "N"
+			},
+			"adf_trigger_name": {
+				"type": "String"
+			},
+			"logicapp_url": {
+				"type": "String"
+			},
+			"to_emails": {
+				"type": "String",
+				"defaultValue": "DLKHCFINANCEDATAOPS@kraftheinz.com"
+			},
+			"env": {
+				"type": "String"
+			},
+			"to_emails_data_assurance": {
+				"type": "String",
+				"defaultValue": "DLKHCFINANCEDATAOPS@kraftheinz.com"
+			}
+		},
+		"folder": {
+			"name": "Product_Line_Profitability/sub-pipeline"
+		},
+		"annotations": []
+	},
+	"type": "Microsoft.DataFactory/factories/pipelines"
+}

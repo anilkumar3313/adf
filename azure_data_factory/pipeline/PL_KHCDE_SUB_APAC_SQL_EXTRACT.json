@@ -1,0 +1,583 @@
+{
+	"name": "PL_KHCDE_SUB_APAC_SQL_EXTRACT",
+	"properties": {
+		"description": "Pipeline to extract data from SQL server database",
+		"activities": [
+			{
+				"name": "LU-SQL_Metadata",
+				"description": "This LU Metadata activity fetches required details for data extraction from orchestration and dataengg_extract table for SQL Server database",
+				"type": "Lookup",
+				"dependsOn": [
+					{
+						"activity": "SP-PipelineStart",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "SqlServerSource",
+						"sqlReaderQuery": {
+							"value": "select\n    om.application_name,\n    om.dataset_name,\n    ctrl.table_name,\n    om.server_name,\n    om.server_path as source_object_type,\n    om.filename as dso_changelog_table,\n    om.data_filename,\n    om.container_name,\n    om.archival_blob_name,\n    om.stage_blob_name,\n    om.blob_trigger_name,\n    om.data_level,\n    om.active_ind,\n    om.parent_id,\n    ctrl.dynamic_partition_ind,\n    ctrl.partition_column,\n    ctrl.incr_column_name,\n    ctrl.last_incr_value\n\t,case\n      when server_name = 'LS_APAC_INDO_DF_SQL' then 'khcde-kv-sec-indo-df-bi-sql-conn-string'\n\t  when server_name = 'LS_APAC_INDO_DF_EXPORT_SQL' then 'khcde-kv-sec-indo-df-exportacc-sql-conn-string'\n      when server_name = 'LS_APAC_INDO_DF_PLANNING_SQL' then 'khcde-kv-sec-indo-df-planning-sql-conn-string'\n\t  when server_name = 'LS_APAC_EXPORT_SQL' then 'khcde-kv-sec-indo-df-bi-export-sql-conn-string'\n\t  when server_name = 'LS_APAC_EXPORT_JDE_SQL' then 'khcde-kv-sec-apac-khauultsql04-sql-conn-string'\n      when server_name = 'LS_APAC_EXPORT_JDE02_SQL' then 'khcde-kv-sec-apac-khauultsql02-sql-conn-string'\n\t  when server_name = 'LS_APAC_CN_DF_SFA_SQL' then 'khcde-kv-sec-cn-sfa-sql-conn-strng'\n\t  when server_name = 'LS_APAC_CN_DF_MW_SQL' then 'khcde-kv-sec-cn-mw-sql-conn-strng'\n\t  when server_name = 'LS_APAC_CN_DF_DMS_SQL' then 'khcde-kv-sec-cn-dms-sql-conn-strng'\n\t  when server_name = 'LS_APAC_CN_DF_DW_SQL' then 'khcde-kv-sec-cn-dw-sql-conn-strng'\n\t  when server_name = 'LS_APAC_CN_DF_KAMERGE_SQL' then 'khcde-kv-sec-cn-kamerge-sql-conn-strng'\n\t  when server_name = 'LS_APAC_PNG_SQL' then 'khcde-kv-sec-apac-khpgpomapp01-sql-conn-string'\n      when server_name = 'LS_APAC_PNG_STAGING_SQL' then 'khcde-kv-sec-apac-png-staging-sql-conn-string'\n\t  when server_name = 'LS_APAC_CN_DF_PLMS_SQL' then 'khcde-kv-sec-cn-plms-sql-conn-strng'\n\t  when server_name = 'LS_APAC_PNG_YIELD_SQL' then 'khcde-kv-sec-png-yield-sql-conn-strng'\n\t  when server_name = 'LS_RUSSIA_EPOS_DWH_SQL' then 'khcde-kv-sec-russia-epos-dwh-sql-conn-strng'\n\t  when server_name = 'LS_RUSSIA_EPOS_MDS_SQL' then 'khcde-kv-sec-russia-epos-mds-sql-conn-strng'\n\t  when server_name = 'LS_APAC_LINE_PERFORMANCE_SQL' then 'khcde-kv-sec-indo-df-lineperformance-sql-conn-string'\n\t when server_name = 'LS_APAC_CN_DF_SMH_SQL' then 'khcde-kv-sec-cn-smh-sql-conn-strng'\n\t when server_name = 'LS_SQL_PROCUREMENT_EM' then 'khcde-kv-sec-procurement-em-sql-conn-string'\n\t when server_name = 'LS_APAC_CN_DATALAKE_SQL' then 'khcde-kv-sec-china-df-datalake-export-sql-conn-string'\n     when server_name = 'LS_APAC_EXPORT_DEMANDPLANNING_SQL' then 'khcde-kv-sec-indo-df-demandplanning-sql-conn-string'\n     when server_name = 'LS_APAC_EXPORT_AT_DEMANDPLANNING_SQL' then 'khcde-kv-sec-indo-df-at-demandplanning-sql-conn-string'\n\t when server_name = 'LS_APAC_ASN_JOB_SQL' then 'khcde-kv-sec-indo-df-asn-job-live-sql-conn-string'\n    END AS key_vault_secret_name\nfrom dbo.khc_orchestration_metadata om inner join\n( Select\n    parent_id,\n    table_name,\n    dynamic_partition_ind,\n    partition_column,\n    where_clause,\n    incr_column_name,\n    last_incr_value\nfrom dbo.khc_data_extract_control_table\n) ctrl\non om.parent_id = ctrl.parent_id\nwhere len(trim(om.server_name)) > 0\n    and om.application_name in ('@{pipeline().parameters.application_name}')\n  and om.adf_trigger_name in ('@{pipeline().parameters.adf_trigger_name}')\n  and (om.server_name like 'LS_APAC_%SQL' OR om.server_name like 'LS_RUSSIA_EPOS_%SQL'  OR om.server_name like 'LS_SQL_PROCUREMENT%EM')\n  and om.data_level >=2 and om.active_ind='y'",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "DS_KHCDE_GENERIC_MSSQL_Metadata",
+						"type": "DatasetReference"
+					},
+					"firstRowOnly": false
+				}
+			},
+			{
+				"name": "ForEach-Inp",
+				"description": "For each entry in metadata performs data extraction from relevant databases",
+				"type": "ForEach",
+				"dependsOn": [
+					{
+						"activity": "LU-SQL_Metadata",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"items": {
+						"value": "@activity('LU-SQL_Metadata').output.value",
+						"type": "Expression"
+					},
+					"isSequential": false,
+					"batchCount": 10,
+					"activities": [
+						{
+							"name": "Copy_SQL",
+							"description": "Data extraction from SQL Server database system and copying extracted files to specified blob location",
+							"type": "Copy",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 5,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"source": {
+									"type": "SqlServerSource",
+									"sqlReaderQuery": {
+										"value": "@{item().table_name}",
+										"type": "Expression"
+									},
+									"queryTimeout": "02:00:00",
+									"partitionOption": "None"
+								},
+								"sink": {
+									"type": "DelimitedTextSink",
+									"storeSettings": {
+										"type": "AzureBlobFSWriteSettings"
+									},
+									"formatSettings": {
+										"type": "DelimitedTextWriteSettings",
+										"quoteAllText": true,
+										"fileExtension": ".txt"
+									}
+								},
+								"enableStaging": false
+							},
+							"inputs": [
+								{
+									"referenceName": "DS_KHCDE_APAC_INDO_DF_SQL",
+									"type": "DatasetReference",
+									"parameters": {
+										"key_vault_secret_name": {
+											"value": "@{item().key_vault_secret_name}",
+											"type": "Expression"
+										}
+									}
+								}
+							],
+							"outputs": [
+								{
+									"referenceName": "DS_KHCDE_APAC_INDO_SEABPP_BLOB",
+									"type": "DatasetReference",
+									"parameters": {
+										"cw_fileName": {
+											"value": "@{concat(item().data_filename,'.csv')}",
+											"type": "Expression"
+										},
+										"cw_containerName": {
+											"value": "@{item().container_name}",
+											"type": "Expression"
+										},
+										"cw_filePath": {
+											"value": "@{item().stage_blob_name}",
+											"type": "Expression"
+										}
+									}
+								}
+							]
+						},
+						{
+							"name": "SP-Copy_SQL_Success",
+							"description": "This activity logs success of  Data Extract in khc_audit_log_detail table.",
+							"type": "SqlServerStoredProcedure",
+							"dependsOn": [
+								{
+									"activity": "Copy_SQL",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 5,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"storedProcedureName": "[dbo].[generic_activity_audit_log]",
+								"storedProcedureParameters": {
+									"activity_name": {
+										"value": "Copy_SQL",
+										"type": "String"
+									},
+									"activity_status": {
+										"value": {
+											"value": "Successful",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"application_name": {
+										"value": {
+											"value": "@pipeline().parameters.Application_Name",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"dataset_name": {
+										"value": {
+											"value": "@pipeline().parameters.adf_trigger_name",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_run_id": {
+										"value": {
+											"value": "@{pipeline().RunId}",
+											"type": "Expression"
+										},
+										"type": "String"
+									}
+								}
+							},
+							"linkedServiceName": {
+								"referenceName": "LS_SQL",
+								"type": "LinkedServiceReference"
+							}
+						},
+						{
+							"name": "SP-Copy_SQL_Failed",
+							"description": "This activity logs failure of Data Extract in khc_audit_log_detail table and failure of pipeline in  khc_audit_log table.",
+							"type": "SqlServerStoredProcedure",
+							"dependsOn": [
+								{
+									"activity": "Copy_SQL",
+									"dependencyConditions": [
+										"Failed"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 5,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+								"storedProcedureParameters": {
+									"action_ind": {
+										"value": "U",
+										"type": "String"
+									},
+									"activity_name": {
+										"value": "Copy_SQL",
+										"type": "String"
+									},
+									"activity_status": {
+										"value": "Failed",
+										"type": "String"
+									},
+									"application_name": {
+										"value": {
+											"value": "@pipeline().parameters.Application_Name",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"dataset_name": {
+										"value": {
+											"value": "@pipeline().parameters.adf_trigger_name",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"error_code": {
+										"value": {
+											"value": "@activity('Copy_SQL').Error.errorCode",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"error_detail": {
+										"value": {
+											"value": "@activity('Copy_SQL').Error.message",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_run_id": {
+										"value": {
+											"value": "@pipeline().RunId",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_status": {
+										"value": "Failed ",
+										"type": "String"
+									},
+									"skip_pipeline_audit_update": {
+										"value": "N",
+										"type": "String"
+									}
+								}
+							},
+							"linkedServiceName": {
+								"referenceName": "LS_SQL",
+								"type": "LinkedServiceReference"
+							}
+						}
+					]
+				}
+			},
+			{
+				"name": "SP-ForEach-Inp_Success",
+				"description": "This activity logs success of  Data Extract in khc_audit_log_detail table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "ForEach-Inp",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": "ForEach-Inp",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Successful",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.Application_Name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.adf_trigger_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-ForEach-Inp_Failed",
+				"description": "This activity logs failure of Data Extract in khc_audit_log_detail table and failure of pipeline in  khc_audit_log table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "ForEach-Inp",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": "U",
+							"type": "String"
+						},
+						"activity_name": {
+							"value": "ForEach-Inp",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": "Failed",
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.Application_Name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.adf_trigger_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_code": {
+							"value": "N.A",
+							"type": "String"
+						},
+						"error_detail": {
+							"value": {
+								"value": "N.A",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@pipeline().RunId",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": "Failed ",
+							"type": "String"
+						},
+						"skip_pipeline_audit_update": {
+							"value": "N",
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-PipelineStart",
+				"description": "This Activity logs starting of pipeline in khc_audit_log table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": {
+								"value": "I",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.adf_trigger_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@pipeline().Pipeline",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@pipeline().RunId",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Processing",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-PipelineEnd",
+				"description": "Update the Audit entry for the pipeline  run id to success",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "ForEach-Inp",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": {
+								"value": "U",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.adf_trigger_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@{pipeline().Pipeline}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Successful",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			}
+		],
+		"parameters": {
+			"application_name": {
+				"type": "string"
+			},
+			"adf_trigger_name": {
+				"type": "string"
+			}
+		},
+		"variables": {
+			"switch_var": {
+				"type": "String"
+			}
+		},
+		"folder": {
+			"name": "Apac_Master/sub-pipeline"
+		},
+		"annotations": []
+	}
+}

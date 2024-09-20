@@ -1,0 +1,814 @@
+{
+	"name": "PL_KHCDE_RUSSIA_EPOS_API_MASTER",
+	"properties": {
+		"description": "This is the main Russia Epos pipeline",
+		"activities": [
+			{
+				"name": "LU-Metadata",
+				"description": "This is the Lookup Metadata activity",
+				"type": "Lookup",
+				"dependsOn": [
+					{
+						"activity": "SP-PipelineStart",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "SqlServerSource",
+						"sqlReaderQuery": {
+							"value": "select * from khc_orchestration_metadata where application_name = '@{pipeline().parameters.ApplicationName}' and dataset_group = '@{pipeline().parameters.DatasetGroup}' and active_ind = 'y'",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "DS_KHCDE_GENERIC_MSSQL_Metadata",
+						"type": "DatasetReference"
+					},
+					"firstRowOnly": false
+				}
+			},
+			{
+				"name": "SP-PipelineStart",
+				"description": "This is the Start Audit activity",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": {
+								"value": "I",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.ApplicationName",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.DatasetGroup",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@{pipeline().Pipeline}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Processing",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-PipelineSuccessful",
+				"description": "This is the end audit activity",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "Trigger - Generation",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": {
+								"value": "U",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@{activity('LU-Metadata').output.value[0].application_name}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@{activity('LU-Metadata').output.value[0].dataset_group}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@{pipeline().Pipeline}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Successful",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-ActivityAndPipelineFailed01",
+				"description": "This is an audit activity",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "LU-Metadata",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": {
+								"value": "LU-Metadata",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@{activity('LU-Metadata').output.value[0].application_name}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@{activity('LU-Metadata').output.value[0].dataset_group}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_code": {
+							"value": {
+								"value": "@{activity('LU-Metadata').Error.errorCode}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_detail": {
+							"value": {
+								"value": "@{activity('LU-Metadata').Error.message}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-ActivityAndPipelineFailed02",
+				"description": "This is an audit activity",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "Trigger - Generation",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": {
+								"value": "RUSSIA EPOS Call Step",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@{activity('LU-Metadata').output.value[0].application_name}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@{activity('LU-Metadata').output.value[0].dataset_group}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_code": {
+							"value": {
+								"value": "@{activity('EP-RUSSIAEPOS').Error.errorCode}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_detail": {
+							"value": {
+								"value": "@{activity('EP-RUSSIAEPOS').Error.message}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "EP-RUSSIAEPOS",
+				"description": "This is the Russia Container pipeline",
+				"type": "ExecutePipeline",
+				"dependsOn": [
+					{
+						"activity": "IF-Stage File Exists",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"pipeline": {
+						"referenceName": "PL_KHCDE_SUB_RUSSIA_EPOS_API_DOWNLOAD",
+						"type": "PipelineReference"
+					},
+					"waitOnCompletion": true,
+					"parameters": {
+						"ApplicationName": {
+							"value": "@{activity('LU-Metadata').output.value[0].application_name}",
+							"type": "Expression"
+						},
+						"DatasetGroup": {
+							"value": "@{activity('LU-Metadata').output.value[0].dataset_group}",
+							"type": "Expression"
+						},
+						"ParameterJson": {
+							"value": "@{activity('LU-Metadata').output.value[0].parameter_json}",
+							"type": "Expression"
+						},
+						"report_type": {
+							"value": "@{pipeline().parameters.report_type}",
+							"type": "Expression"
+						},
+						"start_date": {
+							"value": "@variables('start_date')",
+							"type": "Expression"
+						},
+						"end_date": {
+							"value": "@variables('end_date')",
+							"type": "Expression"
+						}
+					}
+				}
+			},
+			{
+				"name": "WB-SendFailureEmail01",
+				"description": "This is the Failure Email activity",
+				"type": "WebActivity",
+				"dependsOn": [
+					{
+						"activity": "LU-Metadata",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"url": {
+						"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+						"type": "Expression"
+					},
+					"method": "POST",
+					"body": {
+						"value": "{ \n            \"to_email\": \"@{variables('emailTo')}\", \n            \"subject\": \"Failed during LU-Metadata: @{activity('LU-Metadata').output.value[0].application_name} - @{split(last(split(activity('LU-Metadata').output.value[0].dataset_group, '/')),'.')[0]}\", \n            \"body\": \"Hi,<br><br>The Epos data load process failed for the Application: @{activity('LU-Metadata').output.value[0].application_name}<br> DatasetGroup: @{activity('LU-Metadata').output.value[0].dataset_group}<br>Please find below the details: <br><br> Pipeline Name: @{pipeline().Pipeline} <br> Pipeline Run ID: @{pipeline().RunId}<br> Pipeline Trigger Name: @{pipeline().TriggerName}<br> Pipeline Trigger Type: @{pipeline().TriggerType}<br> Pipeline Start Time: @{pipeline().TriggerTime}<br> Activity: LU-Metadata<br><br><br>Parameters:<br>===========<br>Application Name: @{activity('LU-Metadata').output.value[0].application_name}<br>Dataset Name: @{activity('LU-Metadata').output.value[0].dataset_group}<br><br>Error Message: LU-Metadata Step failed <br><br>Regards,<br>Cloud Analytics Team\", \n            \"importance\": \"Normal\"\n    }",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "WB-SendFailureEmail02",
+				"description": "This is the Failure Email activity",
+				"type": "WebActivity",
+				"dependsOn": [
+					{
+						"activity": "Trigger - Generation",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"url": {
+						"value": "@variables('logicapp_url')",
+						"type": "Expression"
+					},
+					"method": "POST",
+					"body": {
+						"value": "{ \n            \"to_email\": \"@{variables('emailTo')}\", \n            \"subject\": \"Alert !!! Failed during Russia Epos: @{activity('LU-Metadata').output.value[0].application_name} - @{split(last(split(activity('LU-Metadata').output.value[0].dataset_group, '/')),'.')[0]}\", \n            \"body\": \"Hi,<br><br>The Epos data load process failed for the Application: @{activity('LU-Metadata').output.value[0].application_name}<br> DatasetGroup: @{activity('LU-Metadata').output.value[0].dataset_group}<br>Please find below the details: <br><br> Pipeline Name: @{pipeline().Pipeline} <br> Pipeline Run ID: @{pipeline().RunId}<br> Pipeline Trigger Name: @{pipeline().TriggerName}<br> Pipeline Trigger Type: @{pipeline().TriggerType}<br> Pipeline Start Time: @{pipeline().TriggerTime}<br> Activity: RUSSIA EPOS<br><br><br>Parameters:<br>===========<br>Application Name: @{activity('LU-Metadata').output.value[0].application_name}<br>Dataset Name: @{activity('LU-Metadata').output.value[0].dataset_group}<br><br>Error Message: RUSSIA EPOS Step failed <br><br>Regards,<br>DE Team\", \n            \"importance\": \"High\",\"cc_email\":\"@{variables('cc_emails')}\"\n    }  ",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "WB-SendSuccessEmail",
+				"description": "This is the Success Email activity",
+				"type": "WebActivity",
+				"dependsOn": [
+					{
+						"activity": "Trigger - Generation",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"url": {
+						"value": "@variables('logicapp_url')",
+						"type": "Expression"
+					},
+					"method": "POST",
+					"body": {
+						"value": "{ \n            \"to_email\": \"@{variables('emailTo')}\", \n            \"subject\": \"Success: @{activity('LU-Metadata').output.value[0].application_name} - @{split(last(split(activity('LU-Metadata').output.value[0].dataset_group, '/')),'.')[0]}\", \n            \"body\": \"Hi,<br><br>The Epos data load process succeeded for the Application: @{activity('LU-Metadata').output.value[0].application_name}<br> DatasetGroup: @{activity('LU-Metadata').output.value[0].dataset_group}<br>Please find below the details: <br><br> Pipeline Name: @{pipeline().Pipeline} <br> Pipeline Run ID: @{pipeline().RunId}<br> Pipeline Trigger Name: @{pipeline().TriggerName}<br> Pipeline Trigger Type: @{pipeline().TriggerType}<br> Pipeline Start Time: @{pipeline().TriggerTime}<br><br>\n    Parameters:<br>===========<br>Application Name: @{activity('LU-Metadata').output.value[0].application_name}<br>Dataset Name: @{activity('LU-Metadata').output.value[0].dataset_group}<br><br>Regards,<br>DE Team\", \n            \"importance\": \"Low\", \"cc_email\":\"@{variables('cc_emails')}\"\n    }           ",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "if_dailyRun_or_adhocRun",
+				"description": "Daily run or Adhoc run",
+				"type": "IfCondition",
+				"dependsOn": [
+					{
+						"activity": "LU-Metadata",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"expression": {
+						"value": "@equals(pipeline().parameters.start_date,'1900-01-01')",
+						"type": "Expression"
+					},
+					"ifFalseActivities": [
+						{
+							"name": "param_startDate",
+							"description": "Start date from parameter",
+							"type": "SetVariable",
+							"dependsOn": [],
+							"userProperties": [],
+							"typeProperties": {
+								"variableName": "start_date",
+								"value": {
+									"value": "@pipeline().parameters.start_date",
+									"type": "Expression"
+								}
+							}
+						},
+						{
+							"name": "param_endDate",
+							"description": "End Date from parameter",
+							"type": "SetVariable",
+							"dependsOn": [
+								{
+									"activity": "param_startDate",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"userProperties": [],
+							"typeProperties": {
+								"variableName": "end_date",
+								"value": {
+									"value": "@pipeline().parameters.end_date",
+									"type": "Expression"
+								}
+							}
+						}
+					],
+					"ifTrueActivities": [
+						{
+							"name": "startDate",
+							"description": "Start Date derivation -15 days then current date",
+							"type": "SetVariable",
+							"dependsOn": [],
+							"userProperties": [],
+							"typeProperties": {
+								"variableName": "start_date",
+								"value": {
+									"value": "@substring(AddDays(utcnow(),-16),0,10)",
+									"type": "Expression"
+								}
+							}
+						},
+						{
+							"name": "finishDate",
+							"description": "end date derivation : current date",
+							"type": "SetVariable",
+							"dependsOn": [
+								{
+									"activity": "startDate",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"userProperties": [],
+							"typeProperties": {
+								"variableName": "end_date",
+								"value": {
+									"value": "@substring(AddDays(utcnow(),-1),0,10)",
+									"type": "Expression"
+								}
+							}
+						}
+					]
+				}
+			},
+			{
+				"name": "Trigger - Generation",
+				"description": "This component places the trigger file for the downstream app",
+				"type": "Copy",
+				"dependsOn": [
+					{
+						"activity": "EP-RUSSIAEPOS",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "SqlServerSource",
+						"sqlReaderQuery": "select CURRENT_TIMESTAMP",
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"sink": {
+						"type": "DelimitedTextSink",
+						"storeSettings": {
+							"type": "AzureBlobFSWriteSettings"
+						},
+						"formatSettings": {
+							"type": "DelimitedTextWriteSettings",
+							"quoteAllText": true,
+							"fileExtension": ".txt"
+						}
+					},
+					"enableStaging": false,
+					"translator": {
+						"type": "TabularTranslator",
+						"typeConversion": true,
+						"typeConversionSettings": {
+							"allowDataTruncation": true,
+							"treatBooleanAsNumber": false
+						}
+					}
+				},
+				"inputs": [
+					{
+						"referenceName": "DS_KHCDE_GENERIC_MSSQL_Metadata",
+						"type": "DatasetReference"
+					}
+				],
+				"outputs": [
+					{
+						"referenceName": "DS_KHCDE_GENERIC_BLOB_CSV_FolderFile",
+						"type": "DatasetReference",
+						"parameters": {
+							"container_name": {
+								"value": "@activity('LU-Metadata').output.value[0].container_name",
+								"type": "Expression"
+							},
+							"blob_name": {
+								"value": "@if(contains(activity('LU-Metadata').output.value[0].blob_trigger_name, '/'), substring(activity('LU-Metadata').output.value[0].blob_trigger_name, 0, lastIndexOf(activity('LU-Metadata').output.value[0].blob_trigger_name, '/')), 'sales/russia_epos/triggers/dummy/')",
+								"type": "Expression"
+							},
+							"file_name": {
+								"value": "@if(contains(activity('LU-Metadata').output.value[0].blob_trigger_name, '/'), last(split(activity('LU-Metadata').output.value[0].blob_trigger_name, '/')), activity('LU-Metadata').output.value[0].blob_trigger_name)",
+								"type": "Expression"
+							},
+							"field_delimiter": ","
+						}
+					}
+				]
+			},
+			{
+				"name": "GM-StageFile",
+				"description": "This activity checks if stage file exists",
+				"type": "GetMetadata",
+				"dependsOn": [
+					{
+						"activity": "if_dailyRun_or_adhocRun",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"dataset": {
+						"referenceName": "DS_KHCDE_GENERIC_BLOB_BINARY_Folder",
+						"type": "DatasetReference",
+						"parameters": {
+							"container_name": {
+								"value": "@{activity('LU-Metadata').output.value[0].container_name}",
+								"type": "Expression"
+							},
+							"blob_name": {
+								"value": "@{activity('LU-Metadata').output.value[0].stage_blob_name}",
+								"type": "Expression"
+							}
+						}
+					},
+					"fieldList": [
+						"exists"
+					],
+					"storeSettings": {
+						"type": "AzureBlobFSReadSettings",
+						"recursive": true,
+						"enablePartitionDiscovery": false
+					},
+					"formatSettings": {
+						"type": "BinaryReadSettings"
+					}
+				}
+			},
+			{
+				"name": "IF-Stage File Exists",
+				"description": "Confirms if the stage file exists",
+				"type": "IfCondition",
+				"dependsOn": [
+					{
+						"activity": "GM-StageFile",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"expression": {
+						"value": "@activity('GM-StageFile').output.exists",
+						"type": "Expression"
+					},
+					"ifTrueActivities": [
+						{
+							"name": "Delete-Stage",
+							"description": "This activity would delete the stage files after ingestion",
+							"type": "Delete",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"dataset": {
+									"referenceName": "DS_KHCDE_ADLS_Blob",
+									"type": "DatasetReference",
+									"parameters": {
+										"container": {
+											"value": "@{activity('LU-Metadata').output.value[0].container_name}",
+											"type": "Expression"
+										},
+										"stage_path": {
+											"value": "@{activity('LU-Metadata').output.value[0].stage_blob_name}",
+											"type": "Expression"
+										}
+									}
+								},
+								"enableLogging": false,
+								"storeSettings": {
+									"type": "AzureBlobFSReadSettings",
+									"recursive": true,
+									"wildcardFileName": {
+										"value": "@{concat('*',substring(activity('LU-Metadata').output.value[0].data_filename,0,lastindexof(activity('LU-Metadata').output.value[0].data_filename,'*')),'*')}",
+										"type": "Expression"
+									},
+									"enablePartitionDiscovery": false
+								}
+							}
+						}
+					]
+				}
+			}
+		],
+		"parameters": {
+			"ApplicationName": {
+				"type": "string",
+				"defaultValue": "international_retailer_data"
+			},
+			"DatasetGroup": {
+				"type": "string",
+				"defaultValue": "russia_epos_products"
+			},
+			"report_type": {
+				"type": "string",
+				"defaultValue": "PRODUCT_DIRECTORY_V2"
+			},
+			"start_date": {
+				"type": "string",
+				"defaultValue": "1900-01-01"
+			},
+			"end_date": {
+				"type": "string",
+				"defaultValue": "1900-01-10"
+			}
+		},
+		"variables": {
+			"exit_ind": {
+				"type": "String",
+				"defaultValue": "N"
+			},
+			"emailTo": {
+				"type": "String",
+				"defaultValue": "Monalisha.Dash@kraftheinz.com , Uday.Gummanoor@kraftheinz.com"
+			},
+			"start_date": {
+				"type": "String"
+			},
+			"end_date": {
+				"type": "String"
+			},
+			"logicapp_url": {
+				"type": "String",
+				"defaultValue": "@pipeline().globalParameters.la_khcde_generic_email_url"
+			},
+			"cc_emails": {
+				"type": "String",
+				"defaultValue": "c3778b80.Heinz365.onmicrosoft.com@amer.teams.ms"
+			}
+		},
+		"folder": {
+			"name": "Russia_Epos"
+		},
+		"annotations": []
+	},
+	"type": "Microsoft.DataFactory/factories/pipelines"
+}

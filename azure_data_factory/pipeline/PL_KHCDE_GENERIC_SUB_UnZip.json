@@ -1,0 +1,494 @@
+{
+	"name": "PL_KHCDE_GENERIC_SUB_UnZip",
+	"properties": {
+		"description": "This pipeline is used to Unzip zipped files.",
+		"activities": [
+			{
+				"name": "GM-Land",
+				"description": "List files at land location.",
+				"type": "GetMetadata",
+				"dependsOn": [
+					{
+						"activity": "IF_Temp_exists",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "0.00:10:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"dataset": {
+						"referenceName": "DS_KHCDE_GENERIC_BLOB_BINARY_Folder",
+						"type": "DatasetReference",
+						"parameters": {
+							"container_name": {
+								"value": "@pipeline().parameters.container_name",
+								"type": "Expression"
+							},
+							"blob_name": {
+								"value": "@{concat(replace(pipeline().parameters.archival_blob_name, 'yyyyMMdd', 'processing'), '/land')}",
+								"type": "Expression"
+							}
+						}
+					},
+					"fieldList": [
+						"childItems"
+					],
+					"storeSettings": {
+						"type": "AzureBlobFSReadSettings",
+						"recursive": true
+					},
+					"formatSettings": {
+						"type": "BinaryReadSettings"
+					}
+				}
+			},
+			{
+				"name": "FE-Land",
+				"description": "Process each of land location.",
+				"type": "ForEach",
+				"dependsOn": [
+					{
+						"activity": "GM-Land",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"items": {
+						"value": "@activity('GM-Land').output.childItems",
+						"type": "Expression"
+					},
+					"activities": [
+						{
+							"name": "CP-LandToTemp_Unzip",
+							"type": "Copy",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"source": {
+									"type": "BinarySource",
+									"storeSettings": {
+										"type": "AzureBlobFSReadSettings",
+										"recursive": true
+									},
+									"formatSettings": {
+										"type": "BinaryReadSettings",
+										"compressionProperties": {
+											"type": "ZipDeflateReadSettings"
+										}
+									}
+								},
+								"sink": {
+									"type": "BinarySink",
+									"storeSettings": {
+										"type": "AzureBlobFSWriteSettings"
+									}
+								},
+								"enableStaging": false
+							},
+							"inputs": [
+								{
+									"referenceName": "DS_KHCDE_GENERIC_BLOB_BINARY_FolderFile_UnZip",
+									"type": "DatasetReference",
+									"parameters": {
+										"container_name": {
+											"value": "@{pipeline().parameters.container_name}",
+											"type": "Expression"
+										},
+										"folder_name": {
+											"value": "@{concat(replace(pipeline().parameters.archival_blob_name, 'yyyyMMdd', 'processing'), '/land')}",
+											"type": "Expression"
+										},
+										"file_name": {
+											"value": "@{item().name}",
+											"type": "Expression"
+										}
+									}
+								}
+							],
+							"outputs": [
+								{
+									"referenceName": "DS_KHCDE_GENERIC_BLOB_BINARY_Folder",
+									"type": "DatasetReference",
+									"parameters": {
+										"container_name": {
+											"value": "@{pipeline().parameters.container_name}",
+											"type": "Expression"
+										},
+										"blob_name": {
+											"value": "@{concat(replace(pipeline().parameters.archival_blob_name, 'yyyyMMdd', 'processing'), '/temp')}",
+											"type": "Expression"
+										}
+									}
+								}
+							]
+						},
+						{
+							"name": "SP-ActivityError_Unzip",
+							"type": "SqlServerStoredProcedure",
+							"dependsOn": [
+								{
+									"activity": "CP-LandToTemp_Unzip",
+									"dependencyConditions": [
+										"Failed"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "0.00:10:00",
+								"retry": 50,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+								"storedProcedureParameters": {
+									"activity_name": {
+										"value": {
+											"value": "CP-LandToTemp_Unzip",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"application_name": {
+										"value": {
+											"value": "@{pipeline().parameters.application_name}",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"dataset_name": {
+										"value": {
+											"value": "@{pipeline().parameters.dataset_name}",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"error_code": {
+										"value": {
+											"value": "@{activity('CP-LandToTemp_Unzip').output.errors[0].Code}",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"error_detail": {
+										"value": {
+											"value": "@{activity('CP-LandToTemp_Unzip').output.errors[0].Message}",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_run_id": {
+										"value": {
+											"value": "@{pipeline().parameters.pipeline_run_id}",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"activity_status": {
+										"value": {
+											"value": "Failed",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"skip_pipeline_audit_update": {
+										"value": {
+											"value": "Y",
+											"type": "Expression"
+										},
+										"type": "String"
+									}
+								}
+							},
+							"linkedServiceName": {
+								"referenceName": "LS_SQL",
+								"type": "LinkedServiceReference"
+							}
+						},
+						{
+							"name": "SP-ActivitySuccess_Unzip",
+							"type": "SqlServerStoredProcedure",
+							"dependsOn": [
+								{
+									"activity": "CP-LandToTemp_Unzip",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "0.00:10:00",
+								"retry": 50,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"storedProcedureName": "[dbo].[generic_activity_audit_log]",
+								"storedProcedureParameters": {
+									"activity_name": {
+										"value": {
+											"value": "CP-LandToTemp_Unzip",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"application_name": {
+										"value": {
+											"value": "@{pipeline().parameters.application_name}",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"dataset_name": {
+										"value": {
+											"value": "@{pipeline().parameters.dataset_name}",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_run_id": {
+										"value": {
+											"value": "@pipeline().parameters.pipeline_run_id",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"activity_status": {
+										"value": {
+											"value": "Successful",
+											"type": "Expression"
+										},
+										"type": "String"
+									}
+								}
+							},
+							"linkedServiceName": {
+								"referenceName": "LS_SQL",
+								"type": "LinkedServiceReference"
+							}
+						},
+						{
+							"name": "CP-ReraiseError_Unzip",
+							"type": "Copy",
+							"dependsOn": [
+								{
+									"activity": "SP-ActivityError_Unzip",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"source": {
+									"type": "BinarySource",
+									"storeSettings": {
+										"type": "AzureBlobFSReadSettings",
+										"recursive": true
+									},
+									"formatSettings": {
+										"type": "BinaryReadSettings"
+									}
+								},
+								"sink": {
+									"type": "BinarySink",
+									"storeSettings": {
+										"type": "AzureBlobFSWriteSettings"
+									}
+								},
+								"enableStaging": false,
+								"skipErrorFile": {
+									"fileMissing": false,
+									"fileForbidden": false
+								},
+								"validateDataConsistency": false
+							},
+							"inputs": [
+								{
+									"referenceName": "DS_KHCDE_GENERIC_BLOB_BINARY_Folder",
+									"type": "DatasetReference",
+									"parameters": {
+										"container_name": {
+											"value": "doesNotExist_Input",
+											"type": "Expression"
+										},
+										"blob_name": {
+											"value": "doesNotExist_Input",
+											"type": "Expression"
+										}
+									}
+								}
+							],
+							"outputs": [
+								{
+									"referenceName": "DS_KHCDE_GENERIC_BLOB_BINARY_Folder",
+									"type": "DatasetReference",
+									"parameters": {
+										"container_name": {
+											"value": "doesNotExist_Output",
+											"type": "Expression"
+										},
+										"blob_name": {
+											"value": "doesNotExist_Output",
+											"type": "Expression"
+										}
+									}
+								}
+							]
+						}
+					]
+				}
+			},
+			{
+				"name": "GM-Temp",
+				"description": "List file in ADLS source location ",
+				"type": "GetMetadata",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "0.00:10:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"dataset": {
+						"referenceName": "DS_KHCDE_GENERIC_BLOB_BINARY_Folder",
+						"type": "DatasetReference",
+						"parameters": {
+							"container_name": {
+								"value": "@{pipeline().parameters.container_name}",
+								"type": "Expression"
+							},
+							"blob_name": {
+								"value": "@{concat(replace(pipeline().parameters.archival_blob_name, 'yyyyMMdd', 'processing'), '/temp')}",
+								"type": "Expression"
+							}
+						}
+					},
+					"fieldList": [
+						"exists"
+					],
+					"storeSettings": {
+						"type": "AzureBlobFSReadSettings",
+						"recursive": true,
+						"enablePartitionDiscovery": false
+					},
+					"formatSettings": {
+						"type": "BinaryReadSettings"
+					}
+				}
+			},
+			{
+				"name": "IF_Temp_exists",
+				"description": "If temp folder exists then delete it, as it is holding files from prevous runs.",
+				"type": "IfCondition",
+				"dependsOn": [
+					{
+						"activity": "GM-Temp",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"expression": {
+						"value": "@activity('GM-Temp').output.exists",
+						"type": "Expression"
+					},
+					"ifTrueActivities": [
+						{
+							"name": "DL-temp-folder",
+							"description": "Delete temp folder ",
+							"type": "Delete",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "0.00:10:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"dataset": {
+									"referenceName": "DS_KHCDE_ADLS_Blob",
+									"type": "DatasetReference",
+									"parameters": {
+										"container": {
+											"value": "@{pipeline().parameters.container_name}",
+											"type": "Expression"
+										},
+										"stage_path": {
+											"value": "@{concat(replace(pipeline().parameters.archival_blob_name, 'yyyyMMdd', 'processing'), '/temp')}",
+											"type": "Expression"
+										}
+									}
+								},
+								"enableLogging": false,
+								"storeSettings": {
+									"type": "AzureBlobFSReadSettings",
+									"recursive": true,
+									"enablePartitionDiscovery": false
+								}
+							}
+						}
+					]
+				}
+			}
+		],
+		"parameters": {
+			"application_name": {
+				"type": "string"
+			},
+			"dataset_name": {
+				"type": "string"
+			},
+			"container_name": {
+				"type": "string"
+			},
+			"archival_blob_name": {
+				"type": "string"
+			},
+			"pipeline_run_id": {
+				"type": "string"
+			}
+		},
+		"folder": {
+			"name": "Generic_Frameworks/Sub_Pipelines"
+		},
+		"annotations": []
+	},
+	"type": "Microsoft.DataFactory/factories/pipelines"
+}

@@ -1,0 +1,970 @@
+{
+	"name": "PL_KHCDE_PRODUCT_LINE_PROFITABILITY_REPORT_SENDER",
+	"properties": {
+		"description": "This pipeline is used to send reports to the respective teams based on the dataset_group running",
+		"activities": [
+			{
+				"name": "LU-Metadata",
+				"description": "This activity pulls the details of the snowflake table and blob location from khc_enggextract_metadata table which needs to extracted.",
+				"type": "Lookup",
+				"dependsOn": [
+					{
+						"activity": "set_env_variable",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "SqlServerSource",
+						"sqlReaderQuery": {
+							"value": "select application_name,\ndataset_name,\ndataset_group,\nadf_trigger_name,\nsnowflake_role,\nwarehouse_size,\nsnowflake_database,\nsnowflake_schema,\nbase_table_name,\nsnowflake_stage_name,\nsnowflake_file_format,\ncopy_options,\ncontainer_name,\nextract_blob_location,\nextract_archival_blob_name,\nreplace(replace(replace(replace(replace(extract_file_name,'<yyyy>','*'),'<MM>','*'),'<dd>','*'),'<hh24>','*'),'<ss>','*') as extract_file_name,\nserver_name,\nreplace(sftp_path, '<env>', '@{variables('env')}') as sftp_path,\nsftp_copy_ind,\nactive_ind\nfrom khc_enggextract_metadata where application_name= '@{pipeline().parameters.ApplicationName}' and dataset_group = '@{pipeline().parameters.Dataset_group}' and dataset_name <>'@{pipeline().parameters.Dataset_group}' and active_ind = 'y'",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "DS_KHCDE_GENERIC_MSSQL_Metadata",
+						"type": "DatasetReference"
+					},
+					"firstRowOnly": false
+				}
+			},
+			{
+				"name": "set_env_variable",
+				"description": "Set the variable - ENV from global parameters - AZURE_ENV",
+				"type": "SetVariable",
+				"dependsOn": [
+					{
+						"activity": "SP-PipelineStart",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"variableName": "env",
+					"value": {
+						"value": "@pipeline().globalParameters.AZURE_ENV",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "ForEach-LU",
+				"description": "Loops over the inner activities for each entry of the metadata",
+				"type": "ForEach",
+				"dependsOn": [
+					{
+						"activity": "LU-Metadata",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"items": {
+						"value": "@activity('LU-Metadata').output.value",
+						"type": "Expression"
+					},
+					"isSequential": false,
+					"batchCount": 5,
+					"activities": [
+						{
+							"name": "Lookup_file",
+							"description": "Reads the extract file",
+							"type": "Lookup",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"source": {
+									"type": "DelimitedTextSource",
+									"storeSettings": {
+										"type": "AzureBlobFSReadSettings",
+										"recursive": true,
+										"wildcardFileName": {
+											"value": "@{concat(item().extract_file_name,'*')}",
+											"type": "Expression"
+										},
+										"enablePartitionDiscovery": false
+									},
+									"formatSettings": {
+										"type": "DelimitedTextReadSettings"
+									}
+								},
+								"dataset": {
+									"referenceName": "DS_KHCDE_GENERIC_BLOB_CSV_WITH_HEADER",
+									"type": "DatasetReference",
+									"parameters": {
+										"container_name": "khc-enterprise-data",
+										"blob_name": {
+											"value": "@{item().extract_blob_location}",
+											"type": "Expression"
+										},
+										"field_delimiter": ","
+									}
+								},
+								"firstRowOnly": false
+							}
+						},
+						{
+							"name": "Switch-emailsender",
+							"description": "switch to send the email with or without attachment based on the dataset_group condition and data available in extracts",
+							"type": "Switch",
+							"dependsOn": [
+								{
+									"activity": "Lookup_file",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"userProperties": [],
+							"typeProperties": {
+								"on": {
+									"value": "@concat(pipeline().parameters.Dataset_group,'#',item().dataset_name,'#',if(greater(activity('Lookup_file').output.count,0),'T','F'))",
+									"type": "Expression"
+								},
+								"cases": [
+									{
+										"value": "CATALYST_DATA#FDMEE_DIFFERENCES#T",
+										"activities": [
+											{
+												"name": "EmailSender_FDMEE_Withattachment",
+												"description": "This activity sends the success email when the pipeline is successfully completed and share the fdmee differences as report",
+												"type": "WebActivity",
+												"dependsOn": [],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"url": {
+														"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+														"type": "Expression"
+													},
+													"method": "POST",
+													"body": {
+														"value": "{ \n\"to_email\":\"@{variables('to_emails_it_finance_and_da')}\", \n\"subject\":\"SST NA MEC unmapped fpls changes\", \n\"body\": \"Data Load and extract process has been completed Successfully for application @{pipeline().parameters.ApplicationName}. The pipelinename is @{pipeline().Pipeline}. The pipelineid is @{pipeline().RunId}. The Dataset name is @{pipeline().parameters.Dataset_group}.<br> <b>Please find the attached FDMEE product mapping changes.</b>\",\n\"attachment_path\":\"@{concat('khc-enterprise-data/',item().extract_blob_location,item().extract_file_name)}\",\n\"importance\": \"Low\"\n}\n",
+														"type": "Expression"
+													}
+												}
+											}
+										]
+									},
+									{
+										"value": "CATALYST_DATA#FDMEE_DIFFERENCES#F",
+										"activities": [
+											{
+												"name": "EmailSender_FDMEE_Withoutattachment",
+												"description": "This activity sends the success email when the pipeline is successfully completed and there are no fdmee differences.",
+												"type": "WebActivity",
+												"dependsOn": [],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"url": {
+														"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+														"type": "Expression"
+													},
+													"method": "POST",
+													"body": {
+														"value": "{ \n\"to_email\":\"@{variables('to_emails_it_finance_and_da')}\", \n\"subject\":\"SST NA MEC unmapped fpls changes\", \n\"body\": \"Data Load and extract process has been completed Successfully for application @{pipeline().parameters.ApplicationName}. The pipelinename is @{pipeline().Pipeline}. The pipelineid is @{pipeline().RunId}. The Dataset name is @{pipeline().parameters.Dataset_group}.<br> <b>There were no changes found in FDMEE mapping from the previous load.</b>\",\n\"importance\": \"Low\"\n}\n",
+														"type": "Expression"
+													}
+												}
+											}
+										]
+									},
+									{
+										"value": "CATALYST_DATA#CATALYST_KICKOUT_REPORT#T",
+										"activities": [
+											{
+												"name": "EmailSender_CatalystKickout_Withattachment",
+												"description": "This activity sends the success email when the pipeline is successfully completed and share the Catalyst Kickout Report report",
+												"type": "WebActivity",
+												"dependsOn": [],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"url": {
+														"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+														"type": "Expression"
+													},
+													"method": "POST",
+													"body": {
+														"value": "{ \n\"to_email\":\"@{variables('to_emails_it_finance_and_da')}\", \n\"subject\":\"SST NA Kickout Report\", \n\"body\": \"Data Load and extract process has been completed Successfully for application @{pipeline().parameters.ApplicationName}. The pipelinename is @{pipeline().Pipeline}. The pipelineid is @{pipeline().RunId}. The Dataset name is @{pipeline().parameters.Dataset_group}.<br> <b>This report provides all metadata kickouts as well as product kickouts and that it hasn’t been mapped to a product because the entry was booked at the company code and profit center. Usually JET entries.</b>\",\n\"attachment_path\":\"@{concat('khc-enterprise-data/',item().extract_blob_location,item().extract_file_name)}\",\n\"importance\": \"Low\"\n}\n",
+														"type": "Expression"
+													}
+												}
+											}
+										]
+									},
+									{
+										"value": "CATALYST_DATA#CATALYST_KICKOUT_REPORT#F",
+										"activities": [
+											{
+												"name": "EmailSender_CatalystKickout_Withoutattachment",
+												"description": "This activity sends the success email when the pipeline is successfully completed and no Metadata Kickouts were found.",
+												"type": "WebActivity",
+												"dependsOn": [],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"url": {
+														"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+														"type": "Expression"
+													},
+													"method": "POST",
+													"body": {
+														"value": "{ \n\"to_email\":\"@{variables('to_emails_it_finance_and_da')}\", \n\"subject\":\"SST NA Kickout Report\", \n\"body\": \"Data Load and extract process has been completed Successfully for application @{pipeline().parameters.ApplicationName}. The pipelinename is @{pipeline().Pipeline}. The pipelineid is @{pipeline().RunId}. The Dataset name is @{pipeline().parameters.Dataset_group}.<br> <b>There were no Metadata Kickouts found in the table.</b>\",\n\"importance\": \"Low\"\n}\n",
+														"type": "Expression"
+													}
+												}
+											}
+										]
+									},
+									{
+										"value": "CATALYST_DATA#PRE_ALLOCATION_VALIDATION_CHECKS#T",
+										"activities": [
+											{
+												"name": "EmailSender_PreAllocation_Checks_Success",
+												"description": "This activity sends the success email when the pipeline is successfully completed and displays validation check results in body of email.",
+												"type": "WebActivity",
+												"dependsOn": [],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"url": {
+														"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+														"type": "Expression"
+													},
+													"method": "POST",
+													"body": {
+														"value": "{ \n\"to_email\":\"@{variables('to_emails_it_finance_and_da')}\", \n\"subject\":\"SST NA Pre Allocation Count by Datatype Report\", \n\"body\": \"Data Load and extract process has been completed Successfully for application @{pipeline().parameters.ApplicationName}. The pipelinename is @{pipeline().Pipeline}. The pipelineid is @{pipeline().RunId}. The Dataset name is @{pipeline().parameters.Dataset_group}.<br> The pre allocations validation check report is as follows: @{activity('Lookup_file').output.value[0].DATA_CHECKS}. <br> \",\n\"importance\": \"Low\"\n}",
+														"type": "Expression"
+													}
+												}
+											}
+										]
+									},
+									{
+										"value": "CATALYST_DATA#PRE_ALLOCATION_VALIDATION_CHECKS#F",
+										"activities": [
+											{
+												"name": "EmailSender_PreAllocation_Checks_Failure",
+												"description": "This activity sends the email when the pipeline is successfully completed and no validation check data is found in output.",
+												"type": "WebActivity",
+												"dependsOn": [],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"url": {
+														"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+														"type": "Expression"
+													},
+													"method": "POST",
+													"body": {
+														"value": "{ \n\"to_email\":\"@{variables('to_emails_it_finance_and_da')}\", \n\"subject\":\"SST NA Pre Allocation Count by Datatype\", \n\"body\": \"Data Load and extract process has been completed Successfully for application @{pipeline().parameters.ApplicationName}. The pipelinename is @{pipeline().Pipeline}. The pipelineid is @{pipeline().RunId}. The Dataset name is @{pipeline().parameters.Dataset_group}.<br> <b>Something went wrong in pre allocations and no data was found in validation checks.</b>\",\n\"importance\": \"Low\"\n}\n",
+														"type": "Expression"
+													}
+												}
+											}
+										]
+									},
+									{
+										"value": "CATALYST_ALLOCATION_DATA#POST_ALLOCATION_VALIDATION_CHECKS#T",
+										"activities": [
+											{
+												"name": "EmailSender_PostAllocation_Validation_Withattachment",
+												"description": "This activity sends the success email when the pipeline is successfully completed and share the post allocation validation checks as report.",
+												"type": "WebActivity",
+												"dependsOn": [],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"url": {
+														"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+														"type": "Expression"
+													},
+													"method": "POST",
+													"body": {
+														"value": "{ \n\"to_email\":\"@{variables('to_emails_it_finance_and_da')}\", \n\"subject\":\"SST NA Post Allocation Count by Datatype\", \n\"body\": \"Data Load and extract process has been completed Successfully for application @{pipeline().parameters.ApplicationName}. The pipelinename is @{pipeline().Pipeline}. The pipelineid is @{pipeline().RunId}. The Dataset name is @{pipeline().parameters.Dataset_group}.<br> The post allocations validation check report is as follows: @{activity('Lookup_file').output.value[0].DATA_CHECKS}\",\n\"importance\": \"Low\"\n}\n",
+														"type": "Expression"
+													}
+												}
+											}
+										]
+									},
+									{
+										"value": "CATALYST_ALLOCATION_DATA#POST_ALLOCATION_VALIDATION_CHECKS#F",
+										"activities": [
+											{
+												"name": "EmailSender_PostAllocation_Validation_Withoutattachment",
+												"description": "This activity sends the success email when the pipeline is successfully completed and no validation results found",
+												"type": "WebActivity",
+												"dependsOn": [],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"url": {
+														"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+														"type": "Expression"
+													},
+													"method": "POST",
+													"body": {
+														"value": "{ \n\"to_email\":\"@{variables('to_emails_it_finance_and_da')}\", \n\"subject\":\"SST NA Post Allocation Count by Datatype\", \n\"body\": \"Data Load and extract process has been completed Successfully for application @{pipeline().parameters.ApplicationName}. The pipelinename is @{pipeline().Pipeline}. The pipelineid is @{pipeline().RunId}. The Dataset name is @{pipeline().parameters.Dataset_group}.<br> <b>Something went wrong in post allocations load no data found in validation checks.</b>\",\n\"importance\": \"Low\"\n}\n",
+														"type": "Expression"
+													}
+												}
+											}
+										]
+									},
+									{
+										"value": "CATALYST_ALLOCATION_DATA#POST_ALLOCATION_RATES_CHECKS#T",
+										"activities": [
+											{
+												"name": "EmailSender_Rates_check_Withattachment",
+												"description": "This activity sends the success email when the pipeline is successfully completed and share the rates check report",
+												"type": "WebActivity",
+												"dependsOn": [],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"url": {
+														"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+														"type": "Expression"
+													},
+													"method": "POST",
+													"body": {
+														"value": "{ \n\"to_email\":\"@{variables('to_emails_data_assurance')}\", \n\"subject\":\"SST NA Missing Throughput Keys\", \n\"body\": \"Data Load and extract process has been completed Successfully for application @{pipeline().parameters.ApplicationName}. The pipelinename is @{pipeline().Pipeline}. The pipelineid is @{pipeline().RunId}. The Dataset name is @{pipeline().parameters.Dataset_group}.<br> <b>This report shows the missing throughput keys by period.  Action required by the logistic team to provide the rates.</b>\",\n\"attachment_path\":\"@{concat('khc-enterprise-data/',item().extract_blob_location,item().extract_file_name)}\",\n\"importance\": \"Low\"\n}\n",
+														"type": "Expression"
+													}
+												}
+											}
+										]
+									},
+									{
+										"value": "CATALYST_ALLOCATION_DATA#POST_ALLOCATION_RATES_CHECKS#F",
+										"activities": [
+											{
+												"name": "EmailSender_Rates_check_Withoutattachment",
+												"description": "This activity sends the success email when the pipeline is successfully completed and no missing rates were found.",
+												"type": "WebActivity",
+												"dependsOn": [],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"url": {
+														"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+														"type": "Expression"
+													},
+													"method": "POST",
+													"body": {
+														"value": "{ \n\"to_email\":\"@{variables('to_emails_data_assurance')}\", \n\"subject\":\"SST NA Missing Throughput Keys\", \n\"body\": \"Data Load and extract process has been completed Successfully for application @{pipeline().parameters.ApplicationName}. The pipelinename is @{pipeline().Pipeline}. The pipelineid is @{pipeline().RunId}. The Dataset name is @{pipeline().parameters.Dataset_group}.<br> <b>There were no missing rates for any of the prior periods.</b>\",\n\"importance\": \"Low\"\n}\n",
+														"type": "Expression"
+													}
+												}
+											}
+										]
+									},
+									{
+										"value": "CATALYST_DATA#ROYALTIES_DATA#T",
+										"activities": [
+											{
+												"name": "EmailSender_Royalties_Withattachment",
+												"description": "This activity sends the success email when the pipeline is successfully completed and share the Royalties data as export",
+												"type": "WebActivity",
+												"dependsOn": [],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"url": {
+														"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+														"type": "Expression"
+													},
+													"method": "POST",
+													"body": {
+														"value": "{ \n\"to_email\":\"@{variables('to_emails_it_finance')}\", \n\"subject\":\"SST NA Royalties data\", \n\"body\": \"Data Load and extract process has been completed Successfully for application @{pipeline().parameters.ApplicationName}. The pipelinename is @{pipeline().Pipeline}. The pipelineid is @{pipeline().RunId}. The Dataset name is @{pipeline().parameters.Dataset_group}.<br> <b>This file is for the AFH process indicating the file has been loaded in snowflake.</b>\",\n\"attachment_path\":\"@{concat('khc-enterprise-data/',item().extract_blob_location,item().extract_file_name)}\",\n\"importance\": \"Low\"\n}\n",
+														"type": "Expression"
+													}
+												}
+											}
+										]
+									},
+									{
+										"value": "CATALYST_DATA#BLACKLINE_DATA#T",
+										"activities": [
+											{
+												"name": "EmailSender_Blackline_Withattachment",
+												"description": "This activity sends the success email when the pipeline is successfully completed and share the blackline data as export",
+												"type": "WebActivity",
+												"dependsOn": [],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"url": {
+														"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+														"type": "Expression"
+													},
+													"method": "POST",
+													"body": {
+														"value": "{ \n\"to_email\":\"@{variables('to_emails_data_assurance')}\", \n\"subject\":\"SST NA Blackline Recon data\", \n\"body\": \"Data Load and extract process has been completed Successfully for application @{pipeline().parameters.ApplicationName}. The pipelinename is @{pipeline().Pipeline}. The pipelineid is @{pipeline().RunId}. The Dataset name is @{pipeline().parameters.Dataset_group}.<br> <b>Please find the attached Blackline data export</b>\",\n\"attachment_path\":\"@{concat('khc-enterprise-data/',item().extract_blob_location,item().extract_file_name)}\",\n\"importance\": \"Low\"\n}\n",
+														"type": "Expression"
+													}
+												}
+											}
+										]
+									},
+									{
+										"value": "CATALYST_ALLOCATION_DATA#BLACKLINE_DATA#T",
+										"activities": [
+											{
+												"name": "EmailSender_Blackline_postallocation_Withattachment",
+												"description": "This activity sends the success email when the pipeline is successfully completed and share the blackline data as export",
+												"type": "WebActivity",
+												"dependsOn": [],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"url": {
+														"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+														"type": "Expression"
+													},
+													"method": "POST",
+													"body": {
+														"value": "{ \n\"to_email\":\"@{variables('to_emails_data_assurance')}\", \n\"subject\":\"SST NA Blackline Recon data\", \n\"body\": \"Data Load and extract process has been completed Successfully for application @{pipeline().parameters.ApplicationName}. The pipelinename is @{pipeline().Pipeline}. The pipelineid is @{pipeline().RunId}. The Dataset name is @{pipeline().parameters.Dataset_group}.<br> <b>Please find the attached Blackline data export</b>\",\n\"attachment_path\":\"@{concat('khc-enterprise-data/',item().extract_blob_location,item().extract_file_name)}\",\n\"importance\": \"Low\"\n}\n",
+														"type": "Expression"
+													}
+												}
+											}
+										]
+									},
+									{
+										"value": "CATALYST_ALLOCATION_DATA#UNALLOCATED_AMOUNT_CHECKS#T",
+										"activities": [
+											{
+												"name": "EmailSender_postallocation_Unallocated_Withattachment",
+												"description": "This activity sends the success email when the pipeline is successfully completed and share the unallocated checks data as export",
+												"type": "WebActivity",
+												"dependsOn": [],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"url": {
+														"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+														"type": "Expression"
+													},
+													"method": "POST",
+													"body": {
+														"value": "{ \n\"to_email\":\"@{variables('to_emails_data_assurance')}\", \n\"subject\":\"SST NA Unallocated Amounts Report\", \n\"body\": \"Data Load and extract process has been completed Successfully for application @{pipeline().parameters.ApplicationName}. The pipelinename is @{pipeline().Pipeline}. The pipelineid is @{pipeline().RunId}. The Dataset name is @{pipeline().parameters.Dataset_group}.<br> <b>This report shows the unallocated amount by percentage for variable and fixed distribution.</b>\",\n\"attachment_path\":\"@{concat('khc-enterprise-data/',item().extract_blob_location,item().extract_file_name)}\",\n\"importance\": \"Low\"\n}\n",
+														"type": "Expression"
+													}
+												}
+											}
+										]
+									},
+									{
+										"value": "CATALYST_DATA#CROSS_BU_REPORT#T",
+										"activities": [
+											{
+												"name": "EmailSender_CrossBU_Withattachment",
+												"description": "This activity sends the success email when the pipeline is successfully completed and share the crossbu report as export",
+												"type": "WebActivity",
+												"dependsOn": [],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"url": {
+														"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+														"type": "Expression"
+													},
+													"method": "POST",
+													"body": {
+														"value": "{ \n\"to_email\":\"@{variables('to_emails_it_finance_and_da')}\", \n\"subject\":\"SST NA cross bu report\", \n\"body\": \"Data Load and extract process has been completed Successfully for application @{pipeline().parameters.ApplicationName}. The pipelinename is @{pipeline().Pipeline}. The pipelineid is @{pipeline().RunId}. The Dataset name is @{pipeline().parameters.Dataset_group}.<br> <b>Please find the attached cross bu report</b>\",\n\"attachment_path\":\"@{concat('khc-enterprise-data/',item().extract_blob_location,item().extract_file_name)}\",\n\"importance\": \"Low\"\n}\n",
+														"type": "Expression"
+													}
+												}
+											}
+										]
+									},
+									{
+										"value": "CATALYST_ALLOCATION_DATA#CATALYST_ALLOCATION_NA_VALIDATION_DATA#T",
+										"activities": [
+											{
+												"name": "EmailSender_allocation_validation_data_Withattachment",
+												"description": "This activity sends the success email when the pipeline is successfully completed and share the na allocation validation extracts",
+												"type": "WebActivity",
+												"dependsOn": [],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"url": {
+														"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+														"type": "Expression"
+													},
+													"method": "POST",
+													"body": {
+														"value": "{ \n\"to_email\":\"@{variables('to_emails_data_assurance')}\", \n\"subject\":\"SST NA Working vs Loaded\", \n\"body\": \"Data Load and extract process has been completed Successfully for application @{pipeline().parameters.ApplicationName}. The pipelinename is @{pipeline().Pipeline}. The pipelineid is @{pipeline().RunId}. The Dataset name is @{pipeline().parameters.Dataset_group}.<br> <b>This report shows the variance between loaded and working by account.</b>\",\n\"attachment_path\":\"@{concat('khc-enterprise-data/',item().extract_blob_location,item().extract_file_name)}\",\n\"importance\": \"Low\"\n}\n",
+														"type": "Expression"
+													}
+												}
+											}
+										]
+									},
+									{
+										"value": "CATALYST_ALLOCATION_DATA#CATALYST_ALLOCATION_NA_VALIDATION_DATA#F",
+										"activities": [
+											{
+												"name": "EmailSender_allocation_validation_Withoutattachment",
+												"description": "This activity sends the success email when the pipeline is successfully completed and Validation is successful.No records were found with difference amount greater than 1.",
+												"type": "WebActivity",
+												"dependsOn": [],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"url": {
+														"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+														"type": "Expression"
+													},
+													"method": "POST",
+													"body": {
+														"value": "{ \n\"to_email\":\"@{variables('to_emails_data_assurance')}\", \n\"subject\":\"SST NA Working vs Loaded\", \n\"body\": \"Data Load and extract process has been completed Successfully for application @{pipeline().parameters.ApplicationName}. The pipelinename is @{pipeline().Pipeline}. The pipelineid is @{pipeline().RunId}. The Dataset name is @{pipeline().parameters.Dataset_group}.<br> <b>There were no records with difference amount greater than 1.</b>\",\n\"importance\": \"Low\"\n}\n",
+														"type": "Expression"
+													}
+												}
+											}
+										]
+									},
+									{
+										"value": "CATALYST_ALLOCATION_DATA#CATALYST_ALLOCATION_EPM_VALIDATION_DATA#T",
+										"activities": [
+											{
+												"name": "EmailSender_allocation_epm_validation_Withattachment",
+												"description": "This activity sends the success email when the pipeline is successfully completed and share the epm allocation validation extracts",
+												"type": "WebActivity",
+												"dependsOn": [],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"url": {
+														"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+														"type": "Expression"
+													},
+													"method": "POST",
+													"body": {
+														"value": "{ \n\"to_email\":\"@{variables('to_emails_data_assurance')}\", \n\"subject\":\"SST NA Sum of Parts Report\", \n\"body\": \"Data Load and extract process has been completed Successfully for application @{pipeline().parameters.ApplicationName}. The pipelinename is @{pipeline().Pipeline}. The pipelineid is @{pipeline().RunId}. The Dataset name is @{pipeline().parameters.Dataset_group}.<br> <b>This report shows the sum of parts where you have the total epm not equaling the total product (column D-E). The difference is usually attributed to products without NSV or GSV.</b>\",\n\"attachment_path\":\"@{concat('khc-enterprise-data/',item().extract_blob_location,item().extract_file_name)}\",\n\"importance\": \"Low\"\n}\n",
+														"type": "Expression"
+													}
+												}
+											}
+										]
+									},
+									{
+										"value": "CATALYST_ALLOCATION_DATA#CATALYST_ALLOCATION_EPM_VALIDATION_DATA#F",
+										"activities": [
+											{
+												"name": "EmailSender_allocation_epm_validation_Withoutattachment",
+												"description": "This activity sends the success email when the pipeline is successfully completed and no epm validations were found.",
+												"type": "WebActivity",
+												"dependsOn": [],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"url": {
+														"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+														"type": "Expression"
+													},
+													"method": "POST",
+													"body": {
+														"value": "{ \n\"to_email\":\"@{variables('to_emails_data_assurance')}\", \n\"subject\":\"SST NA Sum of Parts Report\", \n\"body\": \"Data Load and extract process has been completed Successfully for application @{pipeline().parameters.ApplicationName}. The pipelinename is @{pipeline().Pipeline}. The pipelineid is @{pipeline().RunId}. The Dataset name is @{pipeline().parameters.Dataset_group}.<br> <b>There were no epm validations found.</b>\",\n\"importance\": \"Low\"\n}\n",
+														"type": "Expression"
+													}
+												}
+											}
+										]
+									}
+								]
+							}
+						}
+					]
+				}
+			},
+			{
+				"name": "SP-PipelineStart",
+				"description": "This Activity logs starting of pipeline in khc_audit_log table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": {
+								"value": "I",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.ApplicationName",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@{pipeline().parameters.Dataset_Group}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@pipeline().Pipeline",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@pipeline().RunId",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Processing",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-PipelineSuccess",
+				"description": "This activity logs pipeline success in audit log",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "ForEach-LU",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": {
+								"value": "U",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@{pipeline().parameters.ApplicationName}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@{pipeline().parameters.Dataset_group}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@{pipeline().Pipeline}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Successful",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-PipelineFailed",
+				"description": "This activity logs pipeline failure in audit log",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "ForEach-LU",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": {
+								"value": "U",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@{pipeline().parameters.ApplicationName}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@{pipeline().parameters.Dataset_group}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@{pipeline().Pipeline}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			}
+		],
+		"parameters": {
+			"ApplicationName": {
+				"type": "string"
+			},
+			"Dataset_group": {
+				"type": "string"
+			}
+		},
+		"variables": {
+			"env": {
+				"type": "String"
+			},
+			"to_emails_data_assurance": {
+				"type": "String",
+				"defaultValue": "DLKHCFINANCEDATAOPS@kraftheinz.com"
+			},
+			"to_emails_it_finance_and_da": {
+				"type": "String",
+				"defaultValue": "DLKHCFINANCEDATAOPS@kraftheinz.com"
+			},
+			"to_emails_it_finance": {
+				"type": "String",
+				"defaultValue": "DLKHCFINANCEDATAOPS@kraftheinz.com"
+			}
+		},
+		"folder": {
+			"name": "Product_Line_Profitability/sub-pipeline"
+		},
+		"annotations": []
+	}
+}

@@ -1,0 +1,1199 @@
+{
+	"name": "PL_KHCDE_OEE_SFK_STAGING_WITH_FILE_COL",
+	"properties": {
+		"description": "This pipeline splits excel into block blobs and triggers PL_KHCDE_GENERIC_SnowflakeIngestion pipeline",
+		"activities": [
+			{
+				"name": "Lookup_SFK_METADATA",
+				"description": "Generic orchestration lookup activity for getting post update orchestration metadata",
+				"type": "Lookup",
+				"dependsOn": [
+					{
+						"activity": "SP-PipelineStart",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "SqlServerSource",
+						"sqlReaderQuery": {
+							"value": "Select * from [dbo].[khc_orchestration_metadata] where [server_name]='LS_FS_BLYFORD_HNADATA' and [dataset_name]='@{pipeline().parameters.dataset_name}'",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "DS_KHCDE_GENERIC_MSSQL_Metadata",
+						"type": "DatasetReference"
+					}
+				}
+			},
+			{
+				"name": "If-Mapping",
+				"description": "Starts inner activities to split excel files",
+				"type": "IfCondition",
+				"dependsOn": [
+					{
+						"activity": "Lookup_SFK_METADATA",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"expression": {
+						"value": "@endswith(activity('Lookup_SFK_METADATA').output.firstRow.dataset_name,'mapping')",
+						"type": "Expression"
+					},
+					"ifFalseActivities": [
+						{
+							"name": "Copy-withAddColtoTemp",
+							"description": "This activity copied data to temp",
+							"type": "Copy",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 5,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"source": {
+									"type": "DelimitedTextSource",
+									"additionalColumns": [
+										{
+											"name": "File_name",
+											"value": "$$FILEPATH"
+										}
+									],
+									"storeSettings": {
+										"type": "AzureBlobFSReadSettings",
+										"recursive": true,
+										"wildcardFolderPath": {
+											"value": "@activity('Lookup_SFK_METADATA').output.firstRow.stage_blob_name",
+											"type": "Expression"
+										},
+										"wildcardFileName": {
+											"value": "@activity('Lookup_SFK_METADATA').output.firstRow.filename",
+											"type": "Expression"
+										},
+										"enablePartitionDiscovery": false
+									},
+									"formatSettings": {
+										"type": "DelimitedTextReadSettings",
+										"skipLineCount": {
+											"value": "@if(or(endswith(activity('Lookup_SFK_METADATA').output.firstRow.dataset_name,'manual'),endswith(activity('Lookup_SFK_METADATA').output.firstRow.dataset_name,'mes')),0,1)",
+											"type": "Expression"
+										}
+									}
+								},
+								"sink": {
+									"type": "DelimitedTextSink",
+									"storeSettings": {
+										"type": "AzureBlobFSWriteSettings"
+									},
+									"formatSettings": {
+										"type": "DelimitedTextWriteSettings",
+										"quoteAllText": true,
+										"fileExtension": {
+											"value": "@concat('.',activity('Lookup_SFK_METADATA').output.firstRow.pattern_type)",
+											"type": "Expression"
+										}
+									}
+								},
+								"enableStaging": false
+							},
+							"inputs": [
+								{
+									"referenceName": "DS_KHCDE_OEE_ADLS_CSV_FolderFile",
+									"type": "DatasetReference",
+									"parameters": {
+										"container_name": "@activity('Lookup_SFK_METADATA').output.firstRow.container_name",
+										"blob_name": "@activity('Lookup_SFK_METADATA').output.firstRow.stage_blob_name",
+										"file_name": "@activity('Lookup_SFK_METADATA').output.firstRow.filename",
+										"field_delimiter": "@activity('Lookup_SFK_METADATA').output.firstRow.field_delimiter"
+									}
+								}
+							],
+							"outputs": [
+								{
+									"referenceName": "DS_KHCDE_OEE_BLOB_CSV_Folder",
+									"type": "DatasetReference",
+									"parameters": {
+										"container_name": "@activity('Lookup_SFK_METADATA').output.firstRow.container_name",
+										"blob_name": {
+											"value": "@concat('global_manufacturing/global_oee/tempStage/',pipeline().parameters.dataset_name)",
+											"type": "Expression"
+										},
+										"field_delimiter": "@activity('Lookup_SFK_METADATA').output.firstRow.field_delimiter"
+									}
+								}
+							]
+						},
+						{
+							"name": "DL-Stage",
+							"description": "This activity deletes files at Stage location",
+							"type": "Delete",
+							"dependsOn": [
+								{
+									"activity": "Copy-withAddColtoTemp",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 5,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"dataset": {
+									"referenceName": "DS_KHCDE_OEE_ADLS_CSV_FolderFile",
+									"type": "DatasetReference",
+									"parameters": {
+										"container_name": "@activity('Lookup_SFK_METADATA').output.firstRow.container_name",
+										"blob_name": "@activity('Lookup_SFK_METADATA').output.firstRow.stage_blob_name",
+										"file_name": "@activity('Lookup_SFK_METADATA').output.firstRow.filename",
+										"field_delimiter": "@activity('Lookup_SFK_METADATA').output.firstRow.field_delimiter"
+									}
+								},
+								"enableLogging": false,
+								"storeSettings": {
+									"type": "AzureBlobFSReadSettings",
+									"recursive": true,
+									"wildcardFileName": {
+										"value": "@{activity('Lookup_SFK_METADATA').output.firstRow.filename}",
+										"type": "Expression"
+									}
+								}
+							}
+						},
+						{
+							"name": "Copy-tempToStage",
+							"description": "This activity copies files from temp to stage",
+							"type": "Copy",
+							"dependsOn": [
+								{
+									"activity": "DL-Stage",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 5,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"source": {
+									"type": "DelimitedTextSource",
+									"storeSettings": {
+										"type": "AzureBlobFSReadSettings",
+										"recursive": true,
+										"wildcardFolderPath": {
+											"value": "@concat('global_manufacturing/global_oee/tempStage/',pipeline().parameters.dataset_name)",
+											"type": "Expression"
+										},
+										"wildcardFileName": {
+											"value": "@activity('Lookup_SFK_METADATA').output.firstRow.filename",
+											"type": "Expression"
+										},
+										"enablePartitionDiscovery": false
+									},
+									"formatSettings": {
+										"type": "DelimitedTextReadSettings"
+									}
+								},
+								"sink": {
+									"type": "DelimitedTextSink",
+									"storeSettings": {
+										"type": "AzureBlobFSWriteSettings"
+									},
+									"formatSettings": {
+										"type": "DelimitedTextWriteSettings",
+										"quoteAllText": true,
+										"fileExtension": {
+											"value": "@concat('.',activity('Lookup_SFK_METADATA').output.firstRow.pattern_type)",
+											"type": "Expression"
+										}
+									}
+								},
+								"enableStaging": false
+							},
+							"inputs": [
+								{
+									"referenceName": "DS_KHCDE_OEE_ADLS_CSV_FolderFile",
+									"type": "DatasetReference",
+									"parameters": {
+										"container_name": "@activity('Lookup_SFK_METADATA').output.firstRow.container_name",
+										"blob_name": {
+											"value": "@concat('global_manufacturing/global_oee/tempStage/',pipeline().parameters.dataset_name)",
+											"type": "Expression"
+										},
+										"file_name": "@activity('Lookup_SFK_METADATA').output.firstRow.filename",
+										"field_delimiter": "@activity('Lookup_SFK_METADATA').output.firstRow.field_delimiter"
+									}
+								}
+							],
+							"outputs": [
+								{
+									"referenceName": "DS_KHCDE_OEE_BLOB_CSV_Folder",
+									"type": "DatasetReference",
+									"parameters": {
+										"container_name": "@activity('Lookup_SFK_METADATA').output.firstRow.container_name",
+										"blob_name": "@activity('Lookup_SFK_METADATA').output.firstRow.stage_blob_name",
+										"field_delimiter": "@activity('Lookup_SFK_METADATA').output.firstRow.field_delimiter"
+									}
+								}
+							]
+						},
+						{
+							"name": "DL-Temp",
+							"description": "This activity deletes temp location",
+							"type": "Delete",
+							"dependsOn": [
+								{
+									"activity": "Copy-tempToStage",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 5,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"dataset": {
+									"referenceName": "DS_KHCDE_OEE_ADLS_CSV_FolderFile",
+									"type": "DatasetReference",
+									"parameters": {
+										"container_name": "@activity('Lookup_SFK_METADATA').output.firstRow.container_name",
+										"blob_name": {
+											"value": "@concat('global_manufacturing/global_oee/tempStage/',pipeline().parameters.dataset_name)",
+											"type": "Expression"
+										},
+										"file_name": "@activity('Lookup_SFK_METADATA').output.firstRow.filename",
+										"field_delimiter": "@activity('Lookup_SFK_METADATA').output.firstRow.field_delimiter"
+									}
+								},
+								"enableLogging": false,
+								"storeSettings": {
+									"type": "AzureBlobFSReadSettings",
+									"recursive": true,
+									"wildcardFileName": {
+										"value": "@{activity('Lookup_SFK_METADATA').output.firstRow.filename}",
+										"type": "Expression"
+									}
+								}
+							}
+						},
+						{
+							"name": "Execute-PPL-SFKIngestion",
+							"description": "This activity invokes PL_KHCDE_GENERIC_SnowflakeIngestion pipeline",
+							"type": "ExecutePipeline",
+							"dependsOn": [
+								{
+									"activity": "DL-Temp",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"userProperties": [],
+							"typeProperties": {
+								"pipeline": {
+									"referenceName": "PL_KHCDE_GENERIC_SnowflakeIngestion",
+									"type": "PipelineReference"
+								},
+								"waitOnCompletion": true,
+								"parameters": {
+									"ApplicationName": {
+										"value": "@activity('Lookup_SFK_METADATA').output.firstRow.application_name",
+										"type": "Expression"
+									},
+									"DatasetGroup": {
+										"value": "@activity('Lookup_SFK_METADATA').output.firstRow.dataset_group",
+										"type": "Expression"
+									},
+									"ParameterJson": {
+										"value": "@activity('Lookup_SFK_METADATA').output.firstRow.parameter_json",
+										"type": "Expression"
+									}
+								}
+							}
+						}
+					],
+					"ifTrueActivities": [
+						{
+							"name": "CopySheetfromExcel",
+							"description": "This activity splits and copies sheets into the stage location",
+							"type": "Copy",
+							"dependsOn": [
+								{
+									"activity": "DL-ExistingSheetOnStage",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 5,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [
+								{
+									"name": "Source",
+									"value": "NON_PROD/QA/OEE/Archive/MAPPING/FACTORY_LINE_MAPPING.xlsx"
+								},
+								{
+									"name": "Destination",
+									"value": "khc-enterprise-data/global_manufacturing/Global_OEE/Plant_mapping"
+								}
+							],
+							"typeProperties": {
+								"source": {
+									"type": "ExcelSource",
+									"storeSettings": {
+										"type": "AzureBlobFSReadSettings",
+										"recursive": true
+									}
+								},
+								"sink": {
+									"type": "DelimitedTextSink",
+									"storeSettings": {
+										"type": "AzureBlobFSWriteSettings"
+									},
+									"formatSettings": {
+										"type": "DelimitedTextWriteSettings",
+										"quoteAllText": true,
+										"fileExtension": ".txt"
+									}
+								},
+								"enableStaging": false,
+								"translator": {
+									"type": "TabularTranslator",
+									"mappings": [
+										{
+											"source": {
+												"name": "source",
+												"type": "String"
+											},
+											"sink": {
+												"type": "String",
+												"ordinal": 1
+											}
+										},
+										{
+											"source": {
+												"name": "oee_plant",
+												"type": "String"
+											},
+											"sink": {
+												"type": "String",
+												"ordinal": 2
+											}
+										},
+										{
+											"source": {
+												"name": "oee_line_name",
+												"type": "String"
+											},
+											"sink": {
+												"type": "String",
+												"ordinal": 3
+											}
+										},
+										{
+											"source": {
+												"name": "Plant_Official_Name",
+												"type": "String"
+											},
+											"sink": {
+												"type": "String",
+												"ordinal": 4
+											}
+										},
+										{
+											"source": {
+												"name": "Line_Official_Name",
+												"type": "String"
+											},
+											"sink": {
+												"type": "String",
+												"ordinal": 5
+											}
+										},
+										{
+											"source": {
+												"name": "Unique_Code",
+												"type": "String"
+											},
+											"sink": {
+												"type": "String",
+												"ordinal": 6
+											}
+										},
+										{
+											"source": {
+												"name": "Line_Alias_Name",
+												"type": "String"
+											},
+											"sink": {
+												"type": "String",
+												"ordinal": 7
+											}
+										},
+										{
+											"source": {
+												"name": "Line_Status",
+												"type": "String"
+											},
+											"sink": {
+												"type": "String",
+												"ordinal": 8
+											}
+										},
+										{
+											"source": {
+												"name": "Line_classification",
+												"type": "String"
+											},
+											"sink": {
+												"type": "String",
+												"ordinal": 9
+											}
+										},
+										{
+											"source": {
+												"name": "Line_type",
+												"type": "String"
+											},
+											"sink": {
+												"type": "String",
+												"ordinal": 10
+											}
+										},
+										{
+											"source": {
+												"name": "line_oee_cluster",
+												"type": "String"
+											},
+											"sink": {
+												"type": "String",
+												"ordinal": 11
+											}
+										},
+										{
+											"source": {
+												"name": "line_yield_cluster",
+												"type": "String"
+											},
+											"sink": {
+												"type": "String",
+												"ordinal": 12
+											}
+										},
+										{
+											"source": {
+												"name": "line_labor_cluster",
+												"type": "String"
+											},
+											"sink": {
+												"type": "String",
+												"ordinal": 13
+											}
+										},
+										{
+											"source": {
+												"name": "Country",
+												"type": "String"
+											},
+											"sink": {
+												"type": "String",
+												"ordinal": 14
+											}
+										},
+										{
+											"source": {
+												"name": "BU",
+												"type": "String"
+											},
+											"sink": {
+												"type": "String",
+												"ordinal": 15
+											}
+										},
+										{
+											"source": {
+												"name": "Zone",
+												"type": "String"
+											},
+											"sink": {
+												"type": "String",
+												"ordinal": 16
+											}
+										},
+										{
+											"source": {
+												"name": "State",
+												"type": "String"
+											},
+											"sink": {
+												"type": "String",
+												"ordinal": 17
+											}
+										},
+										{
+											"source": {
+												"name": "City",
+												"type": "String"
+											},
+											"sink": {
+												"type": "String",
+												"ordinal": 18
+											}
+										},
+										{
+											"source": {
+												"name": "Period Start",
+												"type": "String"
+											},
+											"sink": {
+												"type": "String",
+												"ordinal": 19
+											}
+										},
+										{
+											"source": {
+												"name": "Period End",
+												"type": "String"
+											},
+											"sink": {
+												"type": "String",
+												"ordinal": 20
+											}
+										}
+									]
+								}
+							},
+							"inputs": [
+								{
+									"referenceName": "DS_KHCDE_BLYFORD_EXCEL",
+									"type": "DatasetReference"
+								}
+							],
+							"outputs": [
+								{
+									"referenceName": "DS_KHCDE_ADLS_SHEET_EXTRACT_CSV",
+									"type": "DatasetReference"
+								}
+							]
+						},
+						{
+							"name": "DL-ExistingSheetOnStage",
+							"description": "This activity deleted any already existing sheets from the stage location.",
+							"type": "Delete",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 5,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"dataset": {
+									"referenceName": "DS_KHCDE_ADLS_SHEET_EXTRACT_CSV",
+									"type": "DatasetReference"
+								},
+								"enableLogging": false,
+								"storeSettings": {
+									"type": "AzureBlobFSReadSettings",
+									"recursive": false
+								}
+							}
+						},
+						{
+							"name": "DL-ExcelFromStage",
+							"description": "This activity deletes sheets from the stage location once it has been processed.",
+							"type": "Delete",
+							"dependsOn": [
+								{
+									"activity": "CopySheetfromExcel",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 5,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"dataset": {
+									"referenceName": "DS_KHCDE_BLYFORD_EXCEL",
+									"type": "DatasetReference"
+								},
+								"enableLogging": false,
+								"storeSettings": {
+									"type": "AzureBlobFSReadSettings",
+									"recursive": true
+								}
+							}
+						},
+						{
+							"name": "Execute-PipelineSFKIngestion",
+							"description": "This activity starts PL_KHCDE_GENERIC_SnowflakeIngestion pipeline",
+							"type": "ExecutePipeline",
+							"dependsOn": [
+								{
+									"activity": "DL-ExcelFromStage",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"userProperties": [],
+							"typeProperties": {
+								"pipeline": {
+									"referenceName": "PL_KHCDE_GENERIC_SnowflakeIngestion",
+									"type": "PipelineReference"
+								},
+								"waitOnCompletion": true,
+								"parameters": {
+									"ApplicationName": {
+										"value": "@activity('Lookup_SFK_METADATA').output.firstRow.application_name",
+										"type": "Expression"
+									},
+									"DatasetGroup": {
+										"value": "@activity('Lookup_SFK_METADATA').output.firstRow.dataset_group",
+										"type": "Expression"
+									},
+									"ParameterJson": {
+										"value": "@activity('Lookup_SFK_METADATA').output.firstRow.parameter_json",
+										"type": "Expression"
+									}
+								}
+							}
+						}
+					]
+				}
+			},
+			{
+				"name": "SP-PipelineStart",
+				"description": "Start of logging PL_KHCDE_OEE_SFK_STAGING_WITH_FILE_COL Pipeline",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": "I",
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.dataset_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@pipeline().Pipeline",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@pipeline().RunId",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": "Processing",
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-ActivitySuccess01",
+				"description": "Logging of Success Message for Lookup_SFK_METADATA",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "Lookup_SFK_METADATA",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": "Metadata",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Successful",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@activity('Lookup_SFK_METADATA').output.firstRow.application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@activity('Lookup_SFK_METADATA').output.firstRow.dataset_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-ActivityFailed01",
+				"description": "Logging of Failure Message for Lookup_SFK_METADATA",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "Lookup_SFK_METADATA",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": "Metadata",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@activity('Lookup_SFK_METADATA').output.firstRow.application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@activity('Lookup_SFK_METADATA').output.firstRow.dataset_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_code": {
+							"value": {
+								"value": "N.A.",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_detail": {
+							"value": {
+								"value": "N.A.",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-ActivitySuccess02",
+				"description": "Logging of Success Message for If-Mapping Activity",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "If-Mapping",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": "Metadata",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Successful",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@activity('Lookup_SFK_METADATA').output.firstRow.application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@activity('Lookup_SFK_METADATA').output.firstRow.dataset_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-ActivityFailed02",
+				"description": "Logging of Failure Message for If-Mapping Activity",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "If-Mapping",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": "Metadata",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@activity('Lookup_SFK_METADATA').output.firstRow.application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@activity('Lookup_SFK_METADATA').output.firstRow.dataset_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_code": {
+							"value": {
+								"value": "N.A.",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_detail": {
+							"value": {
+								"value": "N.A.",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-Pipelinesuccesful",
+				"description": "Logging of Success Message for PL_KHCDE_OEE_SFK_STAGING_WITH_FILE_COL",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "If-Mapping",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": "U",
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.dataset_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@{pipeline().Pipeline}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": "Successful",
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-Pipelinefailed",
+				"description": "Logging of failure Message for PL_KHCDE_OEE_SFK_STAGING_WITH_FILE_COL",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "If-Mapping",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": "U",
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.dataset_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@{pipeline().Pipeline}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": "Failed",
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			}
+		],
+		"parameters": {
+			"dataset_name": {
+				"type": "string"
+			},
+			"application_name": {
+				"type": "string"
+			}
+		},
+		"folder": {
+			"name": "Global_OEE"
+		},
+		"annotations": []
+	},
+	"type": "Microsoft.DataFactory/factories/pipelines"
+}

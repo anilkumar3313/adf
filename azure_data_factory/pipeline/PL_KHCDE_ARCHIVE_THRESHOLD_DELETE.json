@@ -1,0 +1,134 @@
+{
+	"name": "PL_KHCDE_ARCHIVE_THRESHOLD_DELETE",
+	"properties": {
+		"activities": [
+			{
+				"name": "GM_ArchiveChildItems",
+				"description": "This will display all the dates inside the archive folder.",
+				"type": "GetMetadata",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"dataset": {
+						"referenceName": "DS_KHCDE_GENERIC_BLOB_BINARY_Folder",
+						"type": "DatasetReference",
+						"parameters": {
+							"container_name": {
+								"value": "@pipeline().parameters.container_name",
+								"type": "Expression"
+							},
+							"blob_name": {
+								"value": "@replace(pipeline().parameters.archive_path,'/yyyyMMdd','')",
+								"type": "Expression"
+							}
+						}
+					},
+					"fieldList": [
+						"childItems"
+					],
+					"storeSettings": {
+						"type": "AzureBlobFSReadSettings",
+						"enablePartitionDiscovery": false
+					},
+					"formatSettings": {
+						"type": "BinaryReadSettings"
+					}
+				}
+			},
+			{
+				"name": "FE_DeleteOldArchive",
+				"description": "This will loop through all the dates in the archive folder and will delete the ones older than the threshold.",
+				"type": "ForEach",
+				"dependsOn": [
+					{
+						"activity": "GM_ArchiveChildItems",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"items": {
+						"value": "@activity('GM_ArchiveChildItems').output.childItems",
+						"type": "Expression"
+					},
+					"activities": [
+						{
+							"name": "IF_older_than_threshold",
+							"description": "If the current date is older than the threshold, it will delete it.",
+							"type": "IfCondition",
+							"dependsOn": [],
+							"userProperties": [],
+							"typeProperties": {
+								"expression": {
+									"value": "@greater(\nsub(ticks(utcnow()),ticks(convertToUtc(concat(substring(item().name,4,2),'/',substring(item().name,6,2),'/',substring(item().name,0,4),' 00:00:00'), 'UTC'))),\n\nmul(pipeline().parameters.threshold_days,864000000000))",
+									"type": "Expression"
+								},
+								"ifTrueActivities": [
+									{
+										"name": "DEL_ArchiveFolder",
+										"type": "Delete",
+										"dependsOn": [],
+										"policy": {
+											"timeout": "7.00:00:00",
+											"retry": 0,
+											"retryIntervalInSeconds": 30,
+											"secureOutput": false,
+											"secureInput": false
+										},
+										"userProperties": [],
+										"typeProperties": {
+											"dataset": {
+												"referenceName": "DS_KHCDE_GENERIC_BLOB_BINARY_Folder",
+												"type": "DatasetReference",
+												"parameters": {
+													"container_name": {
+														"value": "@pipeline().parameters.container_name",
+														"type": "Expression"
+													},
+													"blob_name": {
+														"value": "@replace(pipeline().parameters.archive_path,'yyyyMMdd',item().name)",
+														"type": "Expression"
+													}
+												}
+											},
+											"enableLogging": false,
+											"storeSettings": {
+												"type": "AzureBlobFSReadSettings",
+												"recursive": true,
+												"enablePartitionDiscovery": false
+											}
+										}
+									}
+								]
+							}
+						}
+					]
+				}
+			}
+		],
+		"parameters": {
+			"container_name": {
+				"type": "string"
+			},
+			"archive_path": {
+				"type": "string"
+			},
+			"threshold_days": {
+				"type": "int"
+			}
+		},
+		"folder": {
+			"name": "O9"
+		},
+		"annotations": []
+	}
+}

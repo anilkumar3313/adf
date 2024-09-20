@@ -1,0 +1,1705 @@
+{
+	"name": "PL_KHCDE_GENERIC_BLOB_TO_SFTP_PUSH",
+	"properties": {
+		"description": "Generic Pipeline to push the ADLS blob into source system. ",
+		"activities": [
+			{
+				"name": "LU_EXTRACT_METADATA",
+				"description": "This activity extracts information of tables which needs to be unloaded from snowflake from metadata tabel - khc_enggextract_metadata.",
+				"type": "Lookup",
+				"dependsOn": [
+					{
+						"activity": "set_env_variable",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "SqlServerSource",
+						"sqlReaderQuery": {
+							"value": "select application_name,\ndataset_name,\ndataset_group,\nadf_trigger_name,\ncontainer_name,\nextract_blob_location,\nextract_archival_blob_name,\nreplace(replace(replace(replace(replace(extract_file_name,'<yyyy>','*'),'<MM>','*'),'<dd>','*'),'<hh24>','*'),'<ss>','*') as extract_file_name,\nserver_name,\nreplace(sftp_path, '<env>', '@{variables('env')}') as sftp_path,sftp_copy_ind,active_ind from dbo.khc_enggextract_metadata where application_name  ='@{pipeline().parameters.app_name}' and \ndataset_group='@{pipeline().parameters.dataset_group}' and sftp_copy_ind='y' and active_ind='y' and server_name in ('LS_Sftp_Globalscape','LS_FS_BLYFORD','LS_SFTP_HIGH_RADIUS','LS_Sftp_AU_IRI','LS_SFTP_SFDC_DOWNSTREAM_INTEGRATION','LS_FS_FOODSERVICE_US_VIA','LS_AZ_KHC_DATASHARE_STRGV2','LS_AZ_KHC_O9_EXTERNALSHARE_STRGV2','LS_FS_ORACLE_APPS_112','LS_AZ_KHC_EXTERNALSHARE_STRGV2','LS_SFTP_IBM_GPS_IHOST')",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "DS_KHCDE_GENERIC_MSSQL_Metadata",
+						"type": "DatasetReference"
+					},
+					"firstRowOnly": false
+				}
+			},
+			{
+				"name": "FE_extract",
+				"description": "This activity loops on all the records that needs to be unloaded from snowflake. ",
+				"type": "ForEach",
+				"dependsOn": [
+					{
+						"activity": "LU_EXTRACT_METADATA",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"items": {
+						"value": "@activity('LU_EXTRACT_METADATA').output.value",
+						"type": "Expression"
+					},
+					"isSequential": false,
+					"activities": [
+						{
+							"name": "SP-Success_CP_TO_Server",
+							"description": "This activity logs success of  FE_extract activity in IF_outbound_folder_exists table.",
+							"type": "SqlServerStoredProcedure",
+							"dependsOn": [
+								{
+									"activity": "SW-Server",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 5,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"storedProcedureName": "[dbo].[generic_activity_audit_log]",
+								"storedProcedureParameters": {
+									"activity_name": {
+										"value": {
+											"value": "@concat('CP_ADLS_TO_',replace(item().server_name,'LS_',''))",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"activity_status": {
+										"value": {
+											"value": "Successful",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"application_name": {
+										"value": {
+											"value": "@item().application_name\n",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"dataset_name": {
+										"value": {
+											"value": "@item().dataset_name",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_run_id": {
+										"value": {
+											"value": "@pipeline().RunId",
+											"type": "Expression"
+										},
+										"type": "String"
+									}
+								}
+							},
+							"linkedServiceName": {
+								"referenceName": "LS_SQL",
+								"type": "LinkedServiceReference"
+							}
+						},
+						{
+							"name": "SP-Failure_CP_TO_Server",
+							"description": "This activity logs failure of IF_outbound_folder_exists activity in khc_audit_log_detail table and failure of pipeline in  khc_audit_log table.",
+							"type": "SqlServerStoredProcedure",
+							"dependsOn": [
+								{
+									"activity": "SW-Server",
+									"dependencyConditions": [
+										"Failed"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 5,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+								"storedProcedureParameters": {
+									"action_ind": {
+										"value": "U",
+										"type": "String"
+									},
+									"activity_name": {
+										"value": {
+											"value": "@concat('CP_ADLS_TO_',replace(item().server_name,'LS_',''))",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"activity_status": {
+										"value": "Failed",
+										"type": "String"
+									},
+									"application_name": {
+										"value": {
+											"value": "@item().application_name",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"dataset_name": {
+										"value": {
+											"value": "@item().dataset_name",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"error_code": {
+										"value": "N.A.",
+										"type": "String"
+									},
+									"error_detail": {
+										"value": "N.A.",
+										"type": "String"
+									},
+									"pipeline_run_id": {
+										"value": {
+											"value": "@pipeline().RunId",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_status": {
+										"value": "Failed",
+										"type": "String"
+									},
+									"skip_pipeline_audit_update": {
+										"value": "N",
+										"type": "String"
+									}
+								}
+							},
+							"linkedServiceName": {
+								"referenceName": "LS_SQL",
+								"type": "LinkedServiceReference"
+							}
+						},
+						{
+							"name": "CP_Archival_ADLS",
+							"description": "This activity  archival the unloaded files.",
+							"type": "Copy",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 5,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"source": {
+									"type": "BinarySource",
+									"storeSettings": {
+										"type": "AzureBlobFSReadSettings",
+										"recursive": true,
+										"wildcardFileName": {
+											"value": "@{item().extract_file_name}*",
+											"type": "Expression"
+										},
+										"deleteFilesAfterCompletion": false
+									},
+									"formatSettings": {
+										"type": "BinaryReadSettings"
+									}
+								},
+								"sink": {
+									"type": "BinarySink",
+									"storeSettings": {
+										"type": "AzureBlobFSWriteSettings"
+									}
+								},
+								"enableStaging": false
+							},
+							"inputs": [
+								{
+									"referenceName": "DS_ADLS_NonCompressed",
+									"type": "DatasetReference",
+									"parameters": {
+										"container_name": {
+											"value": "@item().container_name",
+											"type": "Expression"
+										},
+										"stage_path": {
+											"value": "@item().extract_blob_location",
+											"type": "Expression"
+										}
+									}
+								}
+							],
+							"outputs": [
+								{
+									"referenceName": "DS_ADLS_Compressed",
+									"type": "DatasetReference",
+									"parameters": {
+										"container_name": {
+											"value": "@item().container_name",
+											"type": "Expression"
+										},
+										"stage_path": {
+											"value": "@replace(item().extract_archival_blob_name, 'yyyyMMdd',string(formatDateTime(utcnow(),'yyyyMMdd')))",
+											"type": "Expression"
+										}
+									}
+								}
+							]
+						},
+						{
+							"name": "SP-Success_Archival_ADLS",
+							"description": "This activity logs success of  CP_Archival_ADLS in IF_outbound_folder_exists table.",
+							"type": "SqlServerStoredProcedure",
+							"dependsOn": [
+								{
+									"activity": "CP_Archival_ADLS",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 5,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"storedProcedureName": "[dbo].[generic_activity_audit_log]",
+								"storedProcedureParameters": {
+									"activity_name": {
+										"value": "CP_Archival_ADLS",
+										"type": "String"
+									},
+									"activity_status": {
+										"value": {
+											"value": "Successful",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"application_name": {
+										"value": {
+											"value": "@item().application_name",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"dataset_name": {
+										"value": {
+											"value": "@item().dataset_name",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_run_id": {
+										"value": {
+											"value": "@pipeline().RunId",
+											"type": "Expression"
+										},
+										"type": "String"
+									}
+								}
+							},
+							"linkedServiceName": {
+								"referenceName": "LS_SQL",
+								"type": "LinkedServiceReference"
+							}
+						},
+						{
+							"name": "SP-Failure_Archival_ADLS",
+							"description": "This activity logs failure of CP_Archival_ADLS activity in khc_audit_log_detail table and failure of pipeline in  khc_audit_log table.",
+							"type": "SqlServerStoredProcedure",
+							"dependsOn": [
+								{
+									"activity": "CP_Archival_ADLS",
+									"dependencyConditions": [
+										"Failed"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 5,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+								"storedProcedureParameters": {
+									"action_ind": {
+										"value": "U",
+										"type": "String"
+									},
+									"activity_name": {
+										"value": "CP_Archival_ADLS",
+										"type": "String"
+									},
+									"activity_status": {
+										"value": "Failed",
+										"type": "String"
+									},
+									"application_name": {
+										"value": {
+											"value": "@item().application_name",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"dataset_name": {
+										"value": {
+											"value": "@item().dataset_name",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"error_code": {
+										"value": "N.A.",
+										"type": "String"
+									},
+									"error_detail": {
+										"value": "N.A.",
+										"type": "String"
+									},
+									"pipeline_run_id": {
+										"value": {
+											"value": "@pipeline().RunId",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_status": {
+										"value": "Failed",
+										"type": "String"
+									},
+									"skip_pipeline_audit_update": {
+										"value": "N",
+										"type": "String"
+									}
+								}
+							},
+							"linkedServiceName": {
+								"referenceName": "LS_SQL",
+								"type": "LinkedServiceReference"
+							}
+						},
+						{
+							"name": "SW-Server",
+							"description": "Switch expression according to source Linked Service.\nList of Linked Service added in switch:\n'LS_Sftp_Globalscape','LS_FS_BLYFORD','LS_SFTP_HIGH_RADIUS','LS_Sftp_AU_IRI','LS_SFTP_SFDC_DOWNSTREAM_INTEGRATION','LS_FS_FOODSERVICE_US_VIA','LS_AZ_KHC_DATASHARE_STRGV2','LS_AZ_KHC_O9_EXTERNALSHARE_STRGV2','LS_FS_ORACLE_APPS_112','LS_AZ_KHC_EXTERNALSHARE_STRGV2'\n",
+							"type": "Switch",
+							"dependsOn": [
+								{
+									"activity": "CP_Archival_ADLS",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"userProperties": [],
+							"typeProperties": {
+								"on": {
+									"value": "@item().server_name",
+									"type": "Expression"
+								},
+								"cases": [
+									{
+										"value": "LS_FS_BLYFORD",
+										"activities": [
+											{
+												"name": "CP_ADLS_TO_BLYFORD",
+												"description": "This activity  pushes files to SFTP server.",
+												"type": "Copy",
+												"dependsOn": [],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"source": {
+														"type": "BinarySource",
+														"storeSettings": {
+															"type": "AzureBlobFSReadSettings",
+															"recursive": true,
+															"wildcardFileName": {
+																"value": "@{item().extract_file_name}*",
+																"type": "Expression"
+															}
+														},
+														"formatSettings": {
+															"type": "BinaryReadSettings"
+														}
+													},
+													"sink": {
+														"type": "BinarySink",
+														"storeSettings": {
+															"type": "FileServerWriteSettings"
+														}
+													},
+													"enableStaging": false
+												},
+												"inputs": [
+													{
+														"referenceName": "DS_KHCDE_ADLS_Blob",
+														"type": "DatasetReference",
+														"parameters": {
+															"container": {
+																"value": "@item().container_name",
+																"type": "Expression"
+															},
+															"stage_path": {
+																"value": "@item().extract_blob_location",
+																"type": "Expression"
+															}
+														}
+													}
+												],
+												"outputs": [
+													{
+														"referenceName": "DS_KHCDE_GENERIC_BLYFORD_BINARY_Folder",
+														"type": "DatasetReference",
+														"parameters": {
+															"fs_path": {
+																"value": "@item().sftp_path",
+																"type": "Expression"
+															}
+														}
+													}
+												]
+											}
+										]
+									},
+									{
+										"value": "LS_Sftp_Globalscape",
+										"activities": [
+											{
+												"name": "CP_ADLS_TO_GLOBALSCAPE",
+												"description": "This activity  pushes files to SFTP server.",
+												"type": "Copy",
+												"dependsOn": [],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"source": {
+														"type": "BinarySource",
+														"storeSettings": {
+															"type": "AzureBlobFSReadSettings",
+															"recursive": true,
+															"wildcardFileName": {
+																"value": "@{item().extract_file_name}*",
+																"type": "Expression"
+															}
+														},
+														"formatSettings": {
+															"type": "BinaryReadSettings"
+														}
+													},
+													"sink": {
+														"type": "BinarySink",
+														"storeSettings": {
+															"type": "SftpWriteSettings",
+															"operationTimeout": "01:00:00",
+															"useTempFileRename": false
+														}
+													},
+													"enableStaging": false
+												},
+												"inputs": [
+													{
+														"referenceName": "DS_KHCDE_ADLS_Blob",
+														"type": "DatasetReference",
+														"parameters": {
+															"container": {
+																"value": "@item().container_name",
+																"type": "Expression"
+															},
+															"stage_path": {
+																"value": "@item().extract_blob_location",
+																"type": "Expression"
+															}
+														}
+													}
+												],
+												"outputs": [
+													{
+														"referenceName": "khc_SFTP_dataset",
+														"type": "DatasetReference",
+														"parameters": {
+															"sftp_path": {
+																"value": "@item().sftp_path",
+																"type": "Expression"
+															}
+														}
+													}
+												]
+											}
+										]
+									},
+									{
+										"value": "LS_SFTP_HIGH_RADIUS",
+										"activities": [
+											{
+												"name": "CP_ADLS_TO_HIGHRADIUS",
+												"description": "This activity  pushes files to SFTP server.",
+												"type": "Copy",
+												"dependsOn": [],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"source": {
+														"type": "BinarySource",
+														"storeSettings": {
+															"type": "AzureBlobFSReadSettings",
+															"recursive": true,
+															"wildcardFileName": {
+																"value": "@{item().extract_file_name}*",
+																"type": "Expression"
+															}
+														},
+														"formatSettings": {
+															"type": "BinaryReadSettings"
+														}
+													},
+													"sink": {
+														"type": "BinarySink",
+														"storeSettings": {
+															"type": "SftpWriteSettings",
+															"operationTimeout": "01:00:00",
+															"useTempFileRename": false
+														}
+													},
+													"enableStaging": false
+												},
+												"inputs": [
+													{
+														"referenceName": "DS_KHCDE_ADLS_Blob",
+														"type": "DatasetReference",
+														"parameters": {
+															"container": {
+																"value": "@item().container_name",
+																"type": "Expression"
+															},
+															"stage_path": {
+																"value": "@item().extract_blob_location",
+																"type": "Expression"
+															}
+														}
+													}
+												],
+												"outputs": [
+													{
+														"referenceName": "DS_KHCDE_GENERIC_HIGH_RADIUS",
+														"type": "DatasetReference",
+														"parameters": {
+															"fs_path": {
+																"value": "@item().sftp_path",
+																"type": "Expression"
+															}
+														}
+													}
+												]
+											}
+										]
+									},
+									{
+										"value": "LS_Sftp_AU_IRI",
+										"activities": [
+											{
+												"name": "CP_ADLS_TO_AU_IRI",
+												"description": "This activity  pushes files to SFTP server.",
+												"type": "Copy",
+												"dependsOn": [],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"source": {
+														"type": "BinarySource",
+														"storeSettings": {
+															"type": "AzureBlobFSReadSettings",
+															"recursive": true,
+															"wildcardFileName": {
+																"value": "@{item().extract_file_name}*",
+																"type": "Expression"
+															}
+														},
+														"formatSettings": {
+															"type": "BinaryReadSettings"
+														}
+													},
+													"sink": {
+														"type": "BinarySink",
+														"storeSettings": {
+															"type": "SftpWriteSettings",
+															"operationTimeout": "01:00:00",
+															"useTempFileRename": false
+														}
+													},
+													"enableStaging": false
+												},
+												"inputs": [
+													{
+														"referenceName": "DS_KHCDE_ADLS_Blob",
+														"type": "DatasetReference",
+														"parameters": {
+															"container": {
+																"value": "@item().container_name",
+																"type": "Expression"
+															},
+															"stage_path": {
+																"value": "@item().extract_blob_location",
+																"type": "Expression"
+															}
+														}
+													}
+												],
+												"outputs": [
+													{
+														"referenceName": "DS_KHCDE_GENERIC_AU_IRI_BINARY_Folder",
+														"type": "DatasetReference",
+														"parameters": {
+															"sftp_path": {
+																"value": "@item().sftp_path",
+																"type": "Expression"
+															}
+														}
+													}
+												]
+											}
+										]
+									},
+									{
+										"value": "LS_SFTP_SFDC_DOWNSTREAM_INTEGRATION",
+										"activities": [
+											{
+												"name": "CP_ADLS_TO_SFDC_DOWNSTREAM",
+												"description": "This activity  pushes files to SFTP server.",
+												"type": "Copy",
+												"dependsOn": [],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"source": {
+														"type": "BinarySource",
+														"storeSettings": {
+															"type": "AzureBlobFSReadSettings",
+															"recursive": true,
+															"wildcardFileName": {
+																"value": "@{item().extract_file_name}*",
+																"type": "Expression"
+															}
+														},
+														"formatSettings": {
+															"type": "BinaryReadSettings"
+														}
+													},
+													"sink": {
+														"type": "BinarySink",
+														"storeSettings": {
+															"type": "SftpWriteSettings",
+															"operationTimeout": "01:00:00",
+															"useTempFileRename": false
+														}
+													},
+													"enableStaging": false
+												},
+												"inputs": [
+													{
+														"referenceName": "DS_KHCDE_ADLS_Blob",
+														"type": "DatasetReference",
+														"parameters": {
+															"container": {
+																"value": "@item().container_name",
+																"type": "Expression"
+															},
+															"stage_path": {
+																"value": "@item().extract_blob_location",
+																"type": "Expression"
+															}
+														}
+													}
+												],
+												"outputs": [
+													{
+														"referenceName": "DS_KHCDE_GENERIC_SFDC_DOWNSTREAM_INTEGRATION",
+														"type": "DatasetReference",
+														"parameters": {
+															"stfp_path": {
+																"value": "@item().sftp_path",
+																"type": "Expression"
+															}
+														}
+													}
+												]
+											}
+										]
+									},
+									{
+										"value": "LS_FS_FOODSERVICE_US_VIA",
+										"activities": [
+											{
+												"name": "CP_ADLS_TO_FOODSERVICEUSVIA",
+												"description": "This activity  pushes files to SFTP server.",
+												"type": "Copy",
+												"dependsOn": [],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"source": {
+														"type": "BinarySource",
+														"storeSettings": {
+															"type": "AzureBlobFSReadSettings",
+															"recursive": true,
+															"wildcardFileName": {
+																"value": "@{item().extract_file_name}*",
+																"type": "Expression"
+															}
+														},
+														"formatSettings": {
+															"type": "BinaryReadSettings"
+														}
+													},
+													"sink": {
+														"type": "BinarySink",
+														"storeSettings": {
+															"type": "FileServerWriteSettings"
+														}
+													},
+													"enableStaging": false
+												},
+												"inputs": [
+													{
+														"referenceName": "DS_KHCDE_ADLS_Blob",
+														"type": "DatasetReference",
+														"parameters": {
+															"container": {
+																"value": "@item().container_name",
+																"type": "Expression"
+															},
+															"stage_path": {
+																"value": "@item().extract_blob_location",
+																"type": "Expression"
+															}
+														}
+													}
+												],
+												"outputs": [
+													{
+														"referenceName": "DS_KHCDE_GENERIC_FOODSERVICE_US_VIA",
+														"type": "DatasetReference",
+														"parameters": {
+															"fs_path": {
+																"value": "@item().sftp_path",
+																"type": "Expression"
+															}
+														}
+													}
+												]
+											}
+										]
+									},
+									{
+										"value": "LS_AZ_KHC_DATASHARE_STRGV2",
+										"activities": [
+											{
+												"name": "CP_ADLS_TO_DATASHARESTRGV2",
+												"description": "This activity  pushes files to datashare storage account.",
+												"type": "Copy",
+												"dependsOn": [],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"source": {
+														"type": "BinarySource",
+														"storeSettings": {
+															"type": "AzureBlobFSReadSettings",
+															"recursive": true,
+															"wildcardFileName": {
+																"value": "@{item().extract_file_name}*",
+																"type": "Expression"
+															}
+														},
+														"formatSettings": {
+															"type": "BinaryReadSettings"
+														}
+													},
+													"sink": {
+														"type": "BinarySink",
+														"storeSettings": {
+															"type": "AzureBlobFSWriteSettings"
+														}
+													},
+													"enableStaging": false
+												},
+												"inputs": [
+													{
+														"referenceName": "DS_KHCDE_ADLS_Blob",
+														"type": "DatasetReference",
+														"parameters": {
+															"container": {
+																"value": "@item().container_name",
+																"type": "Expression"
+															},
+															"stage_path": {
+																"value": "@item().extract_blob_location",
+																"type": "Expression"
+															}
+														}
+													}
+												],
+												"outputs": [
+													{
+														"referenceName": "DS_KHCDE_GENERIC_KHC_DATASHARE_STRGV2_Folder",
+														"type": "DatasetReference",
+														"parameters": {
+															"container_name": {
+																"value": "@substring(item().sftp_path,0,indexof(item().sftp_path,'/'))",
+																"type": "Expression"
+															},
+															"blob_name": {
+																"value": "@substring(item().sftp_path,add(indexof(item().sftp_path,'/'),1),sub(sub(length(item().sftp_path),indexof(item().sftp_path,'/')),1))",
+																"type": "Expression"
+															}
+														}
+													}
+												]
+											}
+										]
+									},
+									{
+										"value": "LS_AZ_KHC_O9_EXTERNALSHARE_STRGV2",
+										"activities": [
+											{
+												"name": "CP_ADLS_TO_O9EXTERNALSHARESTRGV2",
+												"description": "This activity  pushes files to O9 EXTERNALSHARE storage account.",
+												"type": "Copy",
+												"dependsOn": [],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"source": {
+														"type": "BinarySource",
+														"storeSettings": {
+															"type": "AzureBlobFSReadSettings",
+															"recursive": true,
+															"wildcardFileName": {
+																"value": "@{item().extract_file_name}*",
+																"type": "Expression"
+															}
+														},
+														"formatSettings": {
+															"type": "BinaryReadSettings"
+														}
+													},
+													"sink": {
+														"type": "BinarySink",
+														"storeSettings": {
+															"type": "AzureBlobFSWriteSettings"
+														}
+													},
+													"enableStaging": false
+												},
+												"inputs": [
+													{
+														"referenceName": "DS_KHCDE_ADLS_Blob",
+														"type": "DatasetReference",
+														"parameters": {
+															"container": {
+																"value": "@item().container_name",
+																"type": "Expression"
+															},
+															"stage_path": {
+																"value": "@item().extract_blob_location",
+																"type": "Expression"
+															}
+														}
+													}
+												],
+												"outputs": [
+													{
+														"referenceName": "DS_KHCDE_GENERIC_KHC_O9EXTERNALSHARE_STRGV2_Folder",
+														"type": "DatasetReference",
+														"parameters": {
+															"container_name": {
+																"value": "@substring(item().sftp_path,0,indexof(item().sftp_path,'/'))",
+																"type": "Expression"
+															},
+															"blob_name": {
+																"value": "@substring(item().sftp_path,add(indexof(item().sftp_path,'/'),1),sub(sub(length(item().sftp_path),indexof(item().sftp_path,'/')),1))",
+																"type": "Expression"
+															}
+														}
+													}
+												]
+											}
+										]
+									},
+									{
+										"value": "LS_FS_ORACLE_APPS_112",
+										"activities": [
+											{
+												"name": "CP_ADLS_TO_FS_ORACLE_APPS_112",
+												"description": "This activity  pushes files to SFTP server.",
+												"type": "Copy",
+												"dependsOn": [],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"source": {
+														"type": "BinarySource",
+														"storeSettings": {
+															"type": "AzureBlobFSReadSettings",
+															"recursive": true,
+															"wildcardFileName": {
+																"value": "@{item().extract_file_name}*",
+																"type": "Expression"
+															}
+														},
+														"formatSettings": {
+															"type": "BinaryReadSettings"
+														}
+													},
+													"sink": {
+														"type": "BinarySink",
+														"storeSettings": {
+															"type": "FileServerWriteSettings"
+														}
+													},
+													"enableStaging": false
+												},
+												"inputs": [
+													{
+														"referenceName": "DS_KHCDE_ADLS_Blob",
+														"type": "DatasetReference",
+														"parameters": {
+															"container": {
+																"value": "@item().container_name",
+																"type": "Expression"
+															},
+															"stage_path": {
+																"value": "@item().extract_blob_location",
+																"type": "Expression"
+															}
+														}
+													}
+												],
+												"outputs": [
+													{
+														"referenceName": "DS_KHCDE_GENERIC_FS_ORACLE_APPs_112_BINARY_Folder",
+														"type": "DatasetReference",
+														"parameters": {
+															"fs_path": {
+																"value": "@item().sftp_path",
+																"type": "Expression"
+															}
+														}
+													}
+												]
+											}
+										]
+									},
+									{
+										"value": "LS_AZ_KHC_EXTERNALSHARE_STRGV2",
+										"activities": [
+											{
+												"name": "CP_ADLS_TO_KHC_EXTERNALSHARESTRGV2",
+												"description": "This activity  pushes files to khc external share storage account.",
+												"type": "Copy",
+												"dependsOn": [],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"source": {
+														"type": "BinarySource",
+														"storeSettings": {
+															"type": "AzureBlobFSReadSettings",
+															"recursive": true,
+															"wildcardFileName": {
+																"value": "@{item().extract_file_name}*",
+																"type": "Expression"
+															}
+														},
+														"formatSettings": {
+															"type": "BinaryReadSettings"
+														}
+													},
+													"sink": {
+														"type": "BinarySink",
+														"storeSettings": {
+															"type": "AzureBlobFSWriteSettings"
+														}
+													},
+													"enableStaging": false
+												},
+												"inputs": [
+													{
+														"referenceName": "DS_KHCDE_ADLS_Blob",
+														"type": "DatasetReference",
+														"parameters": {
+															"container": {
+																"value": "@item().container_name",
+																"type": "Expression"
+															},
+															"stage_path": {
+																"value": "@item().extract_blob_location",
+																"type": "Expression"
+															}
+														}
+													}
+												],
+												"outputs": [
+													{
+														"referenceName": "DS_KHCDE_GENERIC_KHC_EXTERNALSHARE_STRGV2ToLand_Folder",
+														"type": "DatasetReference",
+														"parameters": {
+															"container_name": {
+																"value": "@substring(item().sftp_path,0,indexof(item().sftp_path,'/'))",
+																"type": "Expression"
+															},
+															"blob_name": {
+																"value": "@substring(item().sftp_path,add(indexof(item().sftp_path,'/'),1),sub(sub(length(item().sftp_path),indexof(item().sftp_path,'/')),1))",
+																"type": "Expression"
+															}
+														}
+													}
+												]
+											}
+										]
+									},
+									{
+										"value": "LS_SFTP_IBM_GPS_IHOST",
+										"activities": [
+											{
+												"name": "CP_ADLS_TO_IBM_GPS_IHOST",
+												"description": "This activity  pushes files to IBM GPS_ HOST SFTP server.",
+												"type": "Copy",
+												"dependsOn": [],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"source": {
+														"type": "BinarySource",
+														"storeSettings": {
+															"type": "AzureBlobFSReadSettings",
+															"recursive": true,
+															"wildcardFileName": {
+																"value": "@{item().extract_file_name}*",
+																"type": "Expression"
+															}
+														},
+														"formatSettings": {
+															"type": "BinaryReadSettings"
+														}
+													},
+													"sink": {
+														"type": "BinarySink",
+														"storeSettings": {
+															"type": "SftpWriteSettings",
+															"operationTimeout": "01:00:00",
+															"useTempFileRename": false
+														}
+													},
+													"enableStaging": false
+												},
+												"inputs": [
+													{
+														"referenceName": "DS_KHCDE_ADLS_Blob",
+														"type": "DatasetReference",
+														"parameters": {
+															"container": {
+																"value": "@item().container_name",
+																"type": "Expression"
+															},
+															"stage_path": {
+																"value": "@item().extract_blob_location",
+																"type": "Expression"
+															}
+														}
+													}
+												],
+												"outputs": [
+													{
+														"referenceName": "DS_KHCDE_GENERIC_IBM_SFTP",
+														"type": "DatasetReference",
+														"parameters": {
+															"sftp_path": {
+																"value": "@item().sftp_path",
+																"type": "Expression"
+															}
+														}
+													}
+												]
+											}
+										]
+									}
+								]
+							}
+						}
+					]
+				}
+			},
+			{
+				"name": "SP-Success_LU_Extract_Metadata",
+				"description": "This activity logs success of  LU_EXTRACT_METADATA activity in khc_audit_log_detail table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "LU_EXTRACT_METADATA",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": "LU_EXTRACT_METADATA",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Successful",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@activity('LU_EXTRACT_METADATA').output.value[0].application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@activity('LU_EXTRACT_METADATA').output.value[0].dataset_group",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@pipeline().RunId",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-Success_FE_Extract",
+				"description": "This activity logs success of  FE_extract activity in khc_audit_log_detail table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "FE_extract",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": "FE-Extract",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Successful",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@activity('LU_EXTRACT_METADATA').output.value[0].application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@activity('LU_EXTRACT_METADATA').output.value[0].dataset_group",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@pipeline().RunId",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-PipelineSuccessful_SFTP_Push",
+				"description": "This Activity logs completion of pipeline in khc_audit_log table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "FE_extract",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": {
+								"value": "U",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.app_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.dataset_group",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@{pipeline().Pipeline}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Successful",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-PipelineStart_SFTP_PUSH",
+				"description": "This Activity logs starting of pipeline in khc_audit_log table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": {
+								"value": "I",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.app_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.dataset_group",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@{pipeline().Pipeline}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Processing",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-Failure_LU_Extract_Metadata",
+				"description": "This activity logs failure of LU_EXTRACT_METADATA activity in khc_audit_log_detail table and failure of pipeline in  khc_audit_log table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "LU_EXTRACT_METADATA",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": "U",
+							"type": "String"
+						},
+						"activity_name": {
+							"value": "LU_EXTRACT_METADATA",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": "Failed",
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@activity('LU_EXTRACT_METADATA').output.value[0].application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@activity('LU_EXTRACT_METADATA').output.value[0].dataset_group",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_code": {
+							"value": {
+								"value": "@activity('LU_EXTRACT_METADATA').Error.errorCode",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_detail": {
+							"value": {
+								"value": "@activity('LU_EXTRACT_METADATA').Error.message",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@pipeline().RunId",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": "Failed",
+							"type": "String"
+						},
+						"skip_pipeline_audit_update": {
+							"value": "N",
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-Failure_FE_Extract",
+				"description": "This activity logs failure of FE_extract activity in khc_audit_log_detail table and failure of pipeline in  khc_audit_log table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "FE_extract",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": "U",
+							"type": "String"
+						},
+						"activity_name": {
+							"value": "FE_extract",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": "Failed",
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@activity('LU_EXTRACT_METADATA').output.value[0].application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@activity('LU_EXTRACT_METADATA').output.value[0].dataset_group",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_code": {
+							"value": "N.A.",
+							"type": "String"
+						},
+						"error_detail": {
+							"value": "N.A.",
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@pipeline().RunId",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": "Failed",
+							"type": "String"
+						},
+						"skip_pipeline_audit_update": {
+							"value": "N",
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "set_env_variable",
+				"description": "Set the variable - ENV from global parameters - AZURE_ENV",
+				"type": "SetVariable",
+				"dependsOn": [
+					{
+						"activity": "SP-PipelineStart_SFTP_PUSH",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"variableName": "env",
+					"value": {
+						"value": "@pipeline().globalParameters.AZURE_ENV",
+						"type": "Expression"
+					}
+				}
+			}
+		],
+		"parameters": {
+			"app_name": {
+				"type": "string"
+			},
+			"dataset_group": {
+				"type": "string"
+			}
+		},
+		"variables": {
+			"env": {
+				"type": "String",
+				"defaultValue": "DEV"
+			}
+		},
+		"folder": {
+			"name": "Generic_Frameworks"
+		},
+		"annotations": []
+	},
+	"type": "Microsoft.DataFactory/factories/pipelines"
+}

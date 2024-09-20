@@ -1,0 +1,2349 @@
+{
+	"name": "PL_KHCDE_US_SALES_SFK_TO_SAP_LOAD",
+	"properties": {
+		"description": "This invokes 4 other pipelines.\n1. Ingest Data from ADLS blob locations to Snowflake Stage tables. \n2. Transform the data from Snowflake Stage Tables and load to the final base tables.\n3. To check the presence of dependent triggers.\n4. To delete the triggers after processing.",
+		"activities": [
+			{
+				"name": "SP-ActivityFailed03",
+				"description": "This activity logs failure of Until-TriggerFound activity in khc_audit_log_detail table and failure of pipeline in  khc_audit_log table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "Until-TriggerFound",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": "Until-TriggerFound",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@activity('LU-Metadata').output.value[0].application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@activity('LU-Metadata').output.value[0].dataset_group",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_code": {
+							"value": {
+								"value": "Dependent Trigger not found.",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_detail": {
+							"value": {
+								"value": "Dependent Trigger not found.",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-ActivitySuccess03",
+				"description": "This activity logs success of EP-DBT_Processing activity in khc_audit_log_detail table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "Until-TriggerFound",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": "EP_DBT_Processing",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Successful",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@activity('LU-Metadata').output.value[0].application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@activity('LU-Metadata').output.value[0].dataset_group",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-ActivityFailed01",
+				"description": "This activity logs failure of LU-Metadata activity in khc_audit_log_detail table and failure of pipeline in  khc_audit_log table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "LU-Metadata",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": "LU-Metadata",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@activity('LU-Metadata').output.value[0].application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@activity('LU-Metadata').output.value[0].dataset_group",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_code": {
+							"value": {
+								"value": "@{activity('LU-Metadata').Error.errorCode}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_detail": {
+							"value": {
+								"value": "@{activity('LU-Metadata').Error.message}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "Until-TriggerFound",
+				"description": "This activity will invoked EP-UntilTriggerFound which will wait and search for the presence of dependent triggers.",
+				"type": "Until",
+				"dependsOn": [
+					{
+						"activity": "LU-Metadata",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"expression": {
+						"value": "@equals(variables('exit_ind'), 'Y')",
+						"type": "Expression"
+					},
+					"activities": [
+						{
+							"name": "SV-Exit",
+							"type": "SetVariable",
+							"dependsOn": [
+								{
+									"activity": "IF_Dependent_Trigger_Exists",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"userProperties": [],
+							"typeProperties": {
+								"variableName": "exit_ind",
+								"value": {
+									"value": "Y",
+									"type": "Expression"
+								}
+							}
+						},
+						{
+							"name": "SP-ActivitySuccess02",
+							"description": "This activity logs success of IF_Dependent_Trigger_Exists activity in khc_audit_log_detail table.",
+							"type": "SqlServerStoredProcedure",
+							"dependsOn": [
+								{
+									"activity": "IF_Dependent_Trigger_Exists",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 5,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"storedProcedureName": "[dbo].[generic_activity_audit_log]",
+								"storedProcedureParameters": {
+									"activity_name": {
+										"value": "Until-TriggerFound",
+										"type": "String"
+									},
+									"activity_status": {
+										"value": {
+											"value": "Successful",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"application_name": {
+										"value": {
+											"value": "@{pipeline().parameters.ApplicationName}",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"dataset_name": {
+										"value": {
+											"value": "@activity('LU-Metadata').output.value[0].dataset_group",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_run_id": {
+										"value": {
+											"value": "@{pipeline().RunId}",
+											"type": "Expression"
+										},
+										"type": "String"
+									}
+								}
+							},
+							"linkedServiceName": {
+								"referenceName": "LS_SQL",
+								"type": "LinkedServiceReference"
+							}
+						},
+						{
+							"name": "IF_Dependent_Trigger_Exists",
+							"description": "",
+							"type": "IfCondition",
+							"dependsOn": [],
+							"userProperties": [],
+							"typeProperties": {
+								"expression": {
+									"value": "@not(empty(activity('LU-Metadata').output.value[0].dependent_id))",
+									"type": "Expression"
+								},
+								"ifTrueActivities": [
+									{
+										"name": "EP-UntilTriggerFound",
+										"type": "ExecutePipeline",
+										"dependsOn": [],
+										"userProperties": [],
+										"typeProperties": {
+											"pipeline": {
+												"referenceName": "PL_KHCDE_US_SALES_UNTILTRIGGERFOUND",
+												"type": "PipelineReference"
+											},
+											"waitOnCompletion": true,
+											"parameters": {
+												"ApplicationName": {
+													"value": "@{pipeline().parameters.ApplicationName}",
+													"type": "Expression"
+												},
+												"BlobTriggerName": {
+													"value": "@{pipeline().parameters.BlobTriggerName}",
+													"type": "Expression"
+												},
+												"pipeline_run_id": {
+													"value": "@{pipeline().RunId}",
+													"type": "Expression"
+												},
+												"parent_id": {
+													"value": "@activity('LU-Metadata').output.value[0].parent_id",
+													"type": "Expression"
+												},
+												"trigger_type": {
+													"value": "dbt_trigger_name",
+													"type": "Expression"
+												}
+											}
+										}
+									}
+								]
+							}
+						}
+					],
+					"timeout": "0.08:00:00"
+				}
+			},
+			{
+				"name": "LU-Metadata",
+				"description": "This activity pulls the details related to application_name and blob_trigger_name from orchestration_metadata. ",
+				"type": "Lookup",
+				"dependsOn": [
+					{
+						"activity": "SP-PipelineStart",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "SqlServerSource",
+						"sqlReaderQuery": {
+							"value": "select * from khc_orchestration_metadata where application_name = '@{pipeline().parameters.ApplicationName}' and SUBSTRING(concat('/',blob_trigger_name), LEN(concat('/',blob_trigger_name)) - CHARINDEX('/',REVERSE(concat('/',blob_trigger_name))) + 2, LEN(concat('/',blob_trigger_name)))= '@{pipeline().parameters.BlobTriggerName}' and active_ind = 'y'",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "DS_KHCDE_GENERIC_MSSQL_Metadata",
+						"type": "DatasetReference"
+					},
+					"firstRowOnly": false
+				}
+			},
+			{
+				"name": "SP-PipelineStart",
+				"description": "This Activity logs starting of pipeline in khc_audit_log table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": {
+								"value": "I",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.ApplicationName",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.BlobTriggerName",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@pipeline().Pipeline",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@pipeline().RunId",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Master_Pool_Load_Started",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "WB-SendFailureEmail01",
+				"description": "Triggers Mail",
+				"type": "WebActivity",
+				"dependsOn": [
+					{
+						"activity": "SP-ActivityFailed01",
+						"dependencyConditions": [
+							"Completed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"url": {
+						"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+						"type": "Expression"
+					},
+					"method": "POST",
+					"body": {
+						"value": "{ \n        \"to_email\": \"@{variables('emailTo')}\", \n        \"subject\": \"Failed during metadata fetch: @{pipeline().parameters.ApplicationName} - @{split(pipeline().parameters.BlobTriggerName,'.')[0]}\", \n        \"body\": \"Dear All,<br><br>The cloud analytics data load process failed for the Application: @{pipeline().parameters.ApplicationName}<br> Please find below the details: <br><br> Pipeline Name: @{pipeline().Pipeline} <br> Pipeline Run ID: @{pipeline().RunId}<br> Pipeline Trigger Name: @{pipeline().TriggerName}<br> Pipeline Trigger Type: @{pipeline().TriggerType}<br> Pipeline Start Time: @{pipeline().TriggerTime}<br> Activity: LU-Metadata<br>Next Step: Please check the blob triggername and active_ind<br><br>Parameters:<br>===========<br>Application Name: @{pipeline().parameters.ApplicationName}<br>Blob Trigger: @{pipeline().parameters.BlobTriggerName} <br><br><br>Please take care.<br><br>Regards,<br>Cloud Analytics Team\", \n        \"importance\": \"High\"\n}",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "WB-SendFailureEmail03",
+				"description": "Triggers Mail",
+				"type": "WebActivity",
+				"dependsOn": [
+					{
+						"activity": "SP-ActivityFailed03",
+						"dependencyConditions": [
+							"Completed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"url": {
+						"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+						"type": "Expression"
+					},
+					"method": "POST",
+					"body": {
+						"value": "{ \n        \"to_email\": \"@{variables('emailTo')}\", \n        \"subject\": \"Failed during Until Trigger Found Activity : @{pipeline().parameters.ApplicationName} - @{activity('LU-Metadata').output.value[0].dataset_group}\", \n        \"body\": \"Dear All,<br><br>The cloud analytics data load process failed for the Application: @{pipeline().parameters.ApplicationName}</b><br> Please find below the details: <br><br> Pipeline Name: @{pipeline().Pipeline} <br> Pipeline Run ID: @{pipeline().RunId}<br> Pipeline Trigger Name: @{pipeline().TriggerName}<br> Pipeline Trigger Type: @{pipeline().TriggerType}<br> Pipeline Start Time: @{pipeline().TriggerTime}<br> Activity: Until-TriggerFound<br><br>Parameters:<br>===========<br>Application Name: @{pipeline().parameters.ApplicationName}<br>Blob Trigger: @{pipeline().parameters.BlobTriggerName}<br><br>Error Code: @{activity('Until-TriggerFound').Error.errorCode} <br>Error Message: @{activity('Until-TriggerFound').Error.message} <br><br>Please take care.<br><br>Regards,<br>Cloud Analytics Team\", \n        \"importance\": \"High\"\n}",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "Extract_to_Blob_Location",
+				"description": "Extracts to Blob location",
+				"type": "ExecutePipeline",
+				"dependsOn": [
+					{
+						"activity": "Until-TriggerFound",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"pipeline": {
+						"referenceName": "PL_KHCDE_US_SALES_MASTER_EXTRACT_PUSH",
+						"type": "PipelineReference"
+					},
+					"waitOnCompletion": true,
+					"parameters": {
+						"ApplicationName": {
+							"value": "@activity('LU-Metadata').output.value[0].application_name",
+							"type": "Expression"
+						},
+						"DatasetGroup": {
+							"value": "@activity('LU-Metadata').output.value[0].dataset_group",
+							"type": "Expression"
+						}
+					}
+				}
+			},
+			{
+				"name": "DeleteTrigger",
+				"description": "Executes PL_KHCDE_US_SALES_UNTILTRIGGERFOUND",
+				"type": "ExecutePipeline",
+				"dependsOn": [
+					{
+						"activity": "Execute Hana Procedure",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"pipeline": {
+						"referenceName": "PL_KHCDE_US_SALES_DELETETRIGGERS",
+						"type": "PipelineReference"
+					},
+					"waitOnCompletion": true,
+					"parameters": {
+						"ApplicationName": {
+							"value": "@{pipeline().parameters.ApplicationName}",
+							"type": "Expression"
+						},
+						"BlobTriggerName": {
+							"value": "@{pipeline().parameters.BlobTriggerName}",
+							"type": "Expression"
+						},
+						"trigger_type": {
+							"value": "dbt_trigger_name",
+							"type": "Expression"
+						},
+						"pipeline_run_id": {
+							"value": "@{pipeline().RunId}",
+							"type": "Expression"
+						},
+						"parent_id": {
+							"value": "@activity('LU-Metadata').output.value[0].parent_id",
+							"type": "Expression"
+						}
+					}
+				}
+			},
+			{
+				"name": "SP-ActivitySuccess05",
+				"description": "This activity logs success of EP-DBT_Processing activity in khc_audit_log_detail table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "Execute Hana Procedure",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": "Load to SAP HANA",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Successful",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@activity('LU-Metadata').output.value[0].application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@activity('LU-Metadata').output.value[0].dataset_group",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "Copy_To_SAP",
+				"description": "This activity copies data into SAP System",
+				"type": "Copy",
+				"dependsOn": [
+					{
+						"activity": "GM-Metadata",
+						"dependencyConditions": [
+							"Completed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [
+					{
+						"name": "Destination",
+						"value": "\"COMPASS\".\"KraftHeinz.Compass.HanaObjects.Tables::TB_COMPASS_HADOOP\""
+					}
+				],
+				"typeProperties": {
+					"source": {
+						"type": "DelimitedTextSource",
+						"storeSettings": {
+							"type": "AzureBlobFSReadSettings",
+							"recursive": true,
+							"wildcardFolderPath": {
+								"value": "@activity('GM-Metadata').output.value[0].extract_blob_location",
+								"type": "Expression"
+							},
+							"wildcardFileName": {
+								"value": "*.gz",
+								"type": "Expression"
+							},
+							"enablePartitionDiscovery": false
+						},
+						"formatSettings": {
+							"type": "DelimitedTextReadSettings"
+						}
+					},
+					"sink": {
+						"type": "OdbcSink",
+						"writeBatchSize": 0,
+						"preCopyScript": {
+							"value": "delete from \"COMPASS\".\"KraftHeinz.Compass.HanaObjects.Tables::TB_COMPASS_HADOOP\"",
+							"type": "Expression"
+						}
+					},
+					"enableStaging": false,
+					"translator": {
+						"type": "TabularTranslator",
+						"mappings": [
+							{
+								"source": {
+									"name": "MASTER_MARKET",
+									"type": "String"
+								},
+								"sink": {
+									"name": "MASTER_MARKET",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"name": "MASTER_PPG",
+									"type": "String"
+								},
+								"sink": {
+									"name": "MASTER_PPG",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"name": "CORP_WEEK_END_DATE",
+									"type": "String"
+								},
+								"sink": {
+									"name": "CORP_WEEK_END_DATE",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"name": "FCST_FLAG",
+									"type": "String"
+								},
+								"sink": {
+									"name": "FCST_FLAG",
+									"type": "Int32"
+								}
+							},
+							{
+								"source": {
+									"name": "CORP_FISCAL_WEEK_NUM",
+									"type": "String"
+								},
+								"sink": {
+									"name": "CORP_FISCAL_WEEK_NUM",
+									"type": "Int32"
+								}
+							},
+							{
+								"source": {
+									"name": "CORP_YEAR",
+									"type": "String"
+								},
+								"sink": {
+									"name": "CORP_YEAR",
+									"type": "Int32"
+								}
+							},
+							{
+								"source": {
+									"name": "EST_MARKET_ACV",
+									"type": "String"
+								},
+								"sink": {
+									"name": "EST_MARKET_ACV",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"name": "MARKET_STORE_COUNT",
+									"type": "String"
+								},
+								"sink": {
+									"name": "MARKET_STORE_COUNT",
+									"type": "Int32"
+								}
+							},
+							{
+								"source": {
+									"name": "BASE_PKGS_PER_MM_ACV",
+									"type": "String"
+								},
+								"sink": {
+									"name": "BASE_PKGS_PER_MM_ACV",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "TDP",
+									"type": "String"
+								},
+								"sink": {
+									"name": "TDP",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "FEAT_AND_DISP_PKG_PRC",
+									"type": "String"
+								},
+								"sink": {
+									"name": "FEAT_AND_DISP_PKG_PRC",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "DISP_WO_FEAT_PKG_PRC",
+									"type": "String"
+								},
+								"sink": {
+									"name": "DISP_WO_FEAT_PKG_PRC",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "FEAT_WO_DISP_PKG_PRC",
+									"type": "String"
+								},
+								"sink": {
+									"name": "FEAT_WO_DISP_PKG_PRC",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "PRC_DECR_PKG_PRC",
+									"type": "String"
+								},
+								"sink": {
+									"name": "PRC_DECR_PKG_PRC",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "NO_PROMO_PKG_PRC",
+									"type": "String"
+								},
+								"sink": {
+									"name": "NO_PROMO_PKG_PRC",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "FEAT_AND_DISP_PERCENT_TDP",
+									"type": "String"
+								},
+								"sink": {
+									"name": "FEAT_AND_DISP_PERCENT_TDP",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "DISP_WO_FEAT_PERCENT_TDP",
+									"type": "String"
+								},
+								"sink": {
+									"name": "DISP_WO_FEAT_PERCENT_TDP",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "FEAT_WO_DISP_PERCENT_TDP",
+									"type": "String"
+								},
+								"sink": {
+									"name": "FEAT_WO_DISP_PERCENT_TDP",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "PRC_DECR_PERCENT_TDP",
+									"type": "String"
+								},
+								"sink": {
+									"name": "PRC_DECR_PERCENT_TDP",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "NO_PROMO_PKG_PRC_COEFF",
+									"type": "String"
+								},
+								"sink": {
+									"name": "NO_PROMO_PKG_PRC_COEFF",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "AVG_PKG_PRC_COEFF",
+									"type": "String"
+								},
+								"sink": {
+									"name": "AVG_PKG_PRC_COEFF",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "FEAT_AND_DISP_PERCENT_TDP_COEFF",
+									"type": "String"
+								},
+								"sink": {
+									"name": "FEAT_AND_DISP_PERCENT_TDP_COEFF",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "DISP_WO_FEAT_PERCENT_TDP_COEFF",
+									"type": "String"
+								},
+								"sink": {
+									"name": "DISP_WO_FEAT_PERCENT_TDP_COEFF",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "FEAT_WO_DISP_PERCENT_TDP_COEFF",
+									"type": "String"
+								},
+								"sink": {
+									"name": "FEAT_WO_DISP_PERCENT_TDP_COEFF",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "FEAT_AND_DISP_PERCENT_TDP_LAG_1_COEFF",
+									"type": "String"
+								},
+								"sink": {
+									"name": "FEAT_AND_DISP_PERCENT_TDP_LAG_1_COEFF",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "DISP_WO_FEAT_PERCENT_TDP_LAG_1_COEFF",
+									"type": "String"
+								},
+								"sink": {
+									"name": "DISP_WO_FEAT_PERCENT_TDP_LAG_1_COEFF",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "FEAT_WO_DISP_PERCENT_TDP_LAG_1_COEFF",
+									"type": "String"
+								},
+								"sink": {
+									"name": "FEAT_WO_DISP_PERCENT_TDP_LAG_1_COEFF",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "SHIP_BASE_TREND_EFFECT",
+									"type": "String"
+								},
+								"sink": {
+									"name": "SHIP_BASE_TREND_EFFECT",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "CONSUMPTION_TO_SHIPMENTS_LEAD_1_COEFF",
+									"type": "String"
+								},
+								"sink": {
+									"name": "CONSUMPTION_TO_SHIPMENTS_LEAD_1_COEFF",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "CONSUMPTION_TO_SHIPMENTS_LEAD_2_COEFF",
+									"type": "String"
+								},
+								"sink": {
+									"name": "CONSUMPTION_TO_SHIPMENTS_LEAD_2_COEFF",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "CONSUMPTION_TO_SHIPMENTS_LEAD_3_COEFF",
+									"type": "String"
+								},
+								"sink": {
+									"name": "CONSUMPTION_TO_SHIPMENTS_LEAD_3_COEFF",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "CONSUMPTION_TO_SHIPMENTS_LEAD_4_COEFF",
+									"type": "String"
+								},
+								"sink": {
+									"name": "CONSUMPTION_TO_SHIPMENTS_LEAD_4_COEFF",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "CONSUMPTION_ERROR",
+									"type": "String"
+								},
+								"sink": {
+									"name": "CONSUMPTION_ERROR",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "SHIPMENTS_ERROR",
+									"type": "String"
+								},
+								"sink": {
+									"name": "SHIPMENTS_ERROR",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "BASE_TREND_EFFECT",
+									"type": "String"
+								},
+								"sink": {
+									"name": "BASE_TREND_EFFECT",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "BASE_SEAS_MULT",
+									"type": "String"
+								},
+								"sink": {
+									"name": "BASE_SEAS_MULT",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "BASE_PRC_MULT",
+									"type": "String"
+								},
+								"sink": {
+									"name": "BASE_PRC_MULT",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "PKGS",
+									"type": "String"
+								},
+								"sink": {
+									"name": "PKGS",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "BASE_HOLIDAY_MULT",
+									"type": "String"
+								},
+								"sink": {
+									"name": "BASE_HOLIDAY_MULT",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "SHIP_BASE_SEAS_MULT",
+									"type": "String"
+								},
+								"sink": {
+									"name": "SHIP_BASE_SEAS_MULT",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "PKGS_SHIPPED",
+									"type": "String"
+								},
+								"sink": {
+									"name": "PKGS_SHIPPED",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "FINAL_RUN_CHECK",
+									"type": "String"
+								},
+								"sink": {
+									"name": "FINAL_RUN_CHECK",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"name": "NO_PROMO_PKG_PRC_MAX",
+									"type": "String"
+								},
+								"sink": {
+									"name": "NO_PROMO_PKG_PRC_MAX",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "NSEAS",
+									"type": "String"
+								},
+								"sink": {
+									"name": "GRID_NSEAS",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "LAG_NUM",
+									"type": "String"
+								},
+								"sink": {
+									"name": "GRID_LAG",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "NO_PROMO_PKG_PRC_ORIG",
+									"type": "String"
+								},
+								"sink": {
+									"name": "NO_PROMO_PKG_PRC_ORIG",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "INV_QTY",
+									"type": "String"
+								},
+								"sink": {
+									"name": "INV_QTY",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "DOLLARS",
+									"type": "String"
+								},
+								"sink": {
+									"name": "RETAIL_DOLLARS",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "PKGS_FCST",
+									"type": "String"
+								},
+								"sink": {
+									"name": "PKGS_FCST",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "PKGS_SHIPPED_FCST",
+									"type": "String"
+								},
+								"sink": {
+									"name": "PKGS_SHIPPED_FCST",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "SHIP_BASE_HOLIDAY_MULT",
+									"type": "String"
+								},
+								"sink": {
+									"name": "SHIP_BASE_HOLIDAY_MULT",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "MASTER_RUN_FLAG",
+									"type": "String"
+								},
+								"sink": {
+									"name": "MASTER_RUN_FLAG",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"name": "WEEKS_OUT",
+									"type": "String"
+								},
+								"sink": {
+									"name": "WEEKS_OUT",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"name": "MONTHS_OUT",
+									"type": "String"
+								},
+								"sink": {
+									"name": "MONTHS_OUT",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"name": "MAX_TRAIN_DATE",
+									"type": "String"
+								},
+								"sink": {
+									"name": "MAX_TRAIN_DATE",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"name": "CONSUMPTION_TO_SHIPMENTS_LAG_6_COEFF",
+									"type": "String"
+								},
+								"sink": {
+									"name": "CONSUMPTION_TO_SHIPMENTS_LAG_6_COEFF",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "CONSUMPTION_TO_SHIPMENTS_LAG_5_COEFF",
+									"type": "String"
+								},
+								"sink": {
+									"name": "CONSUMPTION_TO_SHIPMENTS_LAG_5_COEFF",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "CONSUMPTION_TO_SHIPMENTS_LAG_4_COEFF",
+									"type": "String"
+								},
+								"sink": {
+									"name": "CONSUMPTION_TO_SHIPMENTS_LAG_4_COEFF",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "CONSUMPTION_TO_SHIPMENTS_LAG_3_COEFF",
+									"type": "String"
+								},
+								"sink": {
+									"name": "CONSUMPTION_TO_SHIPMENTS_LAG_3_COEFF",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "CONSUMPTION_TO_SHIPMENTS_LAG_2_COEFF",
+									"type": "String"
+								},
+								"sink": {
+									"name": "CONSUMPTION_TO_SHIPMENTS_LAG_2_COEFF",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "CONSUMPTION_TO_SHIPMENTS_LAG_1_COEFF",
+									"type": "String"
+								},
+								"sink": {
+									"name": "CONSUMPTION_TO_SHIPMENTS_LAG_1_COEFF",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "CONSUMPTION_TO_SHIPMENTS_LEAD_0_COEFF",
+									"type": "String"
+								},
+								"sink": {
+									"name": "CONSUMPTION_TO_SHIPMENTS_LEAD_0_COEFF",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "CONSUMPTION_TO_SHIPMENTS_LEAD_5_COEFF",
+									"type": "String"
+								},
+								"sink": {
+									"name": "CONSUMPTION_TO_SHIPMENTS_LEAD_5_COEFF",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "CONSUMPTION_TO_SHIPMENTS_LEAD_6_COEFF",
+									"type": "String"
+								},
+								"sink": {
+									"name": "CONSUMPTION_TO_SHIPMENTS_LEAD_6_COEFF",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "FILL_FLAG",
+									"type": "String"
+								},
+								"sink": {
+									"name": "FILL_FLAG",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"name": "SHIP_FILL_FLAG",
+									"type": "String"
+								},
+								"sink": {
+									"name": "SHIP_FILL_FLAG",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"name": "GSV_SHIPPED",
+									"type": "String"
+								},
+								"sink": {
+									"name": "GSV_SHIPPED",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "LBS",
+									"type": "String"
+								},
+								"sink": {
+									"name": "LBS",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "PKGS_GRS",
+									"type": "String"
+								},
+								"sink": {
+									"name": "GRS_POS_FORECAST",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "PKGS_SHIPPED_GRS",
+									"type": "String"
+								},
+								"sink": {
+									"name": "GRS_SHIPMENT_FORECAST",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "BASE_PKGS",
+									"type": "String"
+								},
+								"sink": {
+									"name": "BASE_PKGS",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "INCR_PKGS",
+									"type": "String"
+								},
+								"sink": {
+									"name": "INCR_PKGS",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "BASE_PKGS_SHIPPED",
+									"type": "String"
+								},
+								"sink": {
+									"name": "BASE_PKGS_SHIPPED",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "BASE_LEVEL_EFFECT",
+									"type": "String"
+								},
+								"sink": {
+									"name": "BASE_LEVEL_EFFECT",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "BASE_TREND_EFFECT_NEW",
+									"type": "String"
+								},
+								"sink": {
+									"name": "BASE_TREND_EFFECT_NEW",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "SHIP_BASE_CONSUMPTION_TO_SHIPMENTS_LEAD_MULT",
+									"type": "String"
+								},
+								"sink": {
+									"name": "SHIP_BASE_CONSUMPTION_TO_SHIPMENTS_LEAD_MULT",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "BASE_CONSUMPTION_TO_SHIPMENTS_LAG_6_COEFF",
+									"type": "String"
+								},
+								"sink": {
+									"name": "BASE_CONSUMPTION_TO_SHIPMENTS_LAG_6_COEFF",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "BASE_CONSUMPTION_TO_SHIPMENTS_LAG_5_COEFF",
+									"type": "String"
+								},
+								"sink": {
+									"name": "BASE_CONSUMPTION_TO_SHIPMENTS_LAG_5_COEFF",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "BASE_CONSUMPTION_TO_SHIPMENTS_LAG_4_COEFF",
+									"type": "String"
+								},
+								"sink": {
+									"name": "BASE_CONSUMPTION_TO_SHIPMENTS_LAG_4_COEFF",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "BASE_CONSUMPTION_TO_SHIPMENTS_LAG_3_COEFF",
+									"type": "String"
+								},
+								"sink": {
+									"name": "BASE_CONSUMPTION_TO_SHIPMENTS_LAG_3_COEFF",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "BASE_CONSUMPTION_TO_SHIPMENTS_LAG_2_COEFF",
+									"type": "String"
+								},
+								"sink": {
+									"name": "BASE_CONSUMPTION_TO_SHIPMENTS_LAG_2_COEFF",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "BASE_CONSUMPTION_TO_SHIPMENTS_LAG_1_COEFF",
+									"type": "String"
+								},
+								"sink": {
+									"name": "BASE_CONSUMPTION_TO_SHIPMENTS_LAG_1_COEFF",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "BASE_CONSUMPTION_TO_SHIPMENTS_LEAD_0_COEFF",
+									"type": "String"
+								},
+								"sink": {
+									"name": "BASE_CONSUMPTION_TO_SHIPMENTS_LEAD_0_COEFF",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "BASE_CONSUMPTION_TO_SHIPMENTS_LEAD_1_COEFF",
+									"type": "String"
+								},
+								"sink": {
+									"name": "BASE_CONSUMPTION_TO_SHIPMENTS_LEAD_1_COEFF",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "BASE_CONSUMPTION_TO_SHIPMENTS_LEAD_2_COEFF",
+									"type": "String"
+								},
+								"sink": {
+									"name": "BASE_CONSUMPTION_TO_SHIPMENTS_LEAD_2_COEFF",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "BASE_CONSUMPTION_TO_SHIPMENTS_LEAD_3_COEFF",
+									"type": "String"
+								},
+								"sink": {
+									"name": "BASE_CONSUMPTION_TO_SHIPMENTS_LEAD_3_COEFF",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "BASE_CONSUMPTION_TO_SHIPMENTS_LEAD_4_COEFF",
+									"type": "String"
+								},
+								"sink": {
+									"name": "BASE_CONSUMPTION_TO_SHIPMENTS_LEAD_4_COEFF",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "BASE_CONSUMPTION_TO_SHIPMENTS_LEAD_5_COEFF",
+									"type": "String"
+								},
+								"sink": {
+									"name": "BASE_CONSUMPTION_TO_SHIPMENTS_LEAD_5_COEFF",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "BASE_CONSUMPTION_TO_SHIPMENTS_LEAD_6_COEFF",
+									"type": "String"
+								},
+								"sink": {
+									"name": "BASE_CONSUMPTION_TO_SHIPMENTS_LEAD_6_COEFF",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "LIST_PRC_PER_UNIT",
+									"type": "String"
+								},
+								"sink": {
+									"name": "LIST_PRC_PER_UNIT",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "RETAIL_PRC_PER_UNIT",
+									"type": "String"
+								},
+								"sink": {
+									"name": "RETAIL_PRC_PER_UNIT",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "PKGS_SHIPPED_FCST_ALT",
+									"type": "String"
+								},
+								"sink": {
+									"name": "PKGS_SHIPPED_FCST_ALT",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "SMOOTHING_AVG_PKG_PRC",
+									"type": "String"
+								},
+								"sink": {
+									"name": "SMOOTHING_AVG_PKG_PRC",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "SMOOTHING_NO_PROMO_PKG_PRC",
+									"type": "String"
+								},
+								"sink": {
+									"name": "SMOOTHING_NO_PROMO_PKG_PRC",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "TPR_BB_RATE_COEFF",
+									"type": "String"
+								},
+								"sink": {
+									"name": "TPR_BB_RATE_COEFF",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "TPR_OI_RATE_COEFF",
+									"type": "String"
+								},
+								"sink": {
+									"name": "TPR_OI_RATE_COEFF",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "TPR_SCAN_RATE_COEFF",
+									"type": "String"
+								},
+								"sink": {
+									"name": "TPR_SCAN_RATE_COEFF",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "TPR_WW_RATE_COEFF",
+									"type": "String"
+								},
+								"sink": {
+									"name": "TPR_WW_RATE_COEFF",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "TPR_FIXED_SPEND_COEFF",
+									"type": "String"
+								},
+								"sink": {
+									"name": "TPR_FIXED_SPEND_COEFF",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "FEAT_WO_DISP_BB_RATE_COEFF",
+									"type": "String"
+								},
+								"sink": {
+									"name": "FEAT_WO_DISP_BB_RATE_COEFF",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "FEAT_WO_DISP_OI_RATE_COEFF",
+									"type": "String"
+								},
+								"sink": {
+									"name": "FEAT_WO_DISP_OI_RATE_COEFF",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "FEAT_WO_DISP_SCAN_RATE_COEFF",
+									"type": "String"
+								},
+								"sink": {
+									"name": "FEAT_WO_DISP_SCAN_RATE_COEFF",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "FEAT_WO_DISP_WW_RATE_COEFF",
+									"type": "String"
+								},
+								"sink": {
+									"name": "FEAT_WO_DISP_WW_RATE_COEFF",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "FEAT_WO_DISP_FIXED_SPEND_COEFF",
+									"type": "String"
+								},
+								"sink": {
+									"name": "FEAT_WO_DISP_FIXED_SPEND_COEFF",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "DISP_WO_FEAT_BB_RATE_COEFF",
+									"type": "String"
+								},
+								"sink": {
+									"name": "DISP_WO_FEAT_BB_RATE_COEFF",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "DISP_WO_FEAT_OI_RATE_COEFF",
+									"type": "String"
+								},
+								"sink": {
+									"name": "DISP_WO_FEAT_OI_RATE_COEFF",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "DISP_WO_FEAT_SCAN_RATE_COEFF",
+									"type": "String"
+								},
+								"sink": {
+									"name": "DISP_WO_FEAT_SCAN_RATE_COEFF",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "DISP_WO_FEAT_WW_RATE_COEFF",
+									"type": "String"
+								},
+								"sink": {
+									"name": "DISP_WO_FEAT_WW_RATE_COEFF",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "DISP_WO_FEAT_FIXED_SPEND_COEFF",
+									"type": "String"
+								},
+								"sink": {
+									"name": "DISP_WO_FEAT_FIXED_SPEND_COEFF",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "FEAT_AND_DISP_BB_RATE_COEFF",
+									"type": "String"
+								},
+								"sink": {
+									"name": "FEAT_AND_DISP_BB_RATE_COEFF",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "FEAT_AND_DISP_OI_RATE_COEFF",
+									"type": "String"
+								},
+								"sink": {
+									"name": "FEAT_AND_DISP_OI_RATE_COEFF",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "FEAT_AND_DISP_SCAN_RATE_COEFF",
+									"type": "String"
+								},
+								"sink": {
+									"name": "FEAT_AND_DISP_SCAN_RATE_COEFF",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "FEAT_AND_DISP_WW_RATE_COEFF",
+									"type": "String"
+								},
+								"sink": {
+									"name": "FEAT_AND_DISP_WW_RATE_COEFF",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "FEAT_AND_DISP_FIXED_SPEND_COEFF",
+									"type": "String"
+								},
+								"sink": {
+									"name": "FEAT_AND_DISP_FIXED_SPEND_COEFF",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "FIXED_ONLY_SPEND_COEFF",
+									"type": "String"
+								},
+								"sink": {
+									"name": "FIXED_ONLY_SPEND_COEFF",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "WW_FLAG",
+									"type": "String"
+								},
+								"sink": {
+									"name": "WW_FLAG",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"name": "WW_MODEL_QTY",
+									"type": "String"
+								},
+								"sink": {
+									"name": "WW_MODEL_QTY",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "WW_QTY",
+									"type": "String"
+								},
+								"sink": {
+									"name": "WW_QTY",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "WW_COST",
+									"type": "String"
+								},
+								"sink": {
+									"name": "WW_COST",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "WW_REVENUE",
+									"type": "String"
+								},
+								"sink": {
+									"name": "WW_REVENUE",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "FEAT_AND_DISP_PKGS",
+									"type": "String"
+								},
+								"sink": {
+									"name": "FEAT_AND_DISP_PKGS"
+								}
+							},
+							{
+								"source": {
+									"name": "DISP_WO_FEAT_PKGS",
+									"type": "String"
+								},
+								"sink": {
+									"name": "DISP_WO_FEAT_PKGS"
+								}
+							},
+							{
+								"source": {
+									"name": "FEAT_WO_DISP_PKGS",
+									"type": "String"
+								},
+								"sink": {
+									"name": "FEAT_WO_DISP_PKGS"
+								}
+							},
+							{
+								"source": {
+									"name": "PRC_DECR_PKGS",
+									"type": "String"
+								},
+								"sink": {
+									"name": "PRC_DECR_PKGS"
+								}
+							},
+							{
+								"source": {
+									"name": "NO_PROMO_PKGS",
+									"type": "String"
+								},
+								"sink": {
+									"name": "NO_PROMO_PKGS"
+								}
+							},
+							{
+								"source": {
+									"name": "SPECIAL_PACK_PKGS",
+									"type": "String"
+								},
+								"sink": {
+									"name": "SPECIAL_PACK_PKGS"
+								}
+							},
+							{
+								"source": {
+									"name": "METRIC_FILLER_7",
+									"type": "String"
+								},
+								"sink": {
+									"name": "METRIC_FILLER_7",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "METRIC_FILLER_8",
+									"type": "String"
+								},
+								"sink": {
+									"name": "METRIC_FILLER_8",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "METRIC_FILLER_9",
+									"type": "String"
+								},
+								"sink": {
+									"name": "METRIC_FILLER_9",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "METRIC_FILLER_10",
+									"type": "String"
+								},
+								"sink": {
+									"name": "METRIC_FILLER_10",
+									"type": "Single"
+								}
+							},
+							{
+								"source": {
+									"name": "PLANNING_YEAR",
+									"type": "String"
+								},
+								"sink": {
+									"name": "PLANNING_YEAR"
+								}
+							}
+						]
+					}
+				},
+				"inputs": [
+					{
+						"referenceName": "DS_KHCDE_US_SALES_SFK_TO_SAP_KEYSTONE_EXTRACT",
+						"type": "DatasetReference",
+						"parameters": {
+							"container_name": {
+								"value": "@activity('GM-Metadata').output.value[0].container_name",
+								"type": "Expression"
+							},
+							"blob_name": {
+								"value": "@activity('GM-Metadata').output.value[0].extract_blob_location",
+								"type": "Expression"
+							}
+						}
+					}
+				],
+				"outputs": [
+					{
+						"referenceName": "DS_KHCDE_SAP_KEYSTONE_COMPASS_ODBC",
+						"type": "DatasetReference"
+					}
+				]
+			},
+			{
+				"name": "Execute Hana Procedure",
+				"description": "Executes HANA Procedure",
+				"type": "Copy",
+				"dependsOn": [
+					{
+						"activity": "Copy_To_SAP",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "OdbcSource",
+						"query": "select * from \"COMPASS\".\"KraftHeinz.Compass.HanaObjects.Tables::TB_COMPASS_HADOOP\" where 1=2",
+						"queryTimeout": "00:05:00"
+					},
+					"sink": {
+						"type": "OdbcSink",
+						"writeBatchSize": 0,
+						"preCopyScript": {
+							"value": "call \"COMPASS\".\"KraftHeinz.Compass.HanaObjects.Procedures.Coefficient::SP_CMP_POPULATE_COEFFICIENT_MODEL\"()",
+							"type": "Expression"
+						}
+					},
+					"enableStaging": false
+				},
+				"inputs": [
+					{
+						"referenceName": "DS_KHCDE_SAP_KEYSTONE_COMPASS_ODBC",
+						"type": "DatasetReference"
+					}
+				],
+				"outputs": [
+					{
+						"referenceName": "DS_KHCDE_SAP_KEYSTONE_COMPASS_ODBC",
+						"type": "DatasetReference"
+					}
+				]
+			},
+			{
+				"name": "GM-Metadata",
+				"description": "This activity pulls the details of the snowflake table and blob location from khc_enggextract_metadata table which needs to extracted.",
+				"type": "Lookup",
+				"dependsOn": [
+					{
+						"activity": "Extract_to_Blob_Location",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "SqlServerSource",
+						"sqlReaderQuery": {
+							"value": "select * from khc_enggextract_metadata where application_name= '@{activity('LU-Metadata').output.value[0].application_name}' and dataset_group = '@{activity('LU-Metadata').output.value[0].dataset_group}' and active_ind = 'y'",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "DS_KHCDE_GENERIC_MSSQL_Metadata",
+						"type": "DatasetReference"
+					},
+					"firstRowOnly": false
+				}
+			},
+			{
+				"name": "SP-ActivityFailed04",
+				"description": "This activity logs failure of Metadata Lookup activity in khc_audit_log_detail table and failure of pipeline in  khc_audit_log table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "GM-Metadata",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": "GM-Metadata",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@activity('LU-Metadata').output.value[0].application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@activity('LU-Metadata').output.value[0].dataset_group",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_code": {
+							"value": {
+								"value": "Lookup Failed for @activity('LU-Metadata').output.value[0].dataset_group",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_detail": {
+							"value": {
+								"value": "Lookup Failed for @activity('LU-Metadata').output.value[0].dataset_group",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "WB-SendFailureEmail04",
+				"description": "Triggers Mail",
+				"type": "WebActivity",
+				"dependsOn": [
+					{
+						"activity": "SP-ActivityFailed04",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"url": {
+						"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+						"type": "Expression"
+					},
+					"method": "POST",
+					"body": {
+						"value": "{ \n        \"to_email\": \"@{variables('emailTo')}\", \n        \"subject\": \"Failed during Until Trigger Found Activity : @{pipeline().parameters.ApplicationName} - @{activity('LU-Metadata').output.value[0].dataset_group}\", \n        \"body\": \"Dear All,<br><br>The cloud analytics data load process failed for the Application: @{pipeline().parameters.ApplicationName}</b><br> Please find below the details: <br><br> Pipeline Name: @{pipeline().Pipeline} <br> Pipeline Run ID: @{pipeline().RunId}<br> Pipeline Trigger Name: @{pipeline().TriggerName}<br> Pipeline Trigger Type: @{pipeline().TriggerType}<br> Pipeline Start Time: @{pipeline().TriggerTime}<br> Activity: Until-TriggerFound<br><br>Parameters:<br>===========<br>Application Name: @{pipeline().parameters.ApplicationName}<br>Blob Trigger: @{pipeline().parameters.BlobTriggerName}<br><br>Error Code: @{activity('Until-TriggerFound').Error.errorCode} <br>Error Message: @{activity('Until-TriggerFound').Error.message} <br><br>Please take care.<br><br>Regards,<br>Cloud Analytics Team\", \n        \"importance\": \"High\"\n}",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "SP-Pipelinesuccesful",
+				"description": "This Activity logs completion of pipeline in khc_audit_log table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "DeleteTrigger",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": "U",
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.ApplicationName",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.BlobTriggerName",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@{pipeline().Pipeline}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": "Successful",
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			}
+		],
+		"parameters": {
+			"ApplicationName": {
+				"type": "string",
+				"defaultValue": "us_retailer_data"
+			},
+			"BlobTriggerName": {
+				"type": "string",
+				"defaultValue": "compass_model_output_extract_to_hana_trigger.txt"
+			}
+		},
+		"variables": {
+			"exit_ind": {
+				"type": "String",
+				"defaultValue": "N"
+			},
+			"emailTo": {
+				"type": "String",
+				"defaultValue": "dd895406.Heinz365.onmicrosoft.com@amer.teams.ms"
+			}
+		},
+		"folder": {
+			"name": "US_Sales"
+		},
+		"annotations": []
+	}
+}

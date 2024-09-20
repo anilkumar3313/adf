@@ -1,0 +1,2568 @@
+{
+	"name": "PL_KHCDE_FIIX_EXTRACTION",
+	"properties": {
+		"description": "Generic Pipeline created to Extract from SAP CATALYST HANA Instance",
+		"activities": [
+			{
+				"name": "Audit_Pipeline_Start",
+				"description": "Activity to make audit log entry for pipeline execution start",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 50,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": {
+								"value": "I",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.dataset_group",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@{pipeline().Pipeline}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Processing",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-ActivityAndPipelineFailedWO",
+				"description": "Mark data extract copy activity failure",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "CP-FIIX-TO-BLOB-WO",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": "U",
+							"type": "String"
+						},
+						"activity_name": {
+							"value": {
+								"value": "CP-FIIX-TO-BLOB-WO",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.dataset_group",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Failed ",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"skip_pipeline_audit_update": {
+							"value": "N",
+							"type": "String"
+						},
+						"error_code": {
+							"value": {
+								"value": "@activity('CP-FIIX-TO-BLOB-WO').Error.errorCode",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_detail": {
+							"value": {
+								"value": "@activity('CP-FIIX-TO-BLOB-WO').Error.message",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "CP-FIIX-TO-BLOB-WO",
+				"description": "This copy data activity brings data from Fiix to Blob storage through API calls",
+				"type": "Copy",
+				"dependsOn": [
+					{
+						"activity": "Get_Key_Vault_Cred",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "RestSource",
+						"httpRequestTimeout": "00:01:40",
+						"requestInterval": "00.00:00:00.010",
+						"requestMethod": "POST",
+						"requestBody": {
+							"value": "{\n\t  \"_maCn\" : \"FindRequest\",\n\t  \"clientVersion\" : {\n\t    \"major\" : 2,\n\t    \"minor\" : 8,\n\t    \"patch\" : 1\n\t  },\n\t  \"className\": \"WorkOrder\",\n\t  \"fields\": \"id,strAssignedUserIds,intPriorityID,intWorkOrderStatusID,strAssets,intSiteID,strAssignedUsers,intRequestedByUserID,strEmailUserGuest,dtmDateCreated,strAssetIds,dtmDateCompleted,intCompletedByUserID,strDescription,strNameUserGuest,dtmSuggestedCompletionDate,strPhoneUserGuest,strCode,strCompletionNotes,intMaintenanceTypeID,dtmDateLastModified,bolRequiresSignature,dtmDateSigned,intSignedByUserID,intWorkOrderStatusGroup,strAdminNotes,intRCAActionID,intRCACauseID,intRCAProblemID,strCompletedByUserIds,strCompletedByUsers,strCustomerIds,strVendorIds,intUpdated,intScheduledMaintenanceID,strUuid,intAccountID,intChargeDepartmentID,intProjectID,dv_intPriorityID,dv_intRequestedByUserID,dv_intSiteID,dv_intCompletedByUserID,dv_intWorkOrderStatusID,dv_intMaintenanceTypeID,dv_intRCAActionID,dv_intRCACauseID,dv_intRCAProblemID,dv_intScheduledMaintenanceID,dv_intSignedByUserID,dv_intAccountID,dv_intChargeDepartmentID,dv_intProjectID\"\n}",
+							"type": "Expression"
+						},
+						"additionalHeaders": {
+							"Content-Type": "text/plain"
+						}
+					},
+					"sink": {
+						"type": "ParquetSink",
+						"storeSettings": {
+							"type": "AzureBlobFSWriteSettings",
+							"copyBehavior": "FlattenHierarchy"
+						},
+						"formatSettings": {
+							"type": "ParquetWriteSettings"
+						}
+					},
+					"enableStaging": false,
+					"translator": {
+						"type": "TabularTranslator",
+						"mappings": [
+							{
+								"source": {
+									"path": "['id']"
+								},
+								"sink": {
+									"name": "id",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['strAssignedUserIds']"
+								},
+								"sink": {
+									"name": "strAssignedUserIds",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['intPriorityID']"
+								},
+								"sink": {
+									"name": "intPriorityID",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['intWorkOrderStatusID']"
+								},
+								"sink": {
+									"name": "intWorkOrderStatusID",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['strAssets']"
+								},
+								"sink": {
+									"name": "strAssets",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['intSiteID']"
+								},
+								"sink": {
+									"name": "intSiteID",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['strAssignedUsers']"
+								},
+								"sink": {
+									"name": "strAssignedUsers",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['intRequestedByUserID']"
+								},
+								"sink": {
+									"name": "intRequestedByUserID",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['strEmailUserGuest']"
+								},
+								"sink": {
+									"name": "strEmailUserGuest",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['dtmDateCreated']"
+								},
+								"sink": {
+									"name": "dtmDateCreated",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['strAssetIds']"
+								},
+								"sink": {
+									"name": "strAssetIds",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['dtmDateCompleted']"
+								},
+								"sink": {
+									"name": "dtmDateCompleted",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['intCompletedByUserID']"
+								},
+								"sink": {
+									"name": "intCompletedByUserID",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['strDescription']"
+								},
+								"sink": {
+									"name": "strDescription",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['strNameUserGuest']"
+								},
+								"sink": {
+									"name": "strNameUserGuest",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['dtmSuggestedCompletionDate']"
+								},
+								"sink": {
+									"name": "dtmSuggestedCompletionDate",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['strPhoneUserGuest']"
+								},
+								"sink": {
+									"name": "strPhoneUserGuest",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['strCode']"
+								},
+								"sink": {
+									"name": "strCode",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['strCompletionNotes']"
+								},
+								"sink": {
+									"name": "strCompletionNotes",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['intMaintenanceTypeID']"
+								},
+								"sink": {
+									"name": "intMaintenanceTypeID",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['dtmDateLastModified']"
+								},
+								"sink": {
+									"name": "dtmDateLastModified",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['bolRequiresSignature']"
+								},
+								"sink": {
+									"name": "bolRequiresSignature",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['dtmDateSigned']"
+								},
+								"sink": {
+									"name": "dtmDateSigned",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['intSignedByUserID']"
+								},
+								"sink": {
+									"name": "intSignedByUserID",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['intWorkOrderStatusGroup']"
+								},
+								"sink": {
+									"name": "intWorkOrderStatusGroup",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['strAdminNotes']"
+								},
+								"sink": {
+									"name": "strAdminNotes",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['intRCAActionID']"
+								},
+								"sink": {
+									"name": "intRCAActionID",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['intRCACauseID']"
+								},
+								"sink": {
+									"name": "intRCACauseID",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['intRCAProblemID']"
+								},
+								"sink": {
+									"name": "intRCAProblemID",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['strCompletedByUserIds']"
+								},
+								"sink": {
+									"name": "strCompletedByUserIds",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['strCompletedByUsers']"
+								},
+								"sink": {
+									"name": "strCompletedByUsers",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['strCustomerIds']"
+								},
+								"sink": {
+									"name": "strCustomerIds",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['strVendorIds']"
+								},
+								"sink": {
+									"name": "strVendorIds",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['intUpdated']"
+								},
+								"sink": {
+									"name": "intUpdated",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['intScheduledMaintenanceID']"
+								},
+								"sink": {
+									"name": "intScheduledMaintenanceID",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['strUuid']"
+								},
+								"sink": {
+									"name": "strUuid",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['intAccountID']"
+								},
+								"sink": {
+									"name": "intAccountID",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['intChargeDepartmentID']"
+								},
+								"sink": {
+									"name": "intChargeDepartmentID",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['intProjectID']"
+								},
+								"sink": {
+									"name": "intProjectID",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['extraFields']['dv_intPriorityID']"
+								},
+								"sink": {
+									"name": "dv_intPriorityID",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['extraFields']['dv_intRequestedByUserID']"
+								},
+								"sink": {
+									"name": "dv_intRequestedByUserID",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['extraFields']['dv_intSiteID']"
+								},
+								"sink": {
+									"name": "dv_intSiteID",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['extraFields']['dv_intCompletedByUserID']"
+								},
+								"sink": {
+									"name": "dv_intCompletedByUserID",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['extraFields']['dv_intWorkOrderStatusID']"
+								},
+								"sink": {
+									"name": "dv_intWorkOrderStatusID",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['extraFields']['dv_intMaintenanceTypeID']"
+								},
+								"sink": {
+									"name": "dv_intMaintenanceTypeID",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['extraFields']['dv_intRCAActionID']"
+								},
+								"sink": {
+									"name": "dv_intRCAActionID",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['extraFields']['dv_intRCACauseID']"
+								},
+								"sink": {
+									"name": "dv_intRCACauseID",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['extraFields']['dv_intRCAProblemID']"
+								},
+								"sink": {
+									"name": "dv_intRCAProblemID",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['extraFields']['dv_intScheduledMaintenanceID']"
+								},
+								"sink": {
+									"name": "dv_intScheduledMaintenanceID",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['extraFields']['dv_intSignedByUserID']"
+								},
+								"sink": {
+									"name": "dv_intSignedByUserID",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['extraFields']['dv_intAccountID']"
+								},
+								"sink": {
+									"name": "dv_intAccountID",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['extraFields']['dv_intChargeDepartmentID']"
+								},
+								"sink": {
+									"name": "dv_intChargeDepartmentID",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['extraFields']['dv_intProjectID']"
+								},
+								"sink": {
+									"name": "dv_intProjectID",
+									"type": "String"
+								}
+							}
+						],
+						"collectionReference": "$['objects']",
+						"mapComplexValuesToString": true
+					}
+				},
+				"inputs": [
+					{
+						"referenceName": "DS_KHCDE_FIIX_CHINA",
+						"type": "DatasetReference",
+						"parameters": {
+							"KeyVaultBaseUrl": {
+								"value": "@activity('Get_Key_Vault_Cred').output.value",
+								"type": "Expression"
+							}
+						}
+					}
+				],
+				"outputs": [
+					{
+						"referenceName": "DS_KHCDE_FIIX_CHINA_JSON_TO_PARQUET",
+						"type": "DatasetReference",
+						"parameters": {
+							"container_name": {
+								"value": "khc-enterprise-data",
+								"type": "Expression"
+							},
+							"file_path": {
+								"value": "manufacturing/maintenance/apac/stage/WorkOrder",
+								"type": "Expression"
+							},
+							"file_name": {
+								"value": "work_order.parquet",
+								"type": "Expression"
+							}
+						}
+					}
+				]
+			},
+			{
+				"name": "SP-ActivityAndPipelineSuccessWO",
+				"description": "This activity logs success of  Data Extract in khc_audit_log_detail table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "CP-FIIX-TO-BLOB-WO",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": {
+								"value": "U",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "pipeline().parameters.application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "pipeline().parameters.dataset_group",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@{pipeline().Pipeline}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Successful",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-ActivityAndPipelineFailedSM",
+				"description": "This activity logs failure of data Extract in khc_audit_log_detail table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "CP-FIIX-TO-BLOB-SM",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": "U",
+							"type": "String"
+						},
+						"activity_name": {
+							"value": {
+								"value": "CP-FIIX-TO-BLOB-SM",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.dataset_group",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Failed ",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"skip_pipeline_audit_update": {
+							"value": "N",
+							"type": "String"
+						},
+						"error_code": {
+							"value": {
+								"value": "@activity('CP-FIIX-TO-BLOB-SM').Error.errorCode",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_detail": {
+							"value": {
+								"value": "@activity('CP-FIIX-TO-BLOB-SM').Error.message",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "CP-FIIX-TO-BLOB-SM",
+				"description": "This copy data activity brings data from Fiix to Blob storage through API calls",
+				"type": "Copy",
+				"dependsOn": [
+					{
+						"activity": "Get_Key_Vault_Cred",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "RestSource",
+						"httpRequestTimeout": "00:01:40",
+						"requestInterval": "00.00:00:00.010",
+						"requestMethod": "POST",
+						"requestBody": {
+							"value": "{\n\t  \"_maCn\" : \"FindRequest\",\n\t  \"clientVersion\" : {\n\t    \"major\" : 2,\n\t    \"minor\" : 8,\n\t    \"patch\" : 1\n\t  },\n\t  \"className\": \"ScheduledMaintenance\",\n\t  \"fields\": \"id,intPriorityID,intSiteID,intStartAsWorkOrderStatusID,intScheduledMaintenanceStatusID,intSuggestedCompletion,dtmUpdatedDate,strCode,intProjectID,strCompletionNotes,dtmCreateDate,intMaintenanceTypeID,intRequestorUserID,strDescription,bolCanFireSMWithOpenWO,bolWORequiresSignature,strUuid,dv_intPriorityID,dv_intSiteID,dv_intProjectID,dv_intRequestorUserID,dv_intMaintenanceTypeID,dv_intStartAsWorkOrderStatusID,cf_dvSMAsset\"\n}",
+							"type": "Expression"
+						},
+						"additionalHeaders": {
+							"Content-Type": "text/plain"
+						}
+					},
+					"sink": {
+						"type": "ParquetSink",
+						"storeSettings": {
+							"type": "AzureBlobFSWriteSettings",
+							"copyBehavior": "FlattenHierarchy"
+						},
+						"formatSettings": {
+							"type": "ParquetWriteSettings"
+						}
+					},
+					"enableStaging": false,
+					"translator": {
+						"type": "TabularTranslator",
+						"mappings": [
+							{
+								"source": {
+									"path": "['id']"
+								},
+								"sink": {
+									"name": "id",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['intPriorityID']"
+								},
+								"sink": {
+									"name": "intPriorityID",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['intSiteID']"
+								},
+								"sink": {
+									"name": "intSiteID",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['intStartAsWorkOrderStatusID']"
+								},
+								"sink": {
+									"name": "intStartAsWorkOrderStatusID",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['intScheduledMaintenanceStatusID']"
+								},
+								"sink": {
+									"name": "intScheduledMaintenanceStatusID",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['intSuggestedCompletion']"
+								},
+								"sink": {
+									"name": "intSuggestedCompletion",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['dtmUpdatedDate']"
+								},
+								"sink": {
+									"name": "dtmUpdatedDate",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['strCode']"
+								},
+								"sink": {
+									"name": "strCode",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['intProjectID']"
+								},
+								"sink": {
+									"name": "intProjectID",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['strCompletionNotes']"
+								},
+								"sink": {
+									"name": "strCompletionNotes",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['dtmCreateDate']"
+								},
+								"sink": {
+									"name": "dtmCreateDate",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['intMaintenanceTypeID']"
+								},
+								"sink": {
+									"name": "intMaintenanceTypeID",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['intRequestorUserID']"
+								},
+								"sink": {
+									"name": "intRequestorUserID",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['strDescription']"
+								},
+								"sink": {
+									"name": "strDescription",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['bolCanFireSMWithOpenWO']"
+								},
+								"sink": {
+									"name": "bolCanFireSMWithOpenWO",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['bolWORequiresSignature']"
+								},
+								"sink": {
+									"name": "bolWORequiresSignature",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['strUuid']"
+								},
+								"sink": {
+									"name": "strUuid",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['extraFields']['dv_intPriorityID']"
+								},
+								"sink": {
+									"name": "dv_intPriorityID",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['extraFields']['dv_intSiteID']"
+								},
+								"sink": {
+									"name": "dv_intSiteID",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['extraFields']['dv_intProjectID']"
+								},
+								"sink": {
+									"name": "dv_intProjectID",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['extraFields']['dv_intRequestorUserID']"
+								},
+								"sink": {
+									"name": "dv_intRequestorUserID",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['extraFields']['dv_intMaintenanceTypeID']"
+								},
+								"sink": {
+									"name": "dv_intMaintenanceTypeID",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['extraFields']['dv_intStartAsWorkOrderStatusID']"
+								},
+								"sink": {
+									"name": "dv_intStartAsWorkOrderStatusID",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['extraFields']['cf_dvSMAsset']"
+								},
+								"sink": {
+									"name": "cf_dvSMAsset",
+									"type": "String"
+								}
+							}
+						],
+						"collectionReference": "$['objects']",
+						"mapComplexValuesToString": true
+					}
+				},
+				"inputs": [
+					{
+						"referenceName": "DS_KHCDE_FIIX_CHINA",
+						"type": "DatasetReference",
+						"parameters": {
+							"KeyVaultBaseUrl": {
+								"value": "@activity('Get_Key_Vault_Cred').output.value",
+								"type": "Expression"
+							}
+						}
+					}
+				],
+				"outputs": [
+					{
+						"referenceName": "DS_KHCDE_FIIX_CHINA_JSON_TO_PARQUET",
+						"type": "DatasetReference",
+						"parameters": {
+							"container_name": "khc-enterprise-data",
+							"file_path": {
+								"value": "manufacturing/maintenance/apac/stage/ScheduledMaintenance",
+								"type": "Expression"
+							},
+							"file_name": {
+								"value": "scheduled_maintenance.parquet",
+								"type": "Expression"
+							}
+						}
+					}
+				]
+			},
+			{
+				"name": "SP-ActivityAndPipelineSuccessSM",
+				"description": "This activity logs success of  Data Extract in khc_audit_log_detail table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "CP-FIIX-TO-BLOB-SM",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": {
+								"value": "U",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.dataset_group",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@{pipeline().Pipeline}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Successful",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "Get_Key_Vault_Cred",
+				"description": "It which fetches the key vault detail",
+				"type": "WebActivity",
+				"dependsOn": [
+					{
+						"activity": "set_env_variable",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 120,
+					"secureOutput": true,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"url": {
+						"value": "@{concat('https://khcde-kv-', toLower(variables('env')), '.vault.azure.net/secrets/khcde-kv-sec-fiix-china-baseurl/?api-version=7.0')}",
+						"type": "Expression"
+					},
+					"method": "GET",
+					"authentication": {
+						"type": "MSI",
+						"resource": "https://vault.azure.net"
+					}
+				}
+			},
+			{
+				"name": "CP-FIIX-TO-BLOB-WOT",
+				"description": "This copy data activity brings data from Fiix to Blob storage through API calls",
+				"type": "Copy",
+				"dependsOn": [
+					{
+						"activity": "Get_Key_Vault_Cred",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "RestSource",
+						"httpRequestTimeout": "00:01:40",
+						"requestInterval": "00.00:00:00.010",
+						"requestMethod": "POST",
+						"requestBody": {
+							"value": "{\n\t  \"_maCn\" : \"FindRequest\",\n\t  \"clientVersion\" : {\n\t    \"major\" : 2,\n\t    \"minor\" : 8,\n\t    \"patch\" : 1\n\t  },\n\t  \"className\": \"WorkOrderTask\",\n\t  \"fields\": \"id,intWorkOrderID,intTaskType,strResult,intAssetID,intOrder,dtmStartDate,dtmDateCompleted,intCompletedByUserID,intAssignedToUserID,dblTimeEstimatedHours,dblTimeSpentHours,intMeterReadingUnitID,strDescription,strTaskNotesCompletion,intTaskGroupControlID,intParentWorkOrderTaskID,intUpdated,strUuid,dv_intAssignedToUserID,dv_intCompletedByUserID,dv_intWorkOrderID,dv_intMeterReadingUnitID,dv_intAssetID,dv_intParentWorkOrderTaskID,dv_intTaskGroupControlID,dv_intTaskResultValueID,cf_bolIsCompleteable\"\n}",
+							"type": "Expression"
+						},
+						"additionalHeaders": {
+							"Content-Type": "text/plain"
+						}
+					},
+					"sink": {
+						"type": "ParquetSink",
+						"storeSettings": {
+							"type": "AzureBlobFSWriteSettings",
+							"copyBehavior": "FlattenHierarchy"
+						},
+						"formatSettings": {
+							"type": "ParquetWriteSettings"
+						}
+					},
+					"enableStaging": false,
+					"translator": {
+						"type": "TabularTranslator",
+						"mappings": [
+							{
+								"source": {
+									"path": "['id']"
+								},
+								"sink": {
+									"name": "id",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['intWorkOrderID']"
+								},
+								"sink": {
+									"name": "intWorkOrderID",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['intTaskType']"
+								},
+								"sink": {
+									"name": "intTaskType",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['strResult']"
+								},
+								"sink": {
+									"name": "strResult",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['intAssetID']"
+								},
+								"sink": {
+									"name": "intAssetID",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['intOrder']"
+								},
+								"sink": {
+									"name": "intOrder",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['dtmStartDate']"
+								},
+								"sink": {
+									"name": "dtmStartDate",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['dtmDateCompleted']"
+								},
+								"sink": {
+									"name": "dtmDateCompleted",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['intCompletedByUserID']"
+								},
+								"sink": {
+									"name": "intCompletedByUserID",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['intAssignedToUserID']"
+								},
+								"sink": {
+									"name": "intAssignedToUserID",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['dblTimeEstimatedHours']"
+								},
+								"sink": {
+									"name": "dblTimeEstimatedHours",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['dblTimeSpentHours']"
+								},
+								"sink": {
+									"name": "dblTimeSpentHours",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['intMeterReadingUnitID']"
+								},
+								"sink": {
+									"name": "intMeterReadingUnitID",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['strDescription']"
+								},
+								"sink": {
+									"name": "strDescription",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['strTaskNotesCompletion']"
+								},
+								"sink": {
+									"name": "strTaskNotesCompletion",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['intTaskGroupControlID']"
+								},
+								"sink": {
+									"name": "intTaskGroupControlID",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['intParentWorkOrderTaskID']"
+								},
+								"sink": {
+									"name": "intParentWorkOrderTaskID",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['intUpdated']"
+								},
+								"sink": {
+									"name": "intUpdated",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['strUuid']"
+								},
+								"sink": {
+									"name": "strUuid",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['extraFields']['dv_intAssignedToUserID']"
+								},
+								"sink": {
+									"name": "dv_intAssignedToUserID",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['extraFields']['dv_intCompletedByUserID']"
+								},
+								"sink": {
+									"name": "dv_intCompletedByUserID",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['extraFields']['dv_intWorkOrderID']"
+								},
+								"sink": {
+									"name": "dv_intWorkOrderID",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['extraFields']['dv_intMeterReadingUnitID']"
+								},
+								"sink": {
+									"name": "dv_intMeterReadingUnitID",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['extraFields']['dv_intAssetID']"
+								},
+								"sink": {
+									"name": "dv_intAssetID",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['extraFields']['dv_intParentWorkOrderTaskID']"
+								},
+								"sink": {
+									"name": "dv_intParentWorkOrderTaskID",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['extraFields']['dv_intTaskGroupControlID']"
+								},
+								"sink": {
+									"name": "dv_intTaskGroupControlID",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['extraFields']['dv_intTaskResultValueID']"
+								},
+								"sink": {
+									"name": "dv_intTaskResultValueID",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['extraFields']['cf_bolIsCompleteable']"
+								},
+								"sink": {
+									"name": "cf_bolIsCompleteable",
+									"type": "String"
+								}
+							}
+						],
+						"collectionReference": "$['objects']",
+						"mapComplexValuesToString": true
+					}
+				},
+				"inputs": [
+					{
+						"referenceName": "DS_KHCDE_FIIX_CHINA",
+						"type": "DatasetReference",
+						"parameters": {
+							"KeyVaultBaseUrl": {
+								"value": "@activity('Get_Key_Vault_Cred').output.value",
+								"type": "Expression"
+							}
+						}
+					}
+				],
+				"outputs": [
+					{
+						"referenceName": "DS_KHCDE_FIIX_CHINA_JSON_TO_PARQUET",
+						"type": "DatasetReference",
+						"parameters": {
+							"container_name": "khc-enterprise-data",
+							"file_path": {
+								"value": "manufacturing/maintenance/apac/stage/WorkOrderTask",
+								"type": "Expression"
+							},
+							"file_name": {
+								"value": "work_order_task.parquet",
+								"type": "Expression"
+							}
+						}
+					}
+				]
+			},
+			{
+				"name": "SP-ActivityAndPipelineSuccessWOT",
+				"description": "This activity logs success of  Data Extract in khc_audit_log_detail table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "CP-FIIX-TO-BLOB-WOT",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": {
+								"value": "U",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.dataset_group",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@{pipeline().Pipeline}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Successful",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-ActivityAndPipelineFailedWOT",
+				"description": "This activity logs failure of data Extract in khc_audit_log_detail table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "CP-FIIX-TO-BLOB-WOT",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": "U",
+							"type": "String"
+						},
+						"activity_name": {
+							"value": {
+								"value": "CP-FIIX-TO-BLOB-WOT",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.dataset_group",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Failed ",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"skip_pipeline_audit_update": {
+							"value": "N",
+							"type": "String"
+						},
+						"error_code": {
+							"value": {
+								"value": "@activity('CP-FIIX-TO-BLOB-WOT').Error.errorCode",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_detail": {
+							"value": {
+								"value": "@activity('CP-FIIX-TO-BLOB-WOT').Error.message",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "CP-FIIX-TO-BLOB-ST",
+				"description": "This copy data activity brings data from Fiix to Blob storage through API calls",
+				"type": "Copy",
+				"dependsOn": [
+					{
+						"activity": "Get_Key_Vault_Cred",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "RestSource",
+						"httpRequestTimeout": "00:01:40",
+						"requestInterval": "00.00:00:00.010",
+						"requestMethod": "POST",
+						"requestBody": {
+							"value": "{\n\t  \"_maCn\" : \"FindRequest\",\n\t  \"clientVersion\" : {\n\t    \"major\" : 2,\n\t    \"minor\" : 8,\n\t    \"patch\" : 1\n\t  },\n\t  \"className\": \"ScheduleTrigger\",\n\t  \"fields\": \"id,bolTSWFriday,bolTSWMonday,bolTSWSaturday,bolTSWSunday,bolTSWThursday,bolTSWTuesday,bolTSWWednesday,strDatLogicHourly,strDatLogicDaily,strDatLogicMonthly,strDatLogicYearly,datTREndBy,datTRStart,dblLastMeterReading,dblRMeterReading,dblROMeterReading,dblRREndBy,dblRRStart,dtmLastTriggered,intAssetEventTypeID,intRMeterReadingUnitID,intROMeterReadingUnitID,intRREndAfter,intScheduledMaintenanceID,intTREndAfter,intTSDEveryDays,intTSHEveryHours,intTSMDayOfMonth,intTSMEveryMonths,intTSWEveryWeeks,intTSYDayOfMonth,intTSYEveryYears,intTSYMonthOfYear,strROType,strRRType,strRType,strTRType,strTSType,strType,strMrLogic,bolMrByWOClosed,bolCreateWorkOrderOnStartDate,intAssetID,strScheduleDescription,intTRTriggerTime,intUpdated,dv_intAssetEventTypeID,dv_intAssetID,dv_intRMeterReadingUnitID,dv_intROMeterReadingUnitID,dv_intScheduledMaintenanceID\"\n}",
+							"type": "Expression"
+						},
+						"additionalHeaders": {
+							"Content-Type": "text/plain"
+						}
+					},
+					"sink": {
+						"type": "ParquetSink",
+						"storeSettings": {
+							"type": "AzureBlobFSWriteSettings",
+							"copyBehavior": "FlattenHierarchy"
+						},
+						"formatSettings": {
+							"type": "ParquetWriteSettings"
+						}
+					},
+					"enableStaging": false,
+					"translator": {
+						"type": "TabularTranslator",
+						"mappings": [
+							{
+								"source": {
+									"path": "['id']"
+								},
+								"sink": {
+									"name": "id",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['bolTSWFriday']"
+								},
+								"sink": {
+									"name": "bolTSWFriday",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['bolTSWMonday']"
+								},
+								"sink": {
+									"name": "bolTSWMonday",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['bolTSWSaturday']"
+								},
+								"sink": {
+									"name": "bolTSWSaturday",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['bolTSWSunday']"
+								},
+								"sink": {
+									"name": "bolTSWSunday",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['bolTSWThursday']"
+								},
+								"sink": {
+									"name": "bolTSWThursday",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['bolTSWTuesday']"
+								},
+								"sink": {
+									"name": "bolTSWTuesday",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['bolTSWWednesday']"
+								},
+								"sink": {
+									"name": "bolTSWWednesday",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['strDatLogicHourly']"
+								},
+								"sink": {
+									"name": "strDatLogicHourly",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['strDatLogicDaily']"
+								},
+								"sink": {
+									"name": "strDatLogicDaily",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['strDatLogicMonthly']"
+								},
+								"sink": {
+									"name": "strDatLogicMonthly",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['strDatLogicYearly']"
+								},
+								"sink": {
+									"name": "strDatLogicYearly",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['datTREndBy']"
+								},
+								"sink": {
+									"name": "datTREndBy",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['datTRStart']"
+								},
+								"sink": {
+									"name": "datTRStart",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['dblLastMeterReading']"
+								},
+								"sink": {
+									"name": "dblLastMeterReading",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['dblRMeterReading']"
+								},
+								"sink": {
+									"name": "dblRMeterReading",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['dblROMeterReading']"
+								},
+								"sink": {
+									"name": "dblROMeterReading",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['dblRREndBy']"
+								},
+								"sink": {
+									"name": "dblRREndBy",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['dblRRStart']"
+								},
+								"sink": {
+									"name": "dblRRStart",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['dtmLastTriggered']"
+								},
+								"sink": {
+									"name": "dtmLastTriggered",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['intAssetEventTypeID']"
+								},
+								"sink": {
+									"name": "intAssetEventTypeID",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['intRMeterReadingUnitID']"
+								},
+								"sink": {
+									"name": "intRMeterReadingUnitID",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['intROMeterReadingUnitID']"
+								},
+								"sink": {
+									"name": "intROMeterReadingUnitID",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['intRREndAfter']"
+								},
+								"sink": {
+									"name": "intRREndAfter",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['intScheduledMaintenanceID']"
+								},
+								"sink": {
+									"name": "intScheduledMaintenanceID",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['intTREndAfter']"
+								},
+								"sink": {
+									"name": "intTREndAfter",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['intTSDEveryDays']"
+								},
+								"sink": {
+									"name": "intTSDEveryDays",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['intTSHEveryHours']"
+								},
+								"sink": {
+									"name": "intTSHEveryHours",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['intTSMDayOfMonth']"
+								},
+								"sink": {
+									"name": "intTSMDayOfMonth",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['intTSMEveryMonths']"
+								},
+								"sink": {
+									"name": "intTSMEveryMonths",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['intTSWEveryWeeks']"
+								},
+								"sink": {
+									"name": "intTSWEveryWeeks",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['intTSYDayOfMonth']"
+								},
+								"sink": {
+									"name": "intTSYDayOfMonth",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['intTSYEveryYears']"
+								},
+								"sink": {
+									"name": "intTSYEveryYears",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['intTSYMonthOfYear']"
+								},
+								"sink": {
+									"name": "intTSYMonthOfYear",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['strROType']"
+								},
+								"sink": {
+									"name": "strROType",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['strRRType']"
+								},
+								"sink": {
+									"name": "strRRType",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['strRType']"
+								},
+								"sink": {
+									"name": "strRType",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['strTRType']"
+								},
+								"sink": {
+									"name": "strTRType",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['strTSType']"
+								},
+								"sink": {
+									"name": "strTSType",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['strType']"
+								},
+								"sink": {
+									"name": "strType",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['strMrLogic']"
+								},
+								"sink": {
+									"name": "strMrLogic",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['bolMrByWOClosed']"
+								},
+								"sink": {
+									"name": "bolMrByWOClosed",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['bolCreateWorkOrderOnStartDate']"
+								},
+								"sink": {
+									"name": "bolCreateWorkOrderOnStartDate",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['intAssetID']"
+								},
+								"sink": {
+									"name": "intAssetID",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['strScheduleDescription']"
+								},
+								"sink": {
+									"name": "strScheduleDescription",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['intTRTriggerTime']"
+								},
+								"sink": {
+									"name": "intTRTriggerTime",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['intUpdated']"
+								},
+								"sink": {
+									"name": "intUpdated",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['dv_intAssetEventTypeID']"
+								},
+								"sink": {
+									"name": "dv_intAssetEventTypeID",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['dv_intAssetID']"
+								},
+								"sink": {
+									"name": "dv_intAssetID",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['dv_intRMeterReadingUnitID']"
+								},
+								"sink": {
+									"name": "dv_intRMeterReadingUnitID",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['dv_intROMeterReadingUnitID']"
+								},
+								"sink": {
+									"name": "dv_intROMeterReadingUnitID",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['dv_intScheduledMaintenanceID']"
+								},
+								"sink": {
+									"name": "dv_intScheduledMaintenanceID",
+									"type": "String"
+								}
+							}
+						],
+						"collectionReference": "$['objects']",
+						"mapComplexValuesToString": true
+					}
+				},
+				"inputs": [
+					{
+						"referenceName": "DS_KHCDE_FIIX_CHINA",
+						"type": "DatasetReference",
+						"parameters": {
+							"KeyVaultBaseUrl": {
+								"value": "@activity('Get_Key_Vault_Cred').output.value",
+								"type": "Expression"
+							}
+						}
+					}
+				],
+				"outputs": [
+					{
+						"referenceName": "DS_KHCDE_FIIX_CHINA_JSON_TO_PARQUET",
+						"type": "DatasetReference",
+						"parameters": {
+							"container_name": "khc-enterprise-data",
+							"file_path": {
+								"value": "manufacturing/maintenance/apac/stage/ScheduleTrigger",
+								"type": "Expression"
+							},
+							"file_name": {
+								"value": "schedule_trigger.parquet",
+								"type": "Expression"
+							}
+						}
+					}
+				]
+			},
+			{
+				"name": "SP-ActivityAndPipelineSuccessST",
+				"description": "This activity logs success of  Data Extract in khc_audit_log_detail table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "CP-FIIX-TO-BLOB-ST",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": {
+								"value": "U",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.dataset_group",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@{pipeline().Pipeline}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Successful",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-ActivityAndPipelineFailedST",
+				"description": "This activity logs failure of data Extract in khc_audit_log_detail table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "CP-FIIX-TO-BLOB-ST",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": "U",
+							"type": "String"
+						},
+						"activity_name": {
+							"value": {
+								"value": "CP-FIIX-TO-BLOB-ST",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.dataset_group",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Failed ",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"skip_pipeline_audit_update": {
+							"value": "N",
+							"type": "String"
+						},
+						"error_code": {
+							"value": {
+								"value": "@activity('CP-FIIX-TO-BLOB-ST').Error.errorCode",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_detail": {
+							"value": {
+								"value": "@activity('CP-FIIX-TO-BLOB-ST').Error.message",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "set_env_variable",
+				"description": "Set the variable - ENV from global parameters - AZURE_ENV",
+				"type": "SetVariable",
+				"dependsOn": [
+					{
+						"activity": "Audit_Pipeline_Start",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"variableName": "env",
+					"value": {
+						"value": "@pipeline().globalParameters.AZURE_ENV",
+						"type": "Expression"
+					}
+				}
+			}
+		],
+		"parameters": {
+			"application_name": {
+				"type": "string",
+				"defaultValue": "manufacturing_maintenance"
+			},
+			"dataset_group": {
+				"type": "string",
+				"defaultValue": "maintenance_apac_fiix"
+			}
+		},
+		"variables": {
+			"data_extract_status": {
+				"type": "String",
+				"defaultValue": "FAILED"
+			},
+			"extract_date": {
+				"type": "String"
+			},
+			"error_details": {
+				"type": "String"
+			},
+			"env": {
+				"type": "String",
+				"defaultValue": "DEV"
+			}
+		},
+		"folder": {
+			"name": "APAC_FIIX"
+		},
+		"annotations": []
+	}
+}

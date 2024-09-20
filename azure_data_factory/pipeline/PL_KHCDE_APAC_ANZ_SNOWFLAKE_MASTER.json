@@ -1,0 +1,1050 @@
+{
+	"name": "PL_KHCDE_APAC_ANZ_SNOWFLAKE_MASTER",
+	"properties": {
+		"activities": [
+			{
+				"name": "SP-PipelineStart_Master",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "LU-Metadata",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": {
+								"value": "I",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@{activity('LU-Metadata').output.value[0].application_name}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@{activity('LU-Metadata').output.value[0].dataset_group}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@{pipeline().Pipeline}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Processing",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-PipelineSuccessful_Master",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "AF-TriggerLoad",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": {
+								"value": "U",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@{activity('LU-Metadata').output.value[0].application_name}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@{activity('LU-Metadata').output.value[0].dataset_group}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@{pipeline().Pipeline}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Successful",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-PipelineFailed_Master",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "EP-SnowflakeIngestion",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": {
+								"value": "U",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@{activity('LU-Metadata').output.value[0].application_name}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@{activity('LU-Metadata').output.value[0].dataset_group}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@{pipeline().Pipeline}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"activity_name": {
+							"value": "EP-SnowflakeIngestion",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": "Failed",
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "LU-Metadata",
+				"type": "Lookup",
+				"dependsOn": [
+					{
+						"activity": "set_email_logic_app_variable",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "SqlServerSource",
+						"sqlReaderQuery": {
+							"value": "select * \nfrom khc_orchestration_metadata \nwhere application_name like 'apac_anz_%' \nand blob_trigger_name = '@{pipeline().parameters.blob_trigger_name}'",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "DS_KHCDE_GENERIC_MSSQL_Metadata",
+						"type": "DatasetReference"
+					},
+					"firstRowOnly": false
+				}
+			},
+			{
+				"name": "EP-SnowflakeIngestion",
+				"type": "ExecutePipeline",
+				"dependsOn": [
+					{
+						"activity": "SW-Read_source_files",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"pipeline": {
+						"referenceName": "PL_KHCDE_GENERIC_SnowflakeIngestion",
+						"type": "PipelineReference"
+					},
+					"waitOnCompletion": true,
+					"parameters": {
+						"ApplicationName": {
+							"value": "@{activity('LU-Metadata').output.value[0].application_name}",
+							"type": "Expression"
+						},
+						"DatasetGroup": {
+							"value": "@{activity('LU-Metadata').output.value[0].dataset_group}",
+							"type": "Expression"
+						},
+						"ParameterJson": {
+							"value": "@{activity('LU-Metadata').output.value[0].parameter_json}",
+							"type": "Expression"
+						}
+					}
+				}
+			},
+			{
+				"name": "AF-TriggerLoad",
+				"type": "AzureFunctionActivity",
+				"dependsOn": [
+					{
+						"activity": "EP-SnowflakeIngestion",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"functionName": {
+						"value": "HttpTriggerCopytrigger",
+						"type": "Expression"
+					},
+					"method": "POST",
+					"body": {
+						"value": "@json(concat('{', '\"container_name\":\"', activity('LU-Metadata').output.value[0].container_name, '\", ', '\"blob_trigger_name\":\"', activity('LU-Metadata').output.value[0].dbt_trigger_name, '\"', '}'))",
+						"type": "Expression"
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_AzF_Src_File_Validation",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-ActivityAndPipelineFailed",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "AF-TriggerLoad",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": {
+								"value": "AF-TriggerLoad",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@{activity('LU-Metadata').output.value[0].application_name}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@{activity('LU-Metadata').output.value[0].dataset_group}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_code": {
+							"value": {
+								"value": "@{activity('AF-TriggerLoad').Error.errorCode}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_detail": {
+							"value": {
+								"value": "@{activity('AF-TriggerLoad').Error.message}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SW-Read_source_files",
+				"type": "Switch",
+				"dependsOn": [
+					{
+						"activity": "SP-PipelineStart_Master",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"on": {
+						"value": "@{activity('LU-Metadata').output.value[0].data_filename}",
+						"type": "Expression"
+					},
+					"cases": [
+						{
+							"value": "ANZ_CEREBOS_CDD7746_CUSTOMERS_*",
+							"activities": [
+								{
+									"name": "copy_apac_anz_sales_cust",
+									"type": "Copy",
+									"dependsOn": [],
+									"policy": {
+										"timeout": "7.00:00:00",
+										"retry": 0,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"source": {
+											"type": "DelimitedTextSource",
+											"storeSettings": {
+												"type": "AzureBlobFSReadSettings",
+												"recursive": true,
+												"wildcardFileName": {
+													"value": "*",
+													"type": "Expression"
+												},
+												"enablePartitionDiscovery": false
+											},
+											"formatSettings": {
+												"type": "DelimitedTextReadSettings"
+											}
+										},
+										"sink": {
+											"type": "DelimitedTextSink",
+											"storeSettings": {
+												"type": "AzureBlobFSWriteSettings"
+											},
+											"formatSettings": {
+												"type": "DelimitedTextWriteSettings",
+												"quoteAllText": true,
+												"fileExtension": {
+													"value": "@{concat('.', activity('LU-Metadata').output.value[0].pattern_type)}",
+													"type": "Expression"
+												}
+											}
+										},
+										"enableStaging": false,
+										"translator": {
+											"type": "TabularTranslator",
+											"typeConversion": true,
+											"typeConversionSettings": {
+												"allowDataTruncation": true,
+												"treatBooleanAsNumber": false
+											}
+										}
+									},
+									"inputs": [
+										{
+											"referenceName": "DS_KHCDE_APAC_ANZ_SOURCE_CSV",
+											"type": "DatasetReference",
+											"parameters": {
+												"container_name": {
+													"value": "@{activity('LU-Metadata').output.value[0].container_name}",
+													"type": "Expression"
+												},
+												"blob_name": {
+													"value": "@{activity('LU-Metadata').output.value[0].stage_blob_name}",
+													"type": "Expression"
+												},
+												"delimiter": {
+													"value": "@{activity('LU-Metadata').output.value[0].field_delimiter}",
+													"type": "Expression"
+												}
+											}
+										}
+									],
+									"outputs": [
+										{
+											"referenceName": "DS_KHCDE_APAC_ANZ_SINK_CSV",
+											"type": "DatasetReference",
+											"parameters": {
+												"container_name": {
+													"value": "@{activity('LU-Metadata').output.value[0].container_name}",
+													"type": "Expression"
+												},
+												"blob_name": {
+													"value": "@{activity('LU-Metadata').output.value[0].stage_blob_name}",
+													"type": "Expression"
+												},
+												"delimiter": {
+													"value": "@{activity('LU-Metadata').output.value[0].field_delimiter}",
+													"type": "Expression"
+												}
+											}
+										}
+									]
+								}
+							]
+						},
+						{
+							"value": "ANZ_CEREBOS_CDD7746_SOLD_ITEMS_*",
+							"activities": [
+								{
+									"name": "copy_apac_anz_sales_solditems",
+									"type": "Copy",
+									"dependsOn": [],
+									"policy": {
+										"timeout": "7.00:00:00",
+										"retry": 0,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"source": {
+											"type": "DelimitedTextSource",
+											"storeSettings": {
+												"type": "AzureBlobFSReadSettings",
+												"recursive": true,
+												"wildcardFileName": {
+													"value": "*",
+													"type": "Expression"
+												},
+												"enablePartitionDiscovery": false
+											},
+											"formatSettings": {
+												"type": "DelimitedTextReadSettings"
+											}
+										},
+										"sink": {
+											"type": "DelimitedTextSink",
+											"storeSettings": {
+												"type": "AzureBlobFSWriteSettings"
+											},
+											"formatSettings": {
+												"type": "DelimitedTextWriteSettings",
+												"quoteAllText": true,
+												"fileExtension": {
+													"value": "@{concat('.', activity('LU-Metadata').output.value[0].pattern_type)}",
+													"type": "Expression"
+												}
+											}
+										},
+										"enableStaging": false,
+										"translator": {
+											"type": "TabularTranslator",
+											"typeConversion": true,
+											"typeConversionSettings": {
+												"allowDataTruncation": true,
+												"treatBooleanAsNumber": false
+											}
+										}
+									},
+									"inputs": [
+										{
+											"referenceName": "DS_KHCDE_APAC_ANZ_SOURCE_CSV",
+											"type": "DatasetReference",
+											"parameters": {
+												"container_name": {
+													"value": "@{activity('LU-Metadata').output.value[0].container_name}",
+													"type": "Expression"
+												},
+												"blob_name": {
+													"value": "@{activity('LU-Metadata').output.value[0].stage_blob_name}",
+													"type": "Expression"
+												},
+												"delimiter": {
+													"value": "@{activity('LU-Metadata').output.value[0].field_delimiter}",
+													"type": "Expression"
+												}
+											}
+										}
+									],
+									"outputs": [
+										{
+											"referenceName": "DS_KHCDE_APAC_ANZ_SINK_CSV",
+											"type": "DatasetReference",
+											"parameters": {
+												"container_name": {
+													"value": "@{activity('LU-Metadata').output.value[0].container_name}",
+													"type": "Expression"
+												},
+												"blob_name": {
+													"value": "@{activity('LU-Metadata').output.value[0].stage_blob_name}",
+													"type": "Expression"
+												},
+												"delimiter": {
+													"value": "@{activity('LU-Metadata').output.value[0].field_delimiter}",
+													"type": "Expression"
+												}
+											}
+										}
+									]
+								}
+							]
+						},
+						{
+							"value": "ANZ_CEREBOS_CDD7746_DMT_*",
+							"activities": [
+								{
+									"name": "copy_apac_anz_fin_dmt09",
+									"type": "Copy",
+									"dependsOn": [
+										{
+											"activity": "Get Metadata1",
+											"dependencyConditions": [
+												"Succeeded"
+											]
+										}
+									],
+									"policy": {
+										"timeout": "7.00:00:00",
+										"retry": 0,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"source": {
+											"type": "DelimitedTextSource",
+											"storeSettings": {
+												"type": "AzureBlobFSReadSettings",
+												"recursive": true,
+												"enablePartitionDiscovery": false
+											},
+											"formatSettings": {
+												"type": "DelimitedTextReadSettings"
+											}
+										},
+										"sink": {
+											"type": "DelimitedTextSink",
+											"storeSettings": {
+												"type": "AzureBlobFSWriteSettings"
+											},
+											"formatSettings": {
+												"type": "DelimitedTextWriteSettings",
+												"quoteAllText": true,
+												"fileExtension": {
+													"value": "@{concat('.', activity('LU-Metadata').output.value[0].pattern_type)}",
+													"type": "Expression"
+												}
+											}
+										},
+										"enableStaging": false,
+										"translator": {
+											"type": "TabularTranslator",
+											"typeConversion": true,
+											"typeConversionSettings": {
+												"allowDataTruncation": true,
+												"treatBooleanAsNumber": false
+											}
+										}
+									},
+									"inputs": [
+										{
+											"referenceName": "DS_KHCDE_APAC_ANZ_DMT09_SOURCE_CSV",
+											"type": "DatasetReference",
+											"parameters": {
+												"container_name": {
+													"value": "@{activity('LU-Metadata').output.value[0].container_name}",
+													"type": "Expression"
+												},
+												"blob_name": {
+													"value": "@{activity('LU-Metadata').output.value[0].stage_blob_name}",
+													"type": "Expression"
+												},
+												"file_name": {
+													"value": "@activity('Get Metadata1').output.childItems[0].name",
+													"type": "Expression"
+												},
+												"delimiter": {
+													"value": "@{activity('LU-Metadata').output.value[0].field_delimiter}",
+													"type": "Expression"
+												}
+											}
+										}
+									],
+									"outputs": [
+										{
+											"referenceName": "DS_KHCDE_APAC_ANZ_DMT_SINK_CSV",
+											"type": "DatasetReference",
+											"parameters": {
+												"container_name": {
+													"value": "@{activity('LU-Metadata').output.value[0].container_name}",
+													"type": "Expression"
+												},
+												"blob_name": {
+													"value": "@{activity('LU-Metadata').output.value[0].stage_blob_name}",
+													"type": "Expression"
+												},
+												"file_name": {
+													"value": "@{concat(replace(activity('LU-Metadata').output.value[0].filename, '*', formatDateTime(utcnow(), 'yyyy_MM_dd')),'.csv')}",
+													"type": "Expression"
+												}
+											}
+										}
+									]
+								},
+								{
+									"name": "Get Metadata1",
+									"type": "GetMetadata",
+									"dependsOn": [],
+									"policy": {
+										"timeout": "7.00:00:00",
+										"retry": 0,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"dataset": {
+											"referenceName": "DS_KHCDE_GENERIC_BLOB_BINARY_Folder",
+											"type": "DatasetReference",
+											"parameters": {
+												"container_name": {
+													"value": "@{activity('LU-Metadata').output.value[0].container_name}",
+													"type": "Expression"
+												},
+												"blob_name": {
+													"value": "@{activity('LU-Metadata').output.value[0].stage_blob_name}",
+													"type": "Expression"
+												}
+											}
+										},
+										"fieldList": [
+											"childItems"
+										],
+										"storeSettings": {
+											"type": "AzureBlobFSReadSettings",
+											"recursive": true
+										},
+										"formatSettings": {
+											"type": "BinaryReadSettings"
+										}
+									}
+								},
+								{
+									"name": "Wait_dmt09",
+									"type": "Wait",
+									"dependsOn": [
+										{
+											"activity": "copy_apac_anz_fin_dmt09",
+											"dependencyConditions": [
+												"Succeeded"
+											]
+										}
+									],
+									"userProperties": [],
+									"typeProperties": {
+										"waitTimeInSeconds": 5
+									}
+								},
+								{
+									"name": "Delete_Srcfile_dmt09",
+									"type": "Delete",
+									"dependsOn": [
+										{
+											"activity": "Wait_dmt09",
+											"dependencyConditions": [
+												"Succeeded"
+											]
+										}
+									],
+									"policy": {
+										"timeout": "7.00:00:00",
+										"retry": 0,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"dataset": {
+											"referenceName": "DS_KHCDE_GENERIC_BLOB_BINARY_FolderFile",
+											"type": "DatasetReference",
+											"parameters": {
+												"container_name": {
+													"value": "@{activity('LU-Metadata').output.value[0].container_name}",
+													"type": "Expression"
+												},
+												"blob_name": {
+													"value": "@{activity('LU-Metadata').output.value[0].stage_blob_name}",
+													"type": "Expression"
+												},
+												"file_name": {
+													"value": "@{activity('Get Metadata1').output.childItems[0].name}",
+													"type": "Expression"
+												}
+											}
+										},
+										"enableLogging": false,
+										"storeSettings": {
+											"type": "AzureBlobFSReadSettings",
+											"recursive": true
+										}
+									}
+								}
+							]
+						}
+					],
+					"defaultActivities": [
+						{
+							"name": "Wait-Filler",
+							"type": "Wait",
+							"dependsOn": [],
+							"userProperties": [],
+							"typeProperties": {
+								"waitTimeInSeconds": 1
+							}
+						}
+					]
+				}
+			},
+			{
+				"name": "WB-SendFailureEmail_master_01",
+				"type": "WebActivity",
+				"dependsOn": [
+					{
+						"activity": "SP-ActivityAndPipelineFailed01",
+						"dependencyConditions": [
+							"Completed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"url": {
+						"value": "@variables('logicapp_url')",
+						"type": "Expression"
+					},
+					"method": "POST",
+					"body": {
+						"value": "{ \n        \"to_email\": \"@{variables('emailTo')}\", \n        \"subject\": \"@{split(pipeline().parameters.blob_trigger_name,'.')[0]} -Failure: Lookup Metadata Activity\", \n        \"body\": \"Dear All,<br><br>The APAC ANZ Data Load Process Failed for Blob Trigger:<b>@{split(pipeline().parameters.blob_trigger_name,'.')[0]}</b><br> Please find below the details:<br><br>Pipeline Name: @{pipeline().Pipeline} <br> Pipeline Run ID: @{pipeline().RunId}<br> Pipeline Trigger Name: @{pipeline().TriggerName}<br> Pipeline Trigger Type: @{pipeline().TriggerType}<br> Pipeline Start Time: @{pipeline().TriggerTime}<br> Activity: LU-Metadata activity has failed. Please check the metadata<br><br>Parameters:<br>===========<br><br>Blob Trigger Name: @{split(pipeline().parameters.blob_trigger_name,'.')[0]}<br> <br><br>Please take care.<br><br>Regards,<br>Cloud Analytics Team\", \n        \"importance\": \"High\"\n}",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "SP-ActivityAndPipelineFailed01",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "SP-PipelineStart_Master",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": {
+								"value": "LU-Metadata Fetch",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "WB-SendFailureEmail_master_01_copy1",
+				"type": "WebActivity",
+				"dependsOn": [
+					{
+						"activity": "SP-PipelineFailed_Master",
+						"dependencyConditions": [
+							"Completed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"url": {
+						"value": "@variables('logicapp_url')",
+						"type": "Expression"
+					},
+					"method": "POST",
+					"body": {
+						"value": "{ \n        \"to_email\": \"@{variables('emailTo')}\", \n        \"subject\": \"@{activity('LU-Metadata').output.value[0].application_name} - @{activity('LU-Metadata').output.value[0].dataset_name} -Failure: EP SnowflakeIngestion Activity\", \n        \"body\": \"Dear All,<br><br>The APAC ANZ Data Load Process Failed for the Application:<b>@{activity('LU-Metadata').output.value[0].application_name}</b><br> Please find below the details:<br><br>Pipeline Name: @{pipeline().Pipeline} <br> Pipeline Run ID: @{pipeline().RunId}<br> Pipeline Trigger Name: @{pipeline().TriggerName}<br> Pipeline Trigger Type: @{pipeline().TriggerType}<br> Pipeline Start Time: @{pipeline().TriggerTime}<br> Activity: EP Snowflake Ingestion Activity failed please check the Activity<br><br>Parameters:<br>===========<br>Application Name: @{activity('LU-Metadata').output.value[0].application_name}<br>Dataset Name: @{activity('LU-Metadata').output.value[0].dataset_name}<br>Blob Trigger Name: @{split(pipeline().parameters.blob_trigger_name,'.')[0]}<br><br>Please take care.<br><br>Regards,<br>Cloud Analytics Team\", \n        \"importance\": \"High\"\n}",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "WB-SendFailureEmail_master_AF_trigger",
+				"type": "WebActivity",
+				"dependsOn": [
+					{
+						"activity": "SP-ActivityAndPipelineFailed",
+						"dependencyConditions": [
+							"Completed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"url": {
+						"value": "@variables('logicapp_url')",
+						"type": "Expression"
+					},
+					"method": "POST",
+					"body": {
+						"value": "{ \n        \"to_email\": \"@{variables('emailTo')}\", \n        \"subject\": \"@{activity('LU-Metadata').output.value[0].application_name} - @{activity('LU-Metadata').output.value[0].dataset_name} -Failure: AF Trigger Activity\", \n        \"body\": \"Dear All,<br><br>The APAC ANZ Data Load Process Failed for the Application:\n <b>@{activity('LU-Metadata').output.value[0].application_name}</b><br> Please find below the details: <br><br>\n Pipeline Name: @{pipeline().Pipeline} <br> Pipeline Run ID: @{pipeline().RunId}<br>Pipeline Trigger Name: @{pipeline().TriggerName}<br> \n Pipeline Trigger Type: @{pipeline().TriggerType}<br> Pipeline Start Time: @{pipeline().TriggerTime}<br>\n Activity:AF Trigger Activity has Failed. Please check the triggers<br>Parameters:<br>===========<br>Application Name: @{activity('LU-Metadata').output.value[0].application_name}<br>Dataset Name: @{activity('LU-Metadata').output.value[0].dataset_name}<br>Blob Trigger Name: @{split(pipeline().parameters.blob_trigger_name,'.')[0]}<br><br>Regards,<br>Cloud Analytics Team\", \n        \"importance\": \"High\"\n}",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "WB-SendSuccessEmail_master_04",
+				"type": "WebActivity",
+				"dependsOn": [
+					{
+						"activity": "SP-PipelineSuccessful_Master",
+						"dependencyConditions": [
+							"Completed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"url": {
+						"value": "@variables('logicapp_url')",
+						"type": "Expression"
+					},
+					"method": "POST",
+					"body": {
+						"value": "{ \n        \"to_email\": \"@{variables('emailTo')}\", \n\"subject\": \"@{activity('LU-Metadata').output.value[0].application_name} - @{activity('LU-Metadata').output.value[0].dataset_name} - Success\", \n        \"body\": \"Dear All,<br><br>APAC ANZ Snowflake Ingestion Succeeded for: \n<b>@{activity('LU-Metadata').output.value[0].application_name}</b><br> Please find below the details: <br><br>\n Pipeline Name: @{pipeline().Pipeline} <br> Pipeline Run ID: @{pipeline().RunId}<br>Pipeline Trigger Name: @{pipeline().TriggerName}<br> \n Pipeline Trigger Type: @{pipeline().TriggerType}<br> Pipeline Start Time: @{pipeline().TriggerTime}<br><br>\n Parameters:<br>===========<br>Application Name: @{activity('LU-Metadata').output.value[0].application_name}<br>\n Dataset Name: @{activity('LU-Metadata').output.value[0].dataset_name} <br>Blob Trigger Name: @{split(pipeline().parameters.blob_trigger_name,'.')[0]}<br><br>Regards,<br>Cloud Analytics Team\", \n        \"importance\": \"Low\"\n}",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "set_email_logic_app_variable",
+				"description": "Set the logic app URL from Global Param",
+				"type": "SetVariable",
+				"dependsOn": [],
+				"userProperties": [],
+				"typeProperties": {
+					"variableName": "logicapp_url",
+					"value": {
+						"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+						"type": "Expression"
+					}
+				}
+			}
+		],
+		"parameters": {
+			"blob_trigger_name": {
+				"type": "string",
+				"defaultValue": "%"
+			}
+		},
+		"variables": {
+			"exit_ind": {
+				"type": "String",
+				"defaultValue": "N"
+			},
+			"logicapp_url": {
+				"type": "String",
+				"defaultValue": "https://prod-21.eastus2.logic.azure.com:443/workflows/bf557cd83c3b45c5a365826555b38597/triggers/manual/paths/invoke?api-version=2016-10-01&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=eAMxSb-7pJGx_Ex0OGfry6YBV-RFaKUmU5ul75ISRtg"
+			},
+			"emailTo": {
+				"type": "String",
+				"defaultValue": "DL_APAC_MiddlewareNotifications@kraftheinz.com;bfc2b500.Heinz365.onmicrosoft.com@amer.teams.ms"
+			}
+		},
+		"folder": {
+			"name": "Apac_Anz"
+		},
+		"annotations": []
+	},
+	"type": "Microsoft.DataFactory/factories/pipelines"
+}

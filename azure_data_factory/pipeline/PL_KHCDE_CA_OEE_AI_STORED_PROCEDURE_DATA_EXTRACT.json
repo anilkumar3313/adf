@@ -1,0 +1,373 @@
+{
+	"name": "PL_KHCDE_CA_OEE_AI_STORED_PROCEDURE_DATA_EXTRACT",
+	"properties": {
+		"description": "Pipeline to extract Data dynamically in 4 hours grain in accordance to shift aligned with Mount Royal",
+		"activities": [
+			{
+				"name": "LU-Metadata",
+				"description": "Lookup activity to create extraction query to AI dreamVersion SQL SERVER Stored Procedure",
+				"type": "Lookup",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "SqlServerSource",
+						"sqlReaderQuery": {
+							"value": "select\n    om.application_name,\n    ctrl.table_name,\n    om.server_name,\n    om.server_path as source_object_type,\n    om.filename as dso_changelog_table,\n    om.data_filename,\n    om.container_name,\n    om.archival_blob_name,\n    om.stage_blob_name,\n    om.blob_trigger_name,\n    om.data_level,\n    om.active_ind,\n    om.parent_id,\n    ctrl.dynamic_partition_ind,\n    ctrl.partition_column,\n    ctrl.incr_column_name,\n    ctrl.last_incr_value,    \n    concat('DECLARE @DateStart datetime2(0) \n\t\t\tDECLARE @DateEnd datetime2(0)\n\t\t\tset @DateStart=convert(datetime2,''param1'')\n\t\t\tset @DateEnd=convert(datetime2,''param2'')\n\t\t\tEXECUTE ',ctrl.table_name,'\n\t\t\t@DateStart,@DateEnd')  as extraction_query,\n    NULL as max_incr_value_query\nfrom dbo.khc_orchestration_metadata om inner join\n( Select\n    parent_id,\n    table_name,\n    dynamic_partition_ind,\n    partition_column,\n    where_clause,\n    incr_column_name,\n    last_incr_value,\n\tNULL as FINAL_WHERE_FOR_EXT,\n\tNULL as where_clause_FOR_MAX\nfrom dbo.khc_data_extract_control_table\n) ctrl\non om.parent_id = ctrl.parent_id\nwhere len(trim(om.server_name)) > 0\n  and len(trim(om.application_name)) > 0\n  and len(trim(ctrl.table_name)) > 0\n  and len(trim(om.server_path)) > 0\n  and len(trim(om.filename)) > 0\n  and len(trim(om.data_filename)) > 0\n  and om.file_zip_ind in ('y', 'n')\n  and om.file_checksum_ind in ('y', 'n')\n  and len(trim(om.container_name)) > 0\n  and len(trim(om.archival_blob_name)) > 0\n  and len(trim(om.stage_blob_name)) > 0\n  and ctrl.dynamic_partition_ind in ('y', 'n')\n  and om.application_name like '@{pipeline().parameters.application_name}'\n  and om.dataset_group like '@{pipeline().parameters.dataset_group}'\n  and om.server_name = 'LS_SQL_AI_MOUNT_ROYAL'\n  and om.server_path = 'Stored Procedure'\n  and om.data_level=1 and om.active_ind='y'",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "DS_KHCDE_GENERIC_MSSQL_Metadata",
+						"type": "DatasetReference"
+					},
+					"firstRowOnly": false
+				}
+			},
+			{
+				"name": "FE-Metadata",
+				"description": "For each stored procedure dataset this will   extract data in 4 hours grain",
+				"type": "ForEach",
+				"dependsOn": [
+					{
+						"activity": "LU-Metadata",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					},
+					{
+						"activity": "SV-Date",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"items": {
+						"value": "@activity('LU-Metadata').output.value",
+						"type": "Expression"
+					},
+					"isSequential": false,
+					"activities": [
+						{
+							"name": "EP-Until_SP_EXTRACTION",
+							"description": "Calling sub pipeline to extract data in four hours sample",
+							"type": "ExecutePipeline",
+							"dependsOn": [
+								{
+									"activity": "Audit_Pipeline_Start",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"userProperties": [],
+							"typeProperties": {
+								"pipeline": {
+									"referenceName": "PL_KHCDE_SUB_CA_OEE_AI_STORED_PROCEDURE",
+									"type": "PipelineReference"
+								},
+								"waitOnCompletion": true,
+								"parameters": {
+									"EXT_TIME": {
+										"value": "@variables('Date')",
+										"type": "Expression"
+									},
+									"LAST_EXT_TIME": {
+										"value": "@item().last_incr_value",
+										"type": "Expression"
+									},
+									"application_name": {
+										"value": "@item().application_name",
+										"type": "Expression"
+									},
+									"stage_blob_name": {
+										"value": "@item().stage_blob_name",
+										"type": "Expression"
+									},
+									"archival_blob_name": {
+										"value": "@item().archival_blob_name",
+										"type": "Expression"
+									},
+									"blob_trigger_name": {
+										"value": "@item().blob_trigger_name",
+										"type": "Expression"
+									},
+									"container_name": {
+										"value": "@item().container_name",
+										"type": "Expression"
+									},
+									"extraction_query": {
+										"value": "@item().extraction_query",
+										"type": "Expression"
+									},
+									"parent_id": {
+										"value": "@item().parent_id",
+										"type": "Expression"
+									}
+								}
+							}
+						},
+						{
+							"name": "Audit_Pipeline_Start",
+							"description": "Audit log to signify start of pipeline",
+							"type": "SqlServerStoredProcedure",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+								"storedProcedureParameters": {
+									"action_ind": {
+										"value": {
+											"value": "I",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"application_name": {
+										"value": {
+											"value": "@{item().application_name}",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"dataset_name": {
+										"value": {
+											"value": "@{item().table_name}",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_name": {
+										"value": {
+											"value": "@{pipeline().Pipeline}",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_run_id": {
+										"value": {
+											"value": "@{pipeline().RunId}",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_status": {
+										"value": {
+											"value": "Processing",
+											"type": "Expression"
+										},
+										"type": "String"
+									}
+								}
+							},
+							"linkedServiceName": {
+								"referenceName": "LS_SQL",
+								"type": "LinkedServiceReference"
+							}
+						},
+						{
+							"name": "Audit_Pipeline_Success",
+							"description": "Audit log update for successful completion",
+							"type": "SqlServerStoredProcedure",
+							"dependsOn": [
+								{
+									"activity": "EP-Until_SP_EXTRACTION",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+								"storedProcedureParameters": {
+									"action_ind": {
+										"value": {
+											"value": "U",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"application_name": {
+										"value": {
+											"value": "@{item().application_name}",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"dataset_name": {
+										"value": {
+											"value": "@{item().table_name}",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_name": {
+										"value": {
+											"value": "@{pipeline().Pipeline}",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_run_id": {
+										"value": {
+											"value": "@{pipeline().RunId}",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_status": {
+										"value": {
+											"value": "Successful",
+											"type": "Expression"
+										},
+										"type": "String"
+									}
+								}
+							},
+							"linkedServiceName": {
+								"referenceName": "LS_SQL",
+								"type": "LinkedServiceReference"
+							}
+						},
+						{
+							"name": "Audit_Pipeline_Failed",
+							"description": "Audit log for failure in completion",
+							"type": "SqlServerStoredProcedure",
+							"dependsOn": [
+								{
+									"activity": "EP-Until_SP_EXTRACTION",
+									"dependencyConditions": [
+										"Failed"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+								"storedProcedureParameters": {
+									"action_ind": {
+										"value": {
+											"value": "U",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"application_name": {
+										"value": {
+											"value": "@{item().application_name}",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"dataset_name": {
+										"value": {
+											"value": "@{item().table_name}",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_name": {
+										"value": {
+											"value": "@{pipeline().Pipeline}",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_run_id": {
+										"value": {
+											"value": "@{pipeline().RunId}",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_status": {
+										"value": {
+											"value": "Failed",
+											"type": "Expression"
+										},
+										"type": "String"
+									}
+								}
+							},
+							"linkedServiceName": {
+								"referenceName": "LS_SQL",
+								"type": "LinkedServiceReference"
+							}
+						}
+					]
+				}
+			},
+			{
+				"name": "SV-Date",
+				"description": "Set Date for current extraction+1 day",
+				"type": "SetVariable",
+				"dependsOn": [],
+				"userProperties": [],
+				"typeProperties": {
+					"variableName": "Date",
+					"value": {
+						"value": "@{string(formatDateTime(addhours(utcnow(), 24), 'yyyy-MM-dd hh:mm:ss'))}",
+						"type": "Expression"
+					}
+				}
+			}
+		],
+		"parameters": {
+			"application_name": {
+				"type": "string",
+				"defaultValue": "ca_oee"
+			},
+			"dataset_group": {
+				"type": "string",
+				"defaultValue": "mes_iqs"
+			},
+			"EXT_TIME": {
+				"type": "string",
+				"defaultValue": "@{addHours(utcnow(),24)}"
+			}
+		},
+		"variables": {
+			"Date": {
+				"type": "String",
+				"defaultValue": "@{string(formatDateTime(addhours(utcnow(), 24), 'yyyyMMdd'))}"
+			}
+		},
+		"folder": {
+			"name": "CA_OEE"
+		},
+		"annotations": []
+	}
+}

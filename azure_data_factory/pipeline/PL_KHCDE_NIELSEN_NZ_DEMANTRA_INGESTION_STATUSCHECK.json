@@ -1,0 +1,140 @@
+{
+	"name": "PL_KHCDE_NIELSEN_NZ_DEMANTRA_INGESTION_STATUSCHECK",
+	"properties": {
+		"activities": [
+			{
+				"name": "Lookup_SP_status",
+				"type": "Lookup",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "OracleSource",
+						"oracleReaderQuery": {
+							"value": "select sum(rc) as record_cnt from\n(select count(*) as rc from hz.T_SRC_HZ_SCAN_STATE where substr(product_code,-2) in (10,11)\nunion\nselect count(*) as rc from hz.T_SRC_HZ_SCAN_NAT where substr(product_code,-2) in (10,11)\n)",
+							"type": "Expression"
+						},
+						"partitionOption": "None",
+						"queryTimeout": "02:00:00"
+					},
+					"dataset": {
+						"referenceName": "DS_KHCDE_DEMANTRA_ORACLE_DEST",
+						"type": "DatasetReference",
+						"parameters": {
+							"TableName": "_noset"
+						}
+					},
+					"firstRowOnly": false
+				}
+			},
+			{
+				"name": "If Condition check status",
+				"type": "IfCondition",
+				"dependsOn": [
+					{
+						"activity": "Lookup_SP_status",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"expression": {
+						"value": "@equals(int(activity('Lookup_SP_status').output.value[0].record_cnt ), 0)\n",
+						"type": "Expression"
+					},
+					"ifFalseActivities": [
+						{
+							"name": "Error_Notification",
+							"type": "WebActivity",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"url": {
+									"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+									"type": "Expression"
+								},
+								"method": "POST",
+								"headers": {
+									"Content-Type": "application/json"
+								},
+								"body": {
+									"value": "{\n\"subject\": \"Azure Data Factory- NZ Scan data load to Demantra – Failed\",\n\"body\": \"Hi, <br> Kindly note that insertion to T_SRC_HZ_SCAN_STATE & T_SRC_HZ_SCAN_NAT tables failed because scan data for NZ exists in T_SRC_HZ_SCAN_STATE or T_SRC_HZ_SCAN_NAT. <br><br>Thanks & Regards, <br>KHC APAC DE Team\",\n\"to_email\": \"@{if(equals(pipeline().globalParameters.AZURE_ENV,'PROD'),'Demantra_APAC_IT@kraftheinz.com;HASSQLSerAdm@kraftheinz.com','umasankar.avadhanula@kraftHeinz.com;amol.sorade@kraftheinz.com')}\",\n\"cc_email\": \"@{if(equals(pipeline().globalParameters.AZURE_ENV,'PROD'),'Basarat.Mohammed@kraftheinz.com;umasankar.avadhanula@kraftHeinz.com;amol.sorade@kraftheinz.com','')}\",\n\"importance\": \"High\"\n}",
+									"type": "Expression"
+								}
+							}
+						}
+					],
+					"ifTrueActivities": [
+						{
+							"name": "Execute Pipeline_Demantra",
+							"type": "ExecutePipeline",
+							"dependsOn": [],
+							"userProperties": [],
+							"typeProperties": {
+								"pipeline": {
+									"referenceName": "PL_KHCDE_NIELSEN_NZ_DEMANTRA_ORACLE_INGENSTION",
+									"type": "PipelineReference"
+								},
+								"waitOnCompletion": true
+							}
+						},
+						{
+							"name": "Success_Notification",
+							"type": "WebActivity",
+							"dependsOn": [
+								{
+									"activity": "Execute Pipeline_Demantra",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"url": {
+									"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+									"type": "Expression"
+								},
+								"method": "POST",
+								"headers": {
+									"Content-Type": "application/json"
+								},
+								"body": {
+									"value": "{\n\"subject\": \"Azure Data Factory- NZ Scan data load to Demantra – Successful\",\n\"body\": \"Hi, <br>NZ - Scan data load to Demantra - Successful <br><br>Thanks & Regards, <br>KHC APAC DE Team\",\n\"to_email\": \"@{if(equals(pipeline().globalParameters.AZURE_ENV,'PROD'),'Demantra_APAC_IT@kraftheinz.com;HASSQLSerAdm@kraftheinz.com','umasankar.avadhanula@kraftHeinz.com;amol.sorade@kraftheinz.com')}\",\n\"cc_email\": \"@{if(equals(pipeline().globalParameters.AZURE_ENV,'PROD'),'Basarat.Mohammed@kraftheinz.com;umasankar.avadhanula@kraftHeinz.com;amol.sorade@kraftheinz.com','')}\",\n\"importance\": \"High\"\n}",
+									"type": "Expression"
+								}
+							}
+						}
+					]
+				}
+			}
+		],
+		"folder": {
+			"name": "Nielsen_International/Sub_Pipelines"
+		},
+		"annotations": []
+	}
+}

@@ -1,0 +1,930 @@
+{
+	"name": "PL_KHCDE_APAC_CHINA_API_DATA_PULL",
+	"properties": {
+		"description": "pull data for each dataset using snowflake extraction and push data to  API",
+		"activities": [
+			{
+				"name": "Get Access Token",
+				"description": "Get Access token for the API push",
+				"type": "WebActivity",
+				"dependsOn": [
+					{
+						"activity": "LU-Metadata",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": true,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"url": {
+						"value": "https://cmdmapi.kraftheinz.net.cn/api/auth/token",
+						"type": "Expression"
+					},
+					"connectVia": {
+						"referenceName": "KHC-TULSA-ONPREM-SHIR",
+						"type": "IntegrationRuntimeReference"
+					},
+					"method": "POST",
+					"body": {
+						"appId": "3f2d8f93fb26",
+						"nonce_str": "898124",
+						"timestamp": "2021-12-02 19:22:55",
+						"sign": "817C1323D97F0CB1C92E9112B94DC65F1F5553F03F2E56A5FBA6773C9F36E59B"
+					},
+					"disableCertValidation": true
+				}
+			},
+			{
+				"name": "Pipeline_Start",
+				"description": "This Activity logs starting of pipeline in khc_audit_log table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": "I",
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.dataset_group",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@pipeline().Pipeline",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@pipeline().RunId",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Processing",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "LU-Metadata",
+				"description": "This activity fetches metadata form khc_orchestration_metadata tabel.",
+				"type": "Lookup",
+				"dependsOn": [
+					{
+						"activity": "Pipeline_Start",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "SqlServerSource",
+						"sqlReaderQuery": {
+							"value": "select\n    om.application_name,\n    om.dataset_name,\n    om.dataset_group,\n    om.server_name,\n    om.server_path as source_object_type,\n    om.filename as dso_changelog_table,\n    om.data_filename,\n    om.container_name,\n    om.archival_blob_name,\n    om.stage_blob_name,\n    om.blob_trigger_name,\n    om.data_level,\n    om.active_ind,\n    om.parent_id,\n\tom.parameter_json,\n    om.adf_trigger_name,\n\tcase om.dataset_group when  'apac_cn_df_api_pull_mdm_map' then 'https://cmdmapi.kraftheinz.net.cn/api/masterData/mdmStoreMapping'\n\twhen 'apac_cn_df_api_pull_golden_store' then 'https://cmdmapi.kraftheinz.net.cn/api/masterData/store'\n\tend as api_url\nfrom dbo.khc_orchestration_metadata om\n    where om.application_name in ('@{pipeline().parameters.application_name}')\nand om.dataset_group in ('@{pipeline().parameters.dataset_group}')\n  and om.data_level >=2 and om.active_ind='y' ",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "DS_KHCDE_GENERIC_MSSQL_Metadata",
+						"type": "DatasetReference"
+					},
+					"firstRowOnly": false
+				}
+			},
+			{
+				"name": "SP-ActivityFailed01",
+				"description": "This activity logs failure of LU-Metadata activity in khc_audit_log_detail table and failure of pipeline in  khc_audit_log table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "LU-Metadata",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": "LU-Metadata",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@activity('LU-Metadata').output.value[0].application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@activity('LU-Metadata').output.value[0].dataset_group",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_code": {
+							"value": {
+								"value": "@{activity('LU-Metadata').Error.errorCode}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_detail": {
+							"value": {
+								"value": "@{activity('LU-Metadata').Error.message}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "Until_API_has_more_data",
+				"description": "pull request until there is no data",
+				"type": "Until",
+				"dependsOn": [
+					{
+						"activity": "IF-FileExists",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"expression": {
+						"value": "@equals(variables('has_more'),'False')",
+						"type": "Expression"
+					},
+					"activities": [
+						{
+							"name": "Copy data1",
+							"description": "",
+							"type": "Copy",
+							"dependsOn": [
+								{
+									"activity": "Set variable1",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 5,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"source": {
+									"type": "SqlServerSource",
+									"additionalColumns": [
+										{
+											"name": "PullApiOutputData",
+											"value": {
+												"value": "@variables('PullAPIOutput')",
+												"type": "Expression"
+											}
+										}
+									],
+									"sqlReaderQuery": "select current_timestamp",
+									"queryTimeout": "02:00:00",
+									"partitionOption": "None"
+								},
+								"sink": {
+									"type": "DelimitedTextSink",
+									"storeSettings": {
+										"type": "AzureBlobFSWriteSettings"
+									},
+									"formatSettings": {
+										"type": "DelimitedTextWriteSettings",
+										"quoteAllText": true,
+										"fileExtension": ".txt"
+									}
+								},
+								"enableStaging": false,
+								"translator": {
+									"type": "TabularTranslator",
+									"mappings": [
+										{
+											"source": {
+												"name": "PullApiOutputData"
+											},
+											"sink": {
+												"type": "String",
+												"ordinal": 1
+											}
+										}
+									]
+								}
+							},
+							"inputs": [
+								{
+									"referenceName": "DS_KHCDE_GENERIC_MSSQL_Metadata",
+									"type": "DatasetReference"
+								}
+							],
+							"outputs": [
+								{
+									"referenceName": "DS_KHCDE_APAC_CN_DF_BLOB_NO_HEADER",
+									"type": "DatasetReference",
+									"parameters": {
+										"cw_fileName": {
+											"value": "@concat(activity('LU-Metadata').output.value[0].data_filename,variables('next_cursor'),'.json')",
+											"type": "Expression"
+										},
+										"cw_containerName": {
+											"value": "@activity('LU-Metadata').output.value[0].container_name",
+											"type": "Expression"
+										},
+										"cw_filePath": {
+											"value": "@activity('LU-Metadata').output.value[0].stage_blob_name",
+											"type": "Expression"
+										}
+									}
+								}
+							]
+						},
+						{
+							"name": "Set variable1",
+							"type": "SetVariable",
+							"dependsOn": [
+								{
+									"activity": "Pull_API_Data",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"userProperties": [],
+							"typeProperties": {
+								"variableName": "PullAPIOutput",
+								"value": {
+									"value": "@{activity('Pull_API_Data').output.data.list}",
+									"type": "Expression"
+								}
+							}
+						},
+						{
+							"name": "Pull_API_Data",
+							"description": "pull data",
+							"type": "WebActivity",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 5,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"url": {
+									"value": "@concat(activity('LU-Metadata').output.value[0].api_url,'?&lastUpdateTime=',string(formatDateTime(addDays(convertTimeZone(utcNow(), 'UTC','China Standard Time'),pipeline().parameters.no_of_days),'yyyy-MM-dd')),'&offset=',variables('next_cursor'))",
+									"type": "Expression"
+								},
+								"connectVia": {
+									"referenceName": "KHC-TULSA-ONPREM-SHIR",
+									"type": "IntegrationRuntimeReference"
+								},
+								"method": "GET",
+								"headers": {
+									"Authorization": {
+										"value": "@{concat('Bearer ',activity('Get Access Token').output.data)}\n",
+										"type": "Expression"
+									},
+									"Content-Type": "application/json"
+								}
+							}
+						},
+						{
+							"name": "Set variable2_next_cursor_copy1",
+							"type": "SetVariable",
+							"dependsOn": [
+								{
+									"activity": "Copy data1",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"userProperties": [],
+							"typeProperties": {
+								"variableName": "next_cursor",
+								"value": {
+									"value": "@{activity('Pull_API_Data').output.data.next_cursor}",
+									"type": "Expression"
+								}
+							}
+						},
+						{
+							"name": "Set variable_has_more_copy1",
+							"type": "SetVariable",
+							"dependsOn": [
+								{
+									"activity": "Copy data1",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"userProperties": [],
+							"typeProperties": {
+								"variableName": "has_more",
+								"value": {
+									"value": "@{activity('Pull_API_Data').output.data.has_more}",
+									"type": "Expression"
+								}
+							}
+						},
+						{
+							"name": "SP-ActivityFailed02",
+							"description": "This activity logs failure of copy extracted data to SQL server activity in khc_audit_log_detail table and failure of pipeline in  khc_audit_log table.",
+							"type": "SqlServerStoredProcedure",
+							"dependsOn": [
+								{
+									"activity": "Copy data1",
+									"dependencyConditions": [
+										"Failed"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 5,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+								"storedProcedureParameters": {
+									"activity_name": {
+										"value": "LU-Metadata",
+										"type": "String"
+									},
+									"activity_status": {
+										"value": {
+											"value": "Failed",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"application_name": {
+										"value": {
+											"value": "@activity('LU-Metadata').output.value[0].application_name",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"dataset_name": {
+										"value": {
+											"value": "@activity('LU-Metadata').output.value[0].dataset_group",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"error_code": {
+										"value": {
+											"value": "@{activity('LU-Metadata').Error.errorCode}",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"error_detail": {
+										"value": {
+											"value": "@{activity('LU-Metadata').Error.message}",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_run_id": {
+										"value": {
+											"value": "@{pipeline().RunId}",
+											"type": "Expression"
+										},
+										"type": "String"
+									}
+								}
+							},
+							"linkedServiceName": {
+								"referenceName": "LS_SQL",
+								"type": "LinkedServiceReference"
+							}
+						}
+					],
+					"timeout": "7.00:00:00"
+				}
+			},
+			{
+				"name": "CREATE_TRIGGER_FILE_EVENT",
+				"description": "This copy activity creates trigger file for each entry in metadata",
+				"type": "Copy",
+				"dependsOn": [
+					{
+						"activity": "Until_API_has_more_data",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "SqlServerSource",
+						"sqlReaderQuery": {
+							"value": "select current_timestamp",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"sink": {
+						"type": "DelimitedTextSink",
+						"storeSettings": {
+							"type": "AzureBlobFSWriteSettings"
+						},
+						"formatSettings": {
+							"type": "DelimitedTextWriteSettings",
+							"quoteAllText": true,
+							"fileExtension": ".txt"
+						}
+					},
+					"enableStaging": false,
+					"translator": {
+						"type": "TabularTranslator",
+						"typeConversion": true,
+						"typeConversionSettings": {
+							"allowDataTruncation": true,
+							"treatBooleanAsNumber": false
+						}
+					}
+				},
+				"inputs": [
+					{
+						"referenceName": "DS_KHCDE_GENERIC_MSSQL_Metadata",
+						"type": "DatasetReference"
+					}
+				],
+				"outputs": [
+					{
+						"referenceName": "DS_KHCDE_GENERIC_BLOB_CSV_FolderFile",
+						"type": "DatasetReference",
+						"parameters": {
+							"container_name": "khc-enterprise-data",
+							"blob_name": {
+								"value": "@if(contains(activity('LU-Metadata').output.value[0].blob_trigger_name, '/'), substring(activity('LU-Metadata').output.value[0].blob_trigger_name, 0, lastIndexOf(activity('LU-Metadata').output.value[0].blob_trigger_name, '/')), 'master_data/triggers')",
+								"type": "Expression"
+							},
+							"file_name": {
+								"value": "@if(contains(activity('LU-Metadata').output.value[0].blob_trigger_name, '/'), last(split(activity('LU-Metadata').output.value[0].blob_trigger_name, '/')), activity('LU-Metadata').output.value[0].blob_trigger_name)",
+								"type": "Expression"
+							},
+							"field_delimiter": ","
+						}
+					}
+				]
+			},
+			{
+				"name": "WB-SendSuccessEmail",
+				"description": "Send email notification upon successfull completion of pipeline",
+				"type": "WebActivity",
+				"dependsOn": [
+					{
+						"activity": "SP-ActivitySuccessful",
+						"dependencyConditions": [
+							"Completed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"url": {
+						"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+						"type": "Expression"
+					},
+					"method": "POST",
+					"body": {
+						"value": "{ \n        \"to_email\": \"@{variables('emailTo')}\", \n        \"subject\": \"Success : @{pipeline().parameters.application_name} - @{activity('LU-Metadata').output.value[0].dataset_group}\", \n        \"body\": \"Dear All,<br><br>The cloud analytics data load process succeeded for the Application: @{pipeline().parameters.application_name}- @{activity('LU-Metadata').output.value[0].adf_trigger_name}</b><br> Please find the details below: <br><br> Pipeline Name: @{pipeline().Pipeline} <br> Pipeline Run ID: @{pipeline().RunId}<br> Pipeline Trigger Name: @{pipeline().TriggerName}<br> Pipeline Trigger Type: @{pipeline().TriggerType}<br> Pipeline Start Time: @{pipeline().TriggerTime}<br><br>Parameters:<br>===========<br>Application Name: @{pipeline().parameters.application_name}<br>Dataset Group: @{pipeline().parameters.dataset_group}<br><br>Regards,<br>Cloud Analytics Team\", \n        \"importance\": \"Low\"\n} ",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "SP-ActivitySuccessful",
+				"description": "This activity logs success of copy to sql activity in khc_audit_log_detail table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "CREATE_TRIGGER_FILE_EVENT",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": "U",
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.dataset_group",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@{pipeline().Pipeline}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": "Successfull",
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "WB-SendFailureEmail04",
+				"description": "Send email notification upon failure of event file creation",
+				"type": "WebActivity",
+				"dependsOn": [
+					{
+						"activity": "SP-ActivityFailed03",
+						"dependencyConditions": [
+							"Completed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"url": {
+						"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+						"type": "Expression"
+					},
+					"method": "POST",
+					"body": {
+						"value": "{ \n        \"to_email\": \"@{variables('emailTo')}\", \n        \"subject\": \"Failed Copy to SQL: @{pipeline().parameters.application_name} - @{split(pipeline().parameters.dataset_group,'.')[0]}\", \n        \"body\": \"Dear All,<br><br>The cloud analytics data load process failed for the Application: @{pipeline().parameters.application_name}<br> Please find below the details: <br><br> Pipeline Name: @{pipeline().Pipeline} <br> Pipeline Run ID: @{pipeline().RunId}<br> Pipeline Trigger Name: @{pipeline().TriggerName}<br> Pipeline Trigger Type: @{pipeline().TriggerType}<br> Pipeline Start Time: @{pipeline().TriggerTime}<br> Activity: LU-Metadata<br>Next Step: Please check the DatasetGroup and active_ind<br><br>Parameters:<br>===========<br>Application Name: @{pipeline().parameters.application_name}<br>Dataset Group: @{pipeline().parameters.dataset_group}<br><br>Please take care.<br><br>Regards,<br>Cloud Analytics Team\", \n        \"importance\": \"High\"\n}",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "SP-ActivityFailed03",
+				"description": "This activity logs failure of copy extracted data to SQL server activity in khc_audit_log_detail table and failure of pipeline in  khc_audit_log table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "CREATE_TRIGGER_FILE_EVENT",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": "LU-Metadata",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@activity('LU-Metadata').output.value[0].application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@activity('LU-Metadata').output.value[0].dataset_group",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_code": {
+							"value": {
+								"value": "@{activity('LU-Metadata').Error.errorCode}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_detail": {
+							"value": {
+								"value": "@{activity('LU-Metadata').Error.message}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "Get_MetadataCheckFileExist",
+				"description": "It will check if exist file under blob location",
+				"type": "GetMetadata",
+				"dependsOn": [
+					{
+						"activity": "Get Access Token",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"dataset": {
+						"referenceName": "DS_KHCDE_APAC_CN_DF_BLOB_JSON",
+						"type": "DatasetReference",
+						"parameters": {
+							"container_name": {
+								"value": "@activity('LU-Metadata').output.value[0].container_name",
+								"type": "Expression"
+							},
+							"FilePath": {
+								"value": "@concat(activity('LU-Metadata').output.value[0].stage_blob_name,'/')",
+								"type": "Expression"
+							}
+						}
+					},
+					"fieldList": [
+						"exists"
+					],
+					"storeSettings": {
+						"type": "AzureBlobFSReadSettings",
+						"recursive": true,
+						"enablePartitionDiscovery": false
+					},
+					"formatSettings": {
+						"type": "JsonReadSettings"
+					}
+				}
+			},
+			{
+				"name": "IF-FileExists",
+				"description": "Checks if Stage Blob File is Present or not",
+				"type": "IfCondition",
+				"dependsOn": [
+					{
+						"activity": "Get_MetadataCheckFileExist",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"expression": {
+						"value": "@activity('Get_MetadataCheckFileExist').output.exists",
+						"type": "Expression"
+					},
+					"ifTrueActivities": [
+						{
+							"name": "Delete Staged Files",
+							"description": "This activity will delete ingested file from blob location.",
+							"type": "Delete",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"dataset": {
+									"referenceName": "DS_KHCDE_APAC_CN_DF_BLOB_JSON",
+									"type": "DatasetReference",
+									"parameters": {
+										"container_name": "@activity('LU-Metadata').output.value[0].container_name",
+										"FilePath": {
+											"value": "@activity('LU-Metadata').output.value[0].stage_blob_name",
+											"type": "Expression"
+										}
+									}
+								},
+								"logStorageSettings": {
+									"linkedServiceName": {
+										"referenceName": "LS_AZ_STRGV2",
+										"type": "LinkedServiceReference"
+									},
+									"path": "khc-logs/khc_master_data/2022-01-06"
+								},
+								"enableLogging": true,
+								"storeSettings": {
+									"type": "AzureBlobFSReadSettings",
+									"recursive": true,
+									"wildcardFileName": "*.json",
+									"enablePartitionDiscovery": false
+								}
+							}
+						}
+					]
+				}
+			}
+		],
+		"parameters": {
+			"application_name": {
+				"type": "string"
+			},
+			"dataset_group": {
+				"type": "string"
+			},
+			"no_of_days": {
+				"type": "int",
+				"defaultValue": -3
+			}
+		},
+		"variables": {
+			"PullAPIOutput": {
+				"type": "String"
+			},
+			"has_more": {
+				"type": "String",
+				"defaultValue": "True"
+			},
+			"next_cursor": {
+				"type": "String",
+				"defaultValue": "1"
+			},
+			"emailTo": {
+				"type": "String",
+				"defaultValue": "8cd7b897.Heinz365.onmicrosoft.com@amer.teams.ms"
+			}
+		},
+		"folder": {
+			"name": "Apac_Master"
+		},
+		"annotations": []
+	},
+	"type": "Microsoft.DataFactory/factories/pipelines"
+}

@@ -1,0 +1,382 @@
+{
+	"name": "PL_KHCDE_IRI_APAC_STORE_SNOWFLAKE_EXTRACTION",
+	"properties": {
+		"activities": [
+			{
+				"name": "LU-Metadata",
+				"type": "Lookup",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "SqlServerSource",
+						"sqlReaderQuery": {
+							"value": "select * from khc_orchestration_metadata where dataset_group='iri_international_store'",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "DS_KHCDE_GENERIC_MSSQL_Metadata",
+						"type": "DatasetReference"
+					},
+					"firstRowOnly": false
+				}
+			},
+			{
+				"name": "EP-SnowflakeExtraction",
+				"type": "ExecutePipeline",
+				"dependsOn": [
+					{
+						"activity": "LU-Metadata",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"pipeline": {
+						"referenceName": "PL_KHCDE_GENERIC_SnowflakeExtraction",
+						"type": "PipelineReference"
+					},
+					"waitOnCompletion": true,
+					"parameters": {
+						"ApplicationName": {
+							"value": "@{activity('LU-Metadata').output.value[0].application_name}",
+							"type": "Expression"
+						},
+						"DatasetGroup": {
+							"value": "@{activity('LU-Metadata').output.value[0].dataset_group}",
+							"type": "Expression"
+						},
+						"ParameterJson": {
+							"value": "@{activity('LU-Metadata').output.value[0].parameter_json}",
+							"type": "Expression"
+						}
+					}
+				}
+			},
+			{
+				"name": "Copy BLOB to SQL",
+				"description": "Copy Coles files data from BLOB to SQL server tables",
+				"type": "Copy",
+				"dependsOn": [
+					{
+						"activity": "EP-SnowflakeExtraction",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "DelimitedTextSource",
+						"storeSettings": {
+							"type": "AzureBlobFSReadSettings",
+							"recursive": false,
+							"wildcardFileName": "*",
+							"enablePartitionDiscovery": false
+						},
+						"formatSettings": {
+							"type": "DelimitedTextReadSettings"
+						}
+					},
+					"sink": {
+						"type": "SqlServerSink",
+						"preCopyScript": "delete from [dbo].[IRI_ScanSalesStagingT]"
+					},
+					"enableStaging": false,
+					"translator": {
+						"type": "TabularTranslator",
+						"mappings": [
+							{
+								"source": {
+									"name": "BANNER",
+									"type": "String"
+								},
+								"sink": {
+									"name": "Banner",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"name": "MARKETCODE",
+									"type": "String"
+								},
+								"sink": {
+									"name": "MARKETCode",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"name": "MARKETDESCRIPTION",
+									"type": "String"
+								},
+								"sink": {
+									"name": "MARKETDescription",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"name": "STATE",
+									"type": "String"
+								},
+								"sink": {
+									"name": "STATE",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"name": "PRODUCTCODE",
+									"type": "String"
+								},
+								"sink": {
+									"name": "PRODUCTCode",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"name": "PRODUCTDESCRIPTION",
+									"type": "String"
+								},
+								"sink": {
+									"name": "PRODUCTDescription",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"name": "BRAND",
+									"type": "String"
+								},
+								"sink": {
+									"name": "BRAND",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"name": "COMMODITY",
+									"type": "String"
+								},
+								"sink": {
+									"name": "COMMODITY",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"name": "SIZE",
+									"type": "String"
+								},
+								"sink": {
+									"name": "SIZE",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"name": "SUBCOMMODITY",
+									"type": "String"
+								},
+								"sink": {
+									"name": "SUBCOMMODITY",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"name": "SUPPLIER",
+									"type": "String"
+								},
+								"sink": {
+									"name": "SUPPLIER",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"name": "RETAILERPRODUCTID",
+									"type": "String"
+								},
+								"sink": {
+									"name": "RetailerProductID",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"name": "TIMEDESCRIPTION",
+									"type": "String"
+								},
+								"sink": {
+									"name": "TIMEDescription",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"name": "UNITSALES",
+									"type": "String"
+								},
+								"sink": {
+									"name": "UNITSALES",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"name": "VALUESALES",
+									"type": "String"
+								},
+								"sink": {
+									"name": "VALUESALES",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"name": "AVERAGEPRICEPERUNIT",
+									"type": "String"
+								},
+								"sink": {
+									"name": "AVERAGEPRICEPERUNIT",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"name": "UNITSALESYEARAGO",
+									"type": "String"
+								},
+								"sink": {
+									"name": "UNITSALESYEARAGO",
+									"type": "String"
+								}
+							}
+						]
+					}
+				},
+				"inputs": [
+					{
+						"referenceName": "DS_KHCDE_IRI_AU_STORE_BLOB_CSV_FolderFile",
+						"type": "DatasetReference",
+						"parameters": {
+							"container_name": "khc-enterprise-data",
+							"blob_name": "sales/iri_apac/store",
+							"file_name": "iri_apac_au_store_final.csv",
+							"field_delimiter": ","
+						}
+					}
+				],
+				"outputs": [
+					{
+						"referenceName": "DS_KHCDE_IRI_AU_STORE_SQL",
+						"type": "DatasetReference"
+					}
+				]
+			},
+			{
+				"name": "Stored procedure1",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "EP-SnowflakeExtraction",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[IRI_UpdateControl]",
+					"storedProcedureParameters": {
+						"Status": {
+							"value": "1",
+							"type": "Byte"
+						},
+						"TableName": {
+							"value": "IRI_ScanSalesStagingT",
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_APAC_STORE_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "Stored procedure2",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "Copy BLOB to SQL",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[IRI_UpdateControl]",
+					"storedProcedureParameters": {
+						"Status": {
+							"value": "0",
+							"type": "Byte"
+						},
+						"TableName": {
+							"value": "IRI_ScanSalesStagingT",
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_APAC_STORE_SQL",
+					"type": "LinkedServiceReference"
+				}
+			}
+		],
+		"folder": {
+			"name": "IRI_International/Sub_Pipelines"
+		},
+		"annotations": []
+	},
+	"type": "Microsoft.DataFactory/factories/pipelines"
+}

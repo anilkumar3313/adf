@@ -1,0 +1,385 @@
+{
+    "name": "PL_KHCDE_IRI_NZ_DEMANTRA_ORACLE_INGENSTION",
+    "properties": {
+        "description": "oracle injection",
+        "activities": [
+            {
+                "name": "LU_Metadata",
+                "description": "LU_Metadata",
+                "type": "Lookup",
+                "dependsOn": [
+                    {
+                        "activity": "SP-PipelineStart_Extract",
+                        "dependencyConditions": [
+                            "Succeeded"
+                        ]
+                    }
+                ],
+                "policy": {
+                    "timeout": "7.00:00:00",
+                    "retry": 5,
+                    "retryIntervalInSeconds": 30,
+                    "secureOutput": false,
+                    "secureInput": false
+                },
+                "userProperties": [],
+                "typeProperties": {
+                    "source": {
+                        "type": "OracleSource",
+                        "oracleReaderQuery": {
+                            "value": "select 'T_SRC_HZ_SCAN_STATE' as view_name, 'demantra_iri_anz_state_fact.csv' as filename  from dual union select 'T_SRC_HZ_SCAN_NAT' as view_name, 'demantra_iri_anz_national_fact.csv' as filename  from dual ",
+                            "type": "Expression"
+                        },
+                        "partitionOption": "None",
+                        "queryTimeout": "02:00:00"
+                    },
+                    "dataset": {
+                        "referenceName": "DS_KHCDE_DEMANTRA_ORACLE_DEST",
+                        "type": "DatasetReference",
+                        "parameters": {
+                            "TableName": "_noset"
+                        }
+                    },
+                    "firstRowOnly": false
+                }
+            },
+            {
+                "name": "ForEach",
+                "description": "ForEach",
+                "type": "ForEach",
+                "dependsOn": [
+                    {
+                        "activity": "LU_Metadata",
+                        "dependencyConditions": [
+                            "Succeeded"
+                        ]
+                    }
+                ],
+                "userProperties": [],
+                "typeProperties": {
+                    "items": {
+                        "value": "@activity('LU_Metadata').output.value",
+                        "type": "Expression"
+                    },
+                    "activities": [
+                        {
+                            "name": "Copy BLOB to Oracle",
+                            "description": "Copy BLOB to Oracle",
+                            "type": "Copy",
+                            "dependsOn": [],
+                            "policy": {
+                                "timeout": "7.00:00:00",
+                                "retry": 5,
+                                "retryIntervalInSeconds": 30,
+                                "secureOutput": false,
+                                "secureInput": false
+                            },
+                            "userProperties": [],
+                            "typeProperties": {
+                                "source": {
+                                    "type": "DelimitedTextSource",
+                                    "storeSettings": {
+                                        "type": "AzureBlobFSReadSettings",
+                                        "recursive": true,
+                                        "enablePartitionDiscovery": false
+                                    },
+                                    "formatSettings": {
+                                        "type": "DelimitedTextReadSettings"
+                                    }
+                                },
+                                "sink": {
+                                    "type": "OracleSink",
+                                    "writeBatchSize": 10000
+                                },
+                                "enableStaging": false
+                            },
+                            "inputs": [
+                                {
+                                    "referenceName": "DS_KHCDE_IRI_NZ_DEMANTRA_SOURCE",
+                                    "type": "DatasetReference",
+                                    "parameters": {
+                                        "filename": {
+                                            "value": "@{item().FILENAME}",
+                                            "type": "Expression"
+                                        }
+                                    }
+                                }
+                            ],
+                            "outputs": [
+                                {
+                                    "referenceName": "DS_KHCDE_DEMANTRA_ORACLE_DEST",
+                                    "type": "DatasetReference",
+                                    "parameters": {
+                                        "TableName": "@{item().VIEW_NAME}"
+                                    }
+                                }
+                            ]
+                        },
+                        {
+                            "name": "DeleteFilefrom BLOB",
+                            "description": "DeleteFilefrom BLOB",
+                            "type": "Delete",
+                            "dependsOn": [
+                                {
+                                    "activity": "Copy BLOB to Oracle",
+                                    "dependencyConditions": [
+                                        "Succeeded"
+                                    ]
+                                }
+                            ],
+                            "policy": {
+                                "timeout": "7.00:00:00",
+                                "retry": 5,
+                                "retryIntervalInSeconds": 30,
+                                "secureOutput": false,
+                                "secureInput": false
+                            },
+                            "userProperties": [],
+                            "typeProperties": {
+                                "dataset": {
+                                    "referenceName": "DS_KHCDE_IRI_NZ_DEMANTRA_SOURCE",
+                                    "type": "DatasetReference",
+                                    "parameters": {
+                                        "filename": {
+                                            "value": "@{item().FILENAME}",
+                                            "type": "Expression"
+                                        }
+                                    }
+                                },
+                                "enableLogging": false,
+                                "storeSettings": {
+                                    "type": "AzureBlobFSReadSettings",
+                                    "recursive": true
+                                }
+                            }
+                        }
+                    ]
+                }
+            },
+            {
+                "name": "Wait-Enforce pipeline success",
+                "description": "Wait-Enforce pipeline success",
+                "type": "Wait",
+                "dependsOn": [
+                    {
+                        "activity": "ForEach",
+                        "dependencyConditions": [
+                            "Failed"
+                        ]
+                    }
+                ],
+                "userProperties": [],
+                "typeProperties": {
+                    "waitTimeInSeconds": 1
+                }
+            },
+            {
+                "name": "SP-PipelineSuccessful_Master",
+                "description": "SP-PipelineSuccessful_Master",
+                "type": "SqlServerStoredProcedure",
+                "dependsOn": [
+                    {
+                        "activity": "ForEach",
+                        "dependencyConditions": [
+                            "Succeeded"
+                        ]
+                    }
+                ],
+                "policy": {
+                    "timeout": "7.00:00:00",
+                    "retry": 5,
+                    "retryIntervalInSeconds": 30,
+                    "secureOutput": false,
+                    "secureInput": false
+                },
+                "userProperties": [],
+                "typeProperties": {
+                    "storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+                    "storedProcedureParameters": {
+                        "action_ind": {
+                            "value": {
+                                "value": "U",
+                                "type": "Expression"
+                            },
+                            "type": "String"
+                        },
+                        "application_name": {
+                            "value": {
+                                "value": "iri_international",
+                                "type": "Expression"
+                            },
+                            "type": "String"
+                        },
+                        "dataset_name": {
+                            "value": {
+                                "value": "demantra_extraction",
+                                "type": "Expression"
+                            },
+                            "type": "String"
+                        },
+                        "pipeline_name": {
+                            "value": {
+                                "value": "@{pipeline().Pipeline}",
+                                "type": "Expression"
+                            },
+                            "type": "String"
+                        },
+                        "pipeline_run_id": {
+                            "value": {
+                                "value": "@{pipeline().RunId}",
+                                "type": "Expression"
+                            },
+                            "type": "String"
+                        },
+                        "pipeline_status": {
+                            "value": {
+                                "value": "Successful",
+                                "type": "Expression"
+                            },
+                            "type": "String"
+                        }
+                    }
+                },
+                "linkedServiceName": {
+                    "referenceName": "LS_SQL",
+                    "type": "LinkedServiceReference"
+                }
+            },
+            {
+                "name": "SP-PipelineFailed_Master03",
+                "description": "SP-PipelineFailed_Master03",
+                "type": "SqlServerStoredProcedure",
+                "dependsOn": [
+                    {
+                        "activity": "ForEach",
+                        "dependencyConditions": [
+                            "Failed"
+                        ]
+                    }
+                ],
+                "policy": {
+                    "timeout": "7.00:00:00",
+                    "retry": 5,
+                    "retryIntervalInSeconds": 30,
+                    "secureOutput": false,
+                    "secureInput": false
+                },
+                "userProperties": [],
+                "typeProperties": {
+                    "storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+                    "storedProcedureParameters": {
+                        "action_ind": {
+                            "value": {
+                                "value": "U",
+                                "type": "Expression"
+                            },
+                            "type": "String"
+                        },
+                        "application_name": {
+                            "value": {
+                                "value": "iri_international",
+                                "type": "Expression"
+                            },
+                            "type": "String"
+                        },
+                        "dataset_name": {
+                            "value": {
+                                "value": "demantra_extraction",
+                                "type": "Expression"
+                            },
+                            "type": "String"
+                        },
+                        "pipeline_name": {
+                            "value": {
+                                "value": "@{pipeline().Pipeline}",
+                                "type": "Expression"
+                            },
+                            "type": "String"
+                        },
+                        "pipeline_run_id": {
+                            "value": {
+                                "value": "@{pipeline().RunId}",
+                                "type": "Expression"
+                            },
+                            "type": "String"
+                        },
+                        "pipeline_status": {
+                            "value": {
+                                "value": "Failed",
+                                "type": "Expression"
+                            },
+                            "type": "String"
+                        }
+                    }
+                },
+                "linkedServiceName": {
+                    "referenceName": "LS_SQL",
+                    "type": "LinkedServiceReference"
+                }
+            },
+            {
+                "name": "SP-PipelineStart_Extract",
+                "description": "SP-PipelineStart_Extract",
+                "type": "SqlServerStoredProcedure",
+                "dependsOn": [],
+                "policy": {
+                    "timeout": "7.00:00:00",
+                    "retry": 5,
+                    "retryIntervalInSeconds": 30,
+                    "secureOutput": false,
+                    "secureInput": false
+                },
+                "userProperties": [],
+                "typeProperties": {
+                    "storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+                    "storedProcedureParameters": {
+                        "action_ind": {
+                            "value": {
+                                "value": "I",
+                                "type": "Expression"
+                            },
+                            "type": "String"
+                        },
+                        "application_name": {
+                            "value": "iri_international",
+                            "type": "String"
+                        },
+                        "dataset_name": {
+                            "value": "iri_nz_demantra_ext",
+                            "type": "String"
+                        },
+                        "pipeline_name": {
+                            "value": {
+                                "value": "@{pipeline().Pipeline}",
+                                "type": "Expression"
+                            },
+                            "type": "String"
+                        },
+                        "pipeline_run_id": {
+                            "value": {
+                                "value": "@{pipeline().RunId}",
+                                "type": "Expression"
+                            },
+                            "type": "String"
+                        },
+                        "pipeline_status": {
+                            "value": {
+                                "value": "Processing",
+                                "type": "Expression"
+                            },
+                            "type": "String"
+                        }
+                    }
+                },
+                "linkedServiceName": {
+                    "referenceName": "LS_SQL",
+                    "type": "LinkedServiceReference"
+                }
+            }
+        ],
+        "folder": {
+            "name": "IRI_International/Sub_Pipelines"
+        },
+        "annotations": []
+    }
+}

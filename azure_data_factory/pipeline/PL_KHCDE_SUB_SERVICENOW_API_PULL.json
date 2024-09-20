@@ -1,0 +1,1594 @@
+{
+	"name": "PL_KHCDE_SUB_SERVICENOW_API_PULL",
+	"properties": {
+		"description": "This pipeline is supposed to run api code to pull data from service now",
+		"activities": [
+			{
+				"name": "Login",
+				"description": "This activity will login based on the access token.",
+				"type": "WebActivity",
+				"dependsOn": [
+					{
+						"activity": "Get Access Token",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					},
+					{
+						"activity": "LU-Metadata",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 120,
+					"secureOutput": true,
+					"secureInput": true
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"url": {
+						"value": "@{concat('https://login.microsoftonline.com/', activity('LU-Metadata').output.value[0].azure_tenant_id, '/oauth2/token')}",
+						"type": "Expression"
+					},
+					"method": "POST",
+					"headers": {
+						"Content-Type": "application/x-www-form-urlencoded"
+					},
+					"body": {
+						"value": "@activity('Get Access Token').output.value",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "Create Container",
+				"description": "This activity creates a container.",
+				"type": "WebActivity",
+				"dependsOn": [
+					{
+						"activity": "Login",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					},
+					{
+						"activity": "Get Container Cred",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 120,
+					"secureOutput": true,
+					"secureInput": true
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"url": {
+						"value": "@concat('https://management.azure.com/subscriptions/',trim(split(activity('Get Container Cred').output.value, '|||')[1]),'/resourceGroups/',replace(activity('LU-Metadata').output.value[0].resource_group_name,'<env>',toUpper(variables('env'))),'/providers/Microsoft.ContainerInstance/containerGroups/',replace(if(greater(length(concat(pipeline().parameters.DatasetGroup,'-',pipeline().RunId)),63),substring(concat(pipeline().parameters.DatasetGroup,'-',pipeline().RunId),0,63),concat(pipeline().parameters.DatasetGroup,'-',pipeline().RunId)),'_','-'),'?api-version=2018-10-01')",
+						"type": "Expression"
+					},
+					"method": "PUT",
+					"headers": {
+						"Content-Type": "Application/json",
+						"Authorization": {
+							"value": "Bearer @{activity('Login').output.access_token}",
+							"type": "Expression"
+						}
+					},
+					"body": {
+						"value": "@concat('{\"id\":\"/subscriptions/',trim(split(activity('Get Container Cred').output.value, '|||')[1]),'/resourceGroups/',replace(activity('LU-Metadata').output.value[0].resource_group_name,'<env>',toUpper(variables('env'))),'/providers/Microsoft.ContainerInstance/containerGroups/',replace(if(greater(length(concat(pipeline().parameters.DatasetGroup,'-',pipeline().RunId)),63),substring(concat(pipeline().parameters.DatasetGroup,'-',pipeline().RunId),0,63),concat(pipeline().parameters.DatasetGroup,'-',pipeline().RunId)),'_','-'),'\",\"location\":\"east us 2\",\"name\":\"',replace(if(greater(length(concat(pipeline().parameters.DatasetGroup,'-',pipeline().RunId)),63),substring(concat(pipeline().parameters.DatasetGroup,'-',pipeline().RunId),0,63),concat(pipeline().parameters.DatasetGroup,'-',pipeline().RunId)),'_','-'),'\",\"properties\":{\"containers\":[{\"name\":\"',replace(if(greater(length(concat(activity('LU-Metadata').output.value[0].activity_name,'-',pipeline().RunId)),63),substring(concat(activity('LU-Metadata').output.value[0].activity_name,'-',pipeline().RunId),0,63),concat(activity('LU-Metadata').output.value[0].activity_name,'-',pipeline().RunId)),'_','-'),'\",\"properties\":{\"command\":[\"python\",\"',activity('LU-Metadata').output.value[0].script_name,'\",\"',pipeline().RunId,'\",\"',pipeline().parameters.DatasetGroup,'\",\"',pipeline().parameters.ApplicationName,'\"],\"environmentVariables\":[{\"name\": \"AZURE_TENANT_ID\",\"value\": \"',activity('LU-Metadata').output.value[0].azure_tenant_id,'\"},{\"name\": \"AZURE_KVNAME\",\"value\": \"',json(pipeline().parameters.ParameterJson).conEnvVar.param1.value,'\"},{\"name\": \"AZURE_CLIENT_ID\",\"value\": \"',replace(split(activity('Get Access Token').output.value,'&')[1],'client_id=',''),'\"},{\"name\": \"AZURE_CLIENT_SECRET\",\"value\": \"',replace(split(activity('Get Access Token').output.value,'&')[2],'client_secret=',''),'\"},{\"name\": \"KVSEC_SFK_USER_NAME\",\"value\": \"',json(pipeline().parameters.ParameterJson).conEnvVar.param2.value,'\"},{\"name\": \"KVSEC_SFK_PW_NAME\",\"value\": \"',json(pipeline().parameters.ParameterJson).conEnvVar.param3.value,'\"},{\"name\": \"KVSEC_APP_USER_NAME\",\"value\": \"',json(pipeline().parameters.ParameterJson).conEnvVar.param4.value,'\"},{\"name\": \"KVSEC_APP_PW_NAME\",\"value\": \"',json(pipeline().parameters.ParameterJson).conEnvVar.param5.value,'\"},{\"name\": \"KVSEC_BLOBKEY_NAME\",\"value\": \"',json(pipeline().parameters.ParameterJson).conEnvVar.param6.value,'\"}],\"image\":\"',replace(activity('LU-Metadata').output.value[0].image_name,'<env>',toLower(variables('env'))),'\",\"ports\":[{\"port\":80}],\"resources\":{\"requests\":{\"cpu\":',string(json(pipeline().parameters.ParameterJson).conVar.param2.value),',\"memoryInGB\":',string(json(pipeline().parameters.ParameterJson).conVar.param3.value),'}}}}]',',\"diagnostics\":{\"logAnalytics\":{\"workspaceId\":\"',trim(split(activity('Get Container Cred').output.value, '|||')[2]),'\",\"workspaceKey\":\"',trim(split(activity('Get Container Cred').output.value, '|||')[3]),'\",}}',',\"imageRegistryCredentials\":[{\"password\":\"',trim(split(activity('Get Container Cred').output.value, '|||')[0]),'\",\"server\":\"',replace(activity('LU-Metadata').output.value[0].image_server_name,'<env>',toLower(variables('env'))),'\",\"username\":\"',replace(activity('LU-Metadata').output.value[0].registry_login_id,'<env>',toLower(variables('env'))),'\"}],\"ipAddress\":{\"ports\":[{\"protocol\":\"TCP\",\"port\":80}],\"type\":\"Public\"},\"osType\":\"Linux\",\"restartPolicy\":\"Never\",\"volumes\":[{\"name\":\"volume1\",\"emptyDir\":{}}]},\"type\":\"Microsoft.ContainerInstance/containerGroups\"}')",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "Delete Container",
+				"description": "This activity will delete the container post successful completion of API pull.",
+				"type": "WebActivity",
+				"dependsOn": [
+					{
+						"activity": "Asynchronous Polling",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 120,
+					"secureOutput": true,
+					"secureInput": true
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"url": {
+						"value": "@concat('https://management.azure.com/subscriptions/',trim(split(activity('Get Container Cred').output.value, '|||')[1]),'/resourceGroups/',replace(activity('LU-Metadata').output.value[0].resource_group_name,'<env>',toUpper(variables('env'))),'/providers/Microsoft.ContainerInstance/containerGroups/',replace(if(greater(length(concat(pipeline().parameters.DatasetGroup,'-',pipeline().RunId)),63),substring(concat(pipeline().parameters.DatasetGroup,'-',pipeline().RunId),0,63),concat(pipeline().parameters.DatasetGroup,'-',pipeline().RunId)),'_','-'),'?api-version=2018-10-01')",
+						"type": "Expression"
+					},
+					"method": "DELETE",
+					"headers": {
+						"Content-Type": "Application/json",
+						"Authorization": {
+							"value": "Bearer @{activity('ReLogin').output.access_token}",
+							"type": "Expression"
+						}
+					}
+				}
+			},
+			{
+				"name": "Get Access Token",
+				"description": "This activity is to get the access token",
+				"type": "WebActivity",
+				"dependsOn": [
+					{
+						"activity": "SP-PipelineStart",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 120,
+					"secureOutput": true,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"url": {
+						"value": "@{concat('https://khcde-kv-', toLower(variables('env')), '.vault.azure.net/secrets/khcde-kv-sec-serv-princ/?api-version=7.0')}",
+						"type": "Expression"
+					},
+					"method": "GET",
+					"authentication": {
+						"type": "MSI",
+						"resource": "https://vault.azure.net"
+					}
+				}
+			},
+			{
+				"name": "Fail Pipeline",
+				"description": "This activity calls a dummy fail activity.",
+				"type": "IfCondition",
+				"dependsOn": [
+					{
+						"activity": "Delete Container",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"expression": {
+						"value": "@equals(activity('Check Container Status').output.properties.containers[0].properties.instanceView.currentState.exitCode, 0)",
+						"type": "Expression"
+					},
+					"ifFalseActivities": [
+						{
+							"name": "Fail Dummy Activity",
+							"description": "This activity executes fail dummy activity",
+							"type": "WebActivity",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 5,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": true,
+								"secureInput": true
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"url": {
+									"value": "@concat('https://management.azure.com/subscriptions/',trim(split(activity('Get Container Cred').output.value, '|||')[1]),'/resourceGroups/',replace(activity('LU-Metadata').output.value[0].resource_group_name,'<env>',toUpper(variables('env'))),'/providers/Microsoft.ContainerInstance/containerGroups/',replace(if(greater(length(concat(pipeline().parameters.DatasetGroup,'-',pipeline().RunId)),63),substring(concat(pipeline().parameters.DatasetGroup,'-',pipeline().RunId),0,63),concat(pipeline().parameters.DatasetGroup,'-',pipeline().RunId)),'_','-'),'?api-version=2018-10-01')",
+									"type": "Expression"
+								},
+								"method": "GET"
+							}
+						}
+					]
+				}
+			},
+			{
+				"name": "CreateContainer-Success",
+				"description": "This activity adds a create container success entry in audit table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "Create Container",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": {
+								"value": "Create Container",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Successful",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@{pipeline().parameters.ApplicationName}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@{pipeline().parameters.DatasetGroup}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "ServiceNowAPIPull-Success",
+				"description": "This activity will add success entry once service now api pull succeeds.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "Asynchronous Polling",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": {
+								"value": "Asynchronous Polling",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Successful",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@{pipeline().parameters.ApplicationName}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@{pipeline().parameters.DatasetGroup}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "DeleteContainer-Success",
+				"description": "This activity will add success entry once delete container succeeds",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "Delete Container",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": {
+								"value": "Delete Container",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Successful",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@{pipeline().parameters.ApplicationName}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@{pipeline().parameters.DatasetGroup}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-PipelineStart",
+				"description": "This activity adds entry in audit table post start of API pull pipeline.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "set_env_variable",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": {
+								"value": "I",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@{pipeline().parameters.ApplicationName}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@{pipeline().parameters.DatasetGroup}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@{pipeline().Pipeline}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Processing",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "GetAccessToken-Failed",
+				"description": "This activity will add fail entry in audit table in case of getting access token.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "Get Access Token",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": {
+								"value": "Get Access Token",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@{pipeline().parameters.ApplicationName}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@{pipeline().parameters.DatasetGroup}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_code": {
+							"value": {
+								"value": "N.A.",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_detail": {
+							"value": {
+								"value": "N.A.",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "Login-Failed",
+				"description": "This activity will add entry in audit table if login fails.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "Login",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": {
+								"value": "Login",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@{pipeline().parameters.ApplicationName}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@{pipeline().parameters.DatasetGroup}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_code": {
+							"value": {
+								"value": "N.A.",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_detail": {
+							"value": {
+								"value": "N.A.",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "CreateContainer-Failed",
+				"description": "This activity will add fail entry in audit table once create container fails.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "Create Container",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": {
+								"value": "Create Container",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@{pipeline().parameters.ApplicationName}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@{pipeline().parameters.DatasetGroup}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_code": {
+							"value": {
+								"value": "N.A.",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_detail": {
+							"value": {
+								"value": "N.A.",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "ServiceNowPull-Failed",
+				"description": "This activity will add failure entry once delete container fails.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "Asynchronous Polling",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": {
+								"value": "Asynchronous Polling",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@{pipeline().parameters.ApplicationName}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@{pipeline().parameters.DatasetGroup}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_code": {
+							"value": {
+								"value": "N.A.",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_detail": {
+							"value": {
+								"value": "N.A.",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "DeleteContainer-Failed",
+				"description": "This activity will add success entry once delete container fails.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "Delete Container",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": {
+								"value": "Delete Container",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@{pipeline().parameters.ApplicationName}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@{pipeline().parameters.DatasetGroup}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_code": {
+							"value": {
+								"value": "N.A.",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_detail": {
+							"value": {
+								"value": "N.A.",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "APIPull-Success",
+				"description": "This activity will add success entry once service now api pull succeds",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "Fail Pipeline",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": {
+								"value": "U",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@{pipeline().parameters.ApplicationName}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@{pipeline().parameters.DatasetGroup}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@{pipeline().Pipeline}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Successful",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "APIPipeline-Failed",
+				"description": "This activity will add success entry once service now api pull failed.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "Fail Pipeline",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": {
+								"value": "U",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@{pipeline().parameters.ApplicationName}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@{pipeline().parameters.DatasetGroup}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@{pipeline().Pipeline}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "Asynchronous Polling",
+				"description": "This activity waits till the service now api script completes.",
+				"type": "Until",
+				"dependsOn": [
+					{
+						"activity": "Until Container Ready",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"expression": {
+						"value": "@equals(activity('Check Container Status').output.properties.containers[0].properties.instanceView.currentState.state, 'Terminated')",
+						"type": "Expression"
+					},
+					"activities": [
+						{
+							"name": "Check Container Status",
+							"description": "This activity checks the container status",
+							"type": "WebActivity",
+							"dependsOn": [
+								{
+									"activity": "ReLogin",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 5,
+								"retryIntervalInSeconds": 120,
+								"secureOutput": true,
+								"secureInput": true
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"url": {
+									"value": "@concat('https://management.azure.com/subscriptions/',trim(split(activity('Get Container Cred').output.value, '|||')[1]),'/resourceGroups/',replace(activity('LU-Metadata').output.value[0].resource_group_name,'<env>',toUpper(variables('env'))),'/providers/Microsoft.ContainerInstance/containerGroups/',replace(if(greater(length(concat(pipeline().parameters.DatasetGroup,'-',pipeline().RunId)),63),substring(concat(pipeline().parameters.DatasetGroup,'-',pipeline().RunId),0,63),concat(pipeline().parameters.DatasetGroup,'-',pipeline().RunId)),'_','-'),'?api-version=2018-10-01')",
+									"type": "Expression"
+								},
+								"method": "GET",
+								"headers": {
+									"Content-Type": "Application/json",
+									"Authorization": {
+										"value": "Bearer @{activity('ReLogin').output.access_token}",
+										"type": "Expression"
+									}
+								}
+							}
+						},
+						{
+							"name": "Sleep for Status Change",
+							"description": "This activity waits for status change",
+							"type": "Wait",
+							"dependsOn": [],
+							"userProperties": [],
+							"typeProperties": {
+								"waitTimeInSeconds": {
+									"value": "@int(json(pipeline().parameters.ParameterJson).conVar.param1.value)",
+									"type": "Expression"
+								}
+							}
+						},
+						{
+							"name": "ReLogin",
+							"description": "This activity will relogin based on the access token",
+							"type": "WebActivity",
+							"dependsOn": [
+								{
+									"activity": "Sleep for Status Change",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 5,
+								"retryIntervalInSeconds": 120,
+								"secureOutput": true,
+								"secureInput": true
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"url": {
+									"value": "@{concat('https://login.microsoftonline.com/', activity('LU-Metadata').output.value[0].azure_tenant_id, '/oauth2/token')}",
+									"type": "Expression"
+								},
+								"method": "POST",
+								"headers": {
+									"Content-Type": "application/x-www-form-urlencoded"
+								},
+								"body": {
+									"value": "@activity('Get Access Token').output.value",
+									"type": "Expression"
+								}
+							}
+						}
+					],
+					"timeout": "1.00:00:00"
+				}
+			},
+			{
+				"name": "Delete Container Failure",
+				"description": "This activity is to delete the container",
+				"type": "WebActivity",
+				"dependsOn": [
+					{
+						"activity": "Asynchronous Polling",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 120,
+					"secureOutput": true,
+					"secureInput": true
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"url": {
+						"value": "@concat('https://management.azure.com/subscriptions/',trim(split(activity('Get Container Cred').output.value, '|||')[1]),'/resourceGroups/',replace(activity('LU-Metadata').output.value[0].resource_group_name,'<env>',toUpper(variables('env'))),'/providers/Microsoft.ContainerInstance/containerGroups/',replace(if(greater(length(concat(pipeline().parameters.DatasetGroup,'-',pipeline().RunId)),63),substring(concat(pipeline().parameters.DatasetGroup,'-',pipeline().RunId),0,63),concat(pipeline().parameters.DatasetGroup,'-',pipeline().RunId)),'_','-'),'?api-version=2018-10-01')",
+						"type": "Expression"
+					},
+					"method": "DELETE",
+					"headers": {
+						"Content-Type": "Application/json",
+						"Authorization": {
+							"value": "Bearer @{activity('ReLogin').output.access_token}",
+							"type": "Expression"
+						}
+					}
+				}
+			},
+			{
+				"name": "Until Container Ready",
+				"description": "This activity waits till the container gets created and checks every 20 secs.",
+				"type": "Until",
+				"dependsOn": [
+					{
+						"activity": "Create Container",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"expression": {
+						"value": "@contains(string(activity('Check Container Status Pending').output.properties.containers[0].properties), '\"instanceView\":')",
+						"type": "Expression"
+					},
+					"activities": [
+						{
+							"name": "Check Container Status Pending",
+							"description": "This activity checks container status pending",
+							"type": "WebActivity",
+							"dependsOn": [
+								{
+									"activity": "Sleep for Status Change Pending",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 5,
+								"retryIntervalInSeconds": 120,
+								"secureOutput": true,
+								"secureInput": true
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"url": {
+									"value": "@concat('https://management.azure.com/subscriptions/',trim(split(activity('Get Container Cred').output.value, '|||')[1]),'/resourceGroups/',replace(activity('LU-Metadata').output.value[0].resource_group_name,'<env>',toUpper(variables('env'))),'/providers/Microsoft.ContainerInstance/containerGroups/',replace(if(greater(length(concat(pipeline().parameters.DatasetGroup,'-',pipeline().RunId)),63),substring(concat(pipeline().parameters.DatasetGroup,'-',pipeline().RunId),0,63),concat(pipeline().parameters.DatasetGroup,'-',pipeline().RunId)),'_','-'),'?api-version=2018-10-01')",
+									"type": "Expression"
+								},
+								"method": "GET",
+								"headers": {
+									"Content-Type": "Application/json",
+									"Authorization": {
+										"value": "Bearer @{activity('Login').output.access_token}",
+										"type": "Expression"
+									}
+								}
+							}
+						},
+						{
+							"name": "Sleep for Status Change Pending",
+							"description": "This activity waits for Status Change Pending",
+							"type": "Wait",
+							"dependsOn": [],
+							"userProperties": [],
+							"typeProperties": {
+								"waitTimeInSeconds": {
+									"value": "@int(20)",
+									"type": "Expression"
+								}
+							}
+						}
+					],
+					"timeout": "1.00:00:00"
+				}
+			},
+			{
+				"name": "CreateContainerWaitActivity-Failed",
+				"description": "This activity will add failed entry once wait activity to create container fails.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "Until Container Ready",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": {
+								"value": "Until Container Ready",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@{pipeline().parameters.ApplicationName}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@{pipeline().parameters.DatasetGroup}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_code": {
+							"value": {
+								"value": "N.A.",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_detail": {
+							"value": {
+								"value": "N.A.",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "Delete Container-Failure",
+				"description": "This activity will delete the container in case of failure of the creation of container",
+				"type": "WebActivity",
+				"dependsOn": [
+					{
+						"activity": "Until Container Ready",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 120,
+					"secureOutput": true,
+					"secureInput": true
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"url": {
+						"value": "@concat('https://management.azure.com/subscriptions/',trim(split(activity('Get Container Cred').output.value, '|||')[1]),'/resourceGroups/',replace(activity('LU-Metadata').output.value[0].resource_group_name,'<env>',toUpper(variables('env'))),'/providers/Microsoft.ContainerInstance/containerGroups/',replace(if(greater(length(concat(pipeline().parameters.DatasetGroup,'-',pipeline().RunId)),63),substring(concat(pipeline().parameters.DatasetGroup,'-',pipeline().RunId),0,63),concat(pipeline().parameters.DatasetGroup,'-',pipeline().RunId)),'_','-'),'?api-version=2018-10-01')",
+						"type": "Expression"
+					},
+					"method": "DELETE",
+					"headers": {
+						"Content-Type": "Application/json",
+						"Authorization": {
+							"value": "Bearer @{activity('Login').output.access_token}",
+							"type": "Expression"
+						}
+					}
+				}
+			},
+			{
+				"name": "Get Container Cred",
+				"description": "This activity is to get the Container Credentials.",
+				"type": "WebActivity",
+				"dependsOn": [
+					{
+						"activity": "SP-PipelineStart",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 120,
+					"secureOutput": true,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"url": {
+						"value": "@{concat('https://khcde-kv-', toLower(variables('env')), '.vault.azure.net/secrets/khcde-kv-sec-container-creds/?api-version=7.0')}",
+						"type": "Expression"
+					},
+					"method": "GET",
+					"authentication": {
+						"type": "MSI",
+						"resource": "https://vault.azure.net"
+					}
+				}
+			},
+			{
+				"name": "SP-Activity_Get_Container_Cred_Failed",
+				"description": "This activity will add fail entry in audit table once getting container creds fails.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "Get Container Cred",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": {
+								"value": "Get Container Creds",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@{pipeline().parameters.ApplicationName}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@{pipeline().parameters.DatasetGroup}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_code": {
+							"value": {
+								"value": "N.A.",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_detail": {
+							"value": {
+								"value": "N.A.",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "LU-Metadata",
+				"description": "This activity traverses the container metadata to create a container.",
+				"type": "Lookup",
+				"dependsOn": [
+					{
+						"activity": "SP-PipelineStart",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "SqlServerSource",
+						"sqlReaderQuery": {
+							"value": "select * from khc_container_metadata where activity_name = 'service_now' and active_ind = 'y'",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "DS_KHCDE_GENERIC_MSSQL_Metadata",
+						"type": "DatasetReference"
+					},
+					"firstRowOnly": false
+				}
+			},
+			{
+				"name": "Login - Success",
+				"description": "This activity adds entry in audit table post success of login actitvity.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "Login",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": {
+								"value": "Login",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Successful",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@{pipeline().parameters.ApplicationName}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@{pipeline().parameters.DatasetGroup}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "set_env_variable",
+				"description": "Set the variable - ENV from global parameters - AZURE_ENV",
+				"type": "SetVariable",
+				"dependsOn": [],
+				"userProperties": [],
+				"typeProperties": {
+					"variableName": "env",
+					"value": {
+						"value": "@pipeline().globalParameters.AZURE_ENV",
+						"type": "Expression"
+					}
+				}
+			}
+		],
+		"parameters": {
+			"ApplicationName": {
+				"type": "string"
+			},
+			"DatasetGroup": {
+				"type": "string"
+			},
+			"ParameterJson": {
+				"type": "string"
+			}
+		},
+		"variables": {
+			"string_split": {
+				"type": "Array"
+			},
+			"AZURE_CLIENT_ID": {
+				"type": "String"
+			},
+			"AZURE_CLIENT_SECRET": {
+				"type": "String"
+			},
+			"env": {
+				"type": "String",
+				"defaultValue": "DEV"
+			}
+		},
+		"folder": {
+			"name": "Service_Now/sub_pipelines"
+		},
+		"annotations": []
+	},
+	"type": "Microsoft.DataFactory/factories/pipelines"
+}

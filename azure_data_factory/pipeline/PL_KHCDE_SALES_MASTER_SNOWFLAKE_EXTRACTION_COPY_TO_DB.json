@@ -1,0 +1,2197 @@
+{
+	"name": "PL_KHCDE_SALES_MASTER_SNOWFLAKE_EXTRACTION_COPY_TO_DB",
+	"properties": {
+		"description": "This pipeline does snowflake a extraction for given application and dataset group and Copy to database",
+		"activities": [
+			{
+				"name": "LU-Metadata",
+				"description": "This activity pulls the details related to application_name and dataset_group from orchestration_metadata. ",
+				"type": "Lookup",
+				"dependsOn": [
+					{
+						"activity": "SP-PipelineStart",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "SqlServerSource",
+						"sqlReaderQuery": {
+							"value": "select\n    om.application_name,\n    om.dataset_name,\n    om.dataset_group,\n    om.server_name,\n    om.server_path as source_object_type,\n    om.filename as dso_changelog_table,\n    om.data_filename,\n    om.container_name,\n    om.archival_blob_name,\n    om.stage_blob_name,\n    om.blob_trigger_name,\n    om.data_level,\n    om.active_ind,\n    om.parent_id,\n\tom.parameter_json,\n\tengg.adf_trigger_name,\n\tengg.base_table_name,\nengg.extract_blob_location,\nengg.extract_file_name,\ncnt.table_name,\n\tcase\n      when om.server_name = 'LS_APAC_CN_DATALAKE_SQL' then 'khcde-kv-sec-china-df-datalake-export-sql-conn-string'\n      when om.server_name = 'LS_APAC_SNOWFLAKESTAGING_SQL' then 'khcde-kv-sec-indo-df-snowflakestaging-sql-conn-string'\n      when om.server_name = 'LS_ANZ_PROFIT_SQL' then 'khcde-kv-sec-anz-profit-in-sql-conn-string'\n      when om.server_name = 'LS_APAC_EXPORT_SQL' then 'khcde-kv-sec-apac-anz-irisfkinbnd-sql-conn-string'\n\tEND AS key_vault_secret_name\nfrom dbo.khc_orchestration_metadata om\ninner join dbo.khc_enggextract_metadata engg\non om.parent_id=engg.parent_id\nleft join dbo.khc_data_extract_control_table cnt\non om.parent_id = cnt.parent_id\n    where om.application_name in ('@{pipeline().parameters.application_name}')\nand om.dataset_group in ('@{pipeline().parameters.dataset_group}')\n  and om.data_level >=2 and om.active_ind='y' ",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "DS_KHCDE_GENERIC_MSSQL_Metadata",
+						"type": "DatasetReference"
+					},
+					"firstRowOnly": false
+				}
+			},
+			{
+				"name": "SP-PipelineStart",
+				"description": "This Activity logs starting of pipeline in khc_audit_log table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": {
+								"value": "I",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.dataset_group",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@pipeline().Pipeline",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@pipeline().RunId",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "SnowflakeExtraction_CopyTOSQL_Started",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "IS_Metadata_Valid",
+				"description": "Checks whether the Input combination given to Pipeline is valid or not.",
+				"type": "IfCondition",
+				"dependsOn": [
+					{
+						"activity": "LU-Metadata",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"expression": {
+						"value": "@greater(activity('LU-Metadata').output.count,0)",
+						"type": "Expression"
+					},
+					"ifFalseActivities": [
+						{
+							"name": "Wait-Loop",
+							"type": "Wait",
+							"dependsOn": [],
+							"userProperties": [],
+							"typeProperties": {
+								"waitTimeInSeconds": 5
+							}
+						},
+						{
+							"name": "CP-ReraiseError02",
+							"type": "Copy",
+							"dependsOn": [
+								{
+									"activity": "Wait-Loop",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"source": {
+									"type": "BinarySource",
+									"storeSettings": {
+										"type": "AzureBlobFSReadSettings",
+										"recursive": true
+									},
+									"formatSettings": {
+										"type": "BinaryReadSettings"
+									}
+								},
+								"sink": {
+									"type": "BinarySink",
+									"storeSettings": {
+										"type": "AzureBlobFSWriteSettings"
+									}
+								},
+								"enableStaging": false
+							},
+							"inputs": [
+								{
+									"referenceName": "DS_KHCDE_GENERIC_BLOB_BINARY_Folder",
+									"type": "DatasetReference",
+									"parameters": {
+										"container_name": {
+											"value": "doesNotExist_Input",
+											"type": "Expression"
+										},
+										"blob_name": {
+											"value": "doesNotExist_Input",
+											"type": "Expression"
+										}
+									}
+								}
+							],
+							"outputs": [
+								{
+									"referenceName": "DS_KHCDE_GENERIC_BLOB_BINARY_Folder",
+									"type": "DatasetReference",
+									"parameters": {
+										"container_name": {
+											"value": "doesNotExist_Output",
+											"type": "Expression"
+										},
+										"blob_name": {
+											"value": "doesNotExist_Output",
+											"type": "Expression"
+										}
+									}
+								}
+							]
+						}
+					],
+					"ifTrueActivities": [
+						{
+							"name": "SP-ActivitySuccess01",
+							"description": "This activity logs success of IS_Metadata_Valid activity in khc_audit_log_detail table.",
+							"type": "SqlServerStoredProcedure",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 5,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"storedProcedureName": "[dbo].[generic_activity_audit_log]",
+								"storedProcedureParameters": {
+									"activity_name": {
+										"value": "LU-Metadata",
+										"type": "String"
+									},
+									"activity_status": {
+										"value": {
+											"value": "Successful",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"application_name": {
+										"value": {
+											"value": "@activity('LU-Metadata').output.value[0].application_name",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"dataset_name": {
+										"value": {
+											"value": "@activity('LU-Metadata').output.value[0].dataset_group",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_run_id": {
+										"value": {
+											"value": "@{pipeline().RunId}",
+											"type": "Expression"
+										},
+										"type": "String"
+									}
+								}
+							},
+							"linkedServiceName": {
+								"referenceName": "LS_SQL",
+								"type": "LinkedServiceReference"
+							}
+						}
+					]
+				}
+			},
+			{
+				"name": "WB-SendSuccessEmail",
+				"description": "Send email notification upon successfull completion of pipeline",
+				"type": "WebActivity",
+				"dependsOn": [
+					{
+						"activity": "SP-ActivitySuccessful",
+						"dependencyConditions": [
+							"Completed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"url": {
+						"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+						"type": "Expression"
+					},
+					"method": "POST",
+					"body": {
+						"value": "{ \n        \"to_email\": \"@{variables('emailTo')}\", \n        \"subject\": \"Success : @{pipeline().parameters.Application_Name} - @{activity('LU-Metadata').output.value[0].dataset_group}\", \n        \"body\": \"Dear All,<br><br>The cloud analytics data load process succeeded for the Application: @{pipeline().parameters.Application_Name}- @{activity('LU-Metadata').output.value[0].adf_trigger_name}</b><br> Please find the details below: <br><br> Pipeline Name: @{pipeline().Pipeline} <br> Pipeline Run ID: @{pipeline().RunId}<br> Pipeline Trigger Name: @{pipeline().TriggerName}<br> Pipeline Trigger Type: @{pipeline().TriggerType}<br> Pipeline Start Time: @{pipeline().TriggerTime}<br><br>Parameters:<br>===========<br>Application Name: @{pipeline().parameters.Application_Name}<br>Dataset Group: @{pipeline().parameters.dataset_group}<br><br>Regards,<br>Cloud Analytics Team\", \n        \"importance\": \"Low\"\n} ",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "SP-ActivityFailed02",
+				"description": "This activity logs failure of LU-Metadata activity in khc_audit_log_detail table and failure of pipeline in  khc_audit_log table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "IS_Metadata_Valid",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": "LU-Metadata",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@activity('LU-Metadata').output.value[0].application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@activity('LU-Metadata').output.value[0].dataset_group",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_code": {
+							"value": {
+								"value": "@{activity('LU-Metadata').Error.errorCode}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_detail": {
+							"value": {
+								"value": "@{activity('LU-Metadata').Error.message}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "ForEach_Row",
+				"description": "For each entry in metadata runs snowflake extraction and copy data to SQL database",
+				"type": "ForEach",
+				"dependsOn": [
+					{
+						"activity": "IS_Metadata_Valid",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"items": {
+						"value": "@activity('LU-Metadata').output.value",
+						"type": "Expression"
+					},
+					"isSequential": true,
+					"activities": [
+						{
+							"name": "EP-SnowflakeExtraction",
+							"type": "ExecutePipeline",
+							"dependsOn": [
+								{
+									"activity": "SP-PipelineStart01",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"userProperties": [],
+							"typeProperties": {
+								"pipeline": {
+									"referenceName": "PL_KHCDE_GENERIC_SnowflakeExtraction",
+									"type": "PipelineReference"
+								},
+								"waitOnCompletion": true,
+								"parameters": {
+									"ApplicationName": {
+										"value": "@{item().application_name}",
+										"type": "Expression"
+									},
+									"DatasetGroup": {
+										"value": "@{item().dataset_group}",
+										"type": "Expression"
+									},
+									"ParameterJson": {
+										"value": "@{item().parameter_json}",
+										"type": "Expression"
+									}
+								}
+							}
+						},
+						{
+							"name": "SP-ActivityFailed03",
+							"description": "This activity logs failure of Snowflake Extraction activity in khc_audit_log_detail table and failure of pipeline in  khc_audit_log table.",
+							"type": "SqlServerStoredProcedure",
+							"dependsOn": [
+								{
+									"activity": "EP-SnowflakeExtraction",
+									"dependencyConditions": [
+										"Failed"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 5,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+								"storedProcedureParameters": {
+									"activity_name": {
+										"value": "EP_IF Snowflake Activity",
+										"type": "String"
+									},
+									"activity_status": {
+										"value": {
+											"value": "Failed",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"application_name": {
+										"value": {
+											"value": "@item().application_name",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"dataset_name": {
+										"value": {
+											"value": "@item().dataset_name",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"error_code": {
+										"value": {
+											"value": "N.A.",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"error_detail": {
+										"value": {
+											"value": "N.A.",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_run_id": {
+										"value": {
+											"value": "@{pipeline().RunId}",
+											"type": "Expression"
+										},
+										"type": "String"
+									}
+								}
+							},
+							"linkedServiceName": {
+								"referenceName": "LS_SQL",
+								"type": "LinkedServiceReference"
+							}
+						},
+						{
+							"name": "WB-SendFailureEmail03",
+							"description": "Send email notification upon Snowflake extraction failure",
+							"type": "WebActivity",
+							"dependsOn": [
+								{
+									"activity": "SP-ActivityFailed03",
+									"dependencyConditions": [
+										"Completed"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 5,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"url": {
+									"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+									"type": "Expression"
+								},
+								"method": "POST",
+								"body": {
+									"value": "{ \n        \"to_email\": \"@{variables('emailTo')}\", \n        \"subject\": \"Failed during Snowflake Ingestion : @{pipeline().parameters.Application_Name} - @{activity('LU-Metadata').output.value[0].dataset_group}\", \n        \"body\": \"Dear All,<br><br>The cloud analytics data load process failed for the Application: @{pipeline().parameters.Application_Name}</b><br> Please find below the details: <br><br> Pipeline Name: @{pipeline().Pipeline} <br> Pipeline Run ID: @{pipeline().RunId}<br> Pipeline Trigger Name: @{pipeline().TriggerName}<br> Pipeline Trigger Type: @{pipeline().TriggerType}<br> Pipeline Start Time: @{pipeline().TriggerTime}<br> Activity: Copy_Snowflake_to_SQL<br><br>Parameters:<br>===========<br>Application Name: @{pipeline().parameters.Application_Name}<br>Blob Trigger: @{pipeline().parameters.dataset_group}<br><br>Error Code: @{activity('EP-SnowflakeExtraction').Error.errorCode} <br>Error Message: @{activity('EP-SnowflakeExtraction').Error.message} <br><br>Please take care.<br>\n<br>Regards,<br>Cloud Analytics Team\", \n        \"importance\": \"High\"\n}",
+									"type": "Expression"
+								}
+							}
+						},
+						{
+							"name": "SP-Pipelinesuccesful_Copy_Snowflake_to_SQL",
+							"description": "This Activity logs completion of pipeline in khc_audit_log table.",
+							"type": "SqlServerStoredProcedure",
+							"dependsOn": [
+								{
+									"activity": "Switch",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 5,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+								"storedProcedureParameters": {
+									"action_ind": {
+										"value": "U",
+										"type": "String"
+									},
+									"application_name": {
+										"value": {
+											"value": "@item().application_name",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"dataset_name": {
+										"value": {
+											"value": "@item().dataset_name",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_name": {
+										"value": {
+											"value": "@{pipeline().Pipeline}",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_run_id": {
+										"value": {
+											"value": "@{pipeline().RunId}",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_status": {
+										"value": "Successful",
+										"type": "String"
+									}
+								}
+							},
+							"linkedServiceName": {
+								"referenceName": "LS_SQL",
+								"type": "LinkedServiceReference"
+							}
+						},
+						{
+							"name": "Switch",
+							"description": "This is switch activity will performs copy to SQL based on load_type",
+							"type": "Switch",
+							"dependsOn": [
+								{
+									"activity": "EP-SnowflakeExtraction",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"userProperties": [],
+							"typeProperties": {
+								"on": {
+									"value": "@{item().adf_trigger_name}",
+									"type": "Expression"
+								},
+								"cases": [
+									{
+										"value": "FULL_LOAD",
+										"activities": [
+											{
+												"name": "Copy_Snowflake_to_SQL_FullLoad",
+												"description": "Copy snowflake extracted files data from BLOB to SQL server tables",
+												"type": "Copy",
+												"dependsOn": [],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"source": {
+														"type": "DelimitedTextSource",
+														"storeSettings": {
+															"type": "AzureBlobFSReadSettings",
+															"recursive": false,
+															"wildcardFileName": "*",
+															"enablePartitionDiscovery": false
+														},
+														"formatSettings": {
+															"type": "DelimitedTextReadSettings"
+														}
+													},
+													"sink": {
+														"type": "SqlServerSink",
+														"writeBatchSize": 100000,
+														"writeBatchTimeout": "0.00:30:00",
+														"preCopyScript": {
+															"value": "delete from dbo.@{item().base_table_name}",
+															"type": "Expression"
+														}
+													},
+													"enableStaging": false,
+													"parallelCopies": 8,
+													"enableSkipIncompatibleRow": true,
+													"logSettings": {
+														"enableCopyActivityLog": true,
+														"copyActivityLogSettings": {
+															"logLevel": "Warning",
+															"enableReliableLogging": false
+														},
+														"logLocationSettings": {
+															"linkedServiceName": {
+																"referenceName": "LS_AZ_STRGV2",
+																"type": "LinkedServiceReference"
+															},
+															"path": "khc-logs/khc_finance/2023-05-26"
+														}
+													}
+												},
+												"inputs": [
+													{
+														"referenceName": "DS_KHCDE_IRI_AU_STORE_BLOB_CSV_FolderFile",
+														"type": "DatasetReference",
+														"parameters": {
+															"container_name": "khc-enterprise-data",
+															"blob_name": {
+																"value": "@{item().extract_blob_location}",
+																"type": "Expression"
+															},
+															"file_name": {
+																"value": "@{item().extract_file_name}",
+																"type": "Expression"
+															},
+															"field_delimiter": ","
+														}
+													}
+												],
+												"outputs": [
+													{
+														"referenceName": "DS_KHCDE_APAC_INDO_DF_SQL_INGEST",
+														"type": "DatasetReference",
+														"parameters": {
+															"key_vault_secret_name": {
+																"value": "@{item().key_vault_secret_name}",
+																"type": "Expression"
+															},
+															"base_table_name": {
+																"value": "@{item().base_table_name}",
+																"type": "Expression"
+															}
+														}
+													}
+												]
+											},
+											{
+												"name": "SP-Copy_SQL_Failed",
+												"description": "This activity logs failure of Data Extract in khc_audit_log_detail table and failure of pipeline in  khc_audit_log table.",
+												"type": "SqlServerStoredProcedure",
+												"dependsOn": [
+													{
+														"activity": "Copy_Snowflake_to_SQL_FullLoad",
+														"dependencyConditions": [
+															"Failed"
+														]
+													}
+												],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+													"storedProcedureParameters": {
+														"action_ind": {
+															"value": "U",
+															"type": "String"
+														},
+														"activity_name": {
+															"value": "Copy_SQL",
+															"type": "String"
+														},
+														"activity_status": {
+															"value": "Failed",
+															"type": "String"
+														},
+														"application_name": {
+															"value": {
+																"value": "@pipeline().parameters.Application_Name",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"dataset_name": {
+															"value": {
+																"value": "@pipeline().parameters.dataset_group",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"error_code": {
+															"value": {
+																"value": "@activity('Copy_Snowflake_to_SQL_FullLoad').Error.errorCode",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"error_detail": {
+															"value": {
+																"value": "@activity('Copy_Snowflake_to_SQL_FullLoad').Error.message",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"pipeline_run_id": {
+															"value": {
+																"value": "@pipeline().RunId",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"pipeline_status": {
+															"value": "Failed ",
+															"type": "String"
+														},
+														"skip_pipeline_audit_update": {
+															"value": "N",
+															"type": "String"
+														}
+													}
+												},
+												"linkedServiceName": {
+													"referenceName": "LS_SQL",
+													"type": "LinkedServiceReference"
+												}
+											}
+										]
+									},
+									{
+										"value": "INCR",
+										"activities": [
+											{
+												"name": "Copy_Snowflake_to_SQL_INCR",
+												"description": "Copy snowflake extracted files data from BLOB to SQL server tables",
+												"type": "Copy",
+												"dependsOn": [],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 0,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"source": {
+														"type": "DelimitedTextSource",
+														"storeSettings": {
+															"type": "AzureBlobFSReadSettings",
+															"recursive": false,
+															"wildcardFileName": "*",
+															"enablePartitionDiscovery": false
+														},
+														"formatSettings": {
+															"type": "DelimitedTextReadSettings"
+														}
+													},
+													"sink": {
+														"type": "SqlServerSink",
+														"preCopyScript": {
+															"value": "delete from dbo.@{item().base_table_name}\nwhere @{item().table_name}",
+															"type": "Expression"
+														}
+													},
+													"enableStaging": false,
+													"parallelCopies": 10,
+													"enableSkipIncompatibleRow": true,
+													"logSettings": {
+														"enableCopyActivityLog": true,
+														"copyActivityLogSettings": {
+															"logLevel": "Warning",
+															"enableReliableLogging": false
+														},
+														"logLocationSettings": {
+															"linkedServiceName": {
+																"referenceName": "LS_AZ_STRGV2",
+																"type": "LinkedServiceReference"
+															},
+															"path": "khc-logs/khc_master_data/2021-09-21"
+														}
+													}
+												},
+												"inputs": [
+													{
+														"referenceName": "DS_KHCDE_IRI_AU_STORE_BLOB_CSV_FolderFile",
+														"type": "DatasetReference",
+														"parameters": {
+															"container_name": "khc-enterprise-data",
+															"blob_name": {
+																"value": "@{item().extract_blob_location}",
+																"type": "Expression"
+															},
+															"file_name": {
+																"value": "@{item().extract_file_name}",
+																"type": "Expression"
+															},
+															"field_delimiter": ","
+														}
+													}
+												],
+												"outputs": [
+													{
+														"referenceName": "DS_KHCDE_APAC_INDO_DF_SQL_INGEST",
+														"type": "DatasetReference",
+														"parameters": {
+															"key_vault_secret_name": {
+																"value": "@{item().key_vault_secret_name}",
+																"type": "Expression"
+															},
+															"base_table_name": {
+																"value": "@{item().base_table_name}",
+																"type": "Expression"
+															}
+														}
+													}
+												]
+											},
+											{
+												"name": "SP-Copy_SQL_INCR_Failed",
+												"description": "This activity logs failure of Data Extract in khc_audit_log_detail table and failure of pipeline in  khc_audit_log table.",
+												"type": "SqlServerStoredProcedure",
+												"dependsOn": [
+													{
+														"activity": "Copy_Snowflake_to_SQL_INCR",
+														"dependencyConditions": [
+															"Failed"
+														]
+													}
+												],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+													"storedProcedureParameters": {
+														"action_ind": {
+															"value": "U",
+															"type": "String"
+														},
+														"activity_name": {
+															"value": {
+																"value": "CopyActivity_INCR",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"activity_status": {
+															"value": "Failed",
+															"type": "String"
+														},
+														"application_name": {
+															"value": {
+																"value": "@pipeline().parameters.application_name",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"dataset_name": {
+															"value": {
+																"value": "@pipeline().parameters.dataset_group",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"error_code": {
+															"value": {
+																"value": "@activity('Copy_Snowflake_to_SQL_INCR').Error.errorCode",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"error_detail": {
+															"value": {
+																"value": "@activity('Copy_Snowflake_to_SQL_INCR').Error.message",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"pipeline_run_id": {
+															"value": {
+																"value": "@pipeline().RunId",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"pipeline_status": {
+															"value": "Failed",
+															"type": "String"
+														},
+														"skip_pipeline_audit_update": {
+															"value": null,
+															"type": "String"
+														}
+													}
+												},
+												"linkedServiceName": {
+													"referenceName": "LS_SQL",
+													"type": "LinkedServiceReference"
+												}
+											}
+										]
+									},
+									{
+										"value": "PROFITABILITY_FULL_LOAD",
+										"activities": [
+											{
+												"name": "SP-UpdateStatusInProgress",
+												"description": "Update Status to In Progress",
+												"type": "SqlServerStoredProcedure",
+												"dependsOn": [],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"storedProcedureName": "[dbo].[Profit_SYS_UpdateControlSFStatus]",
+													"storedProcedureParameters": {
+														"Comments": {
+															"value": "NA",
+															"type": "String"
+														},
+														"Status": {
+															"value": "1",
+															"type": "Byte"
+														},
+														"TableName": {
+															"value": {
+																"value": "@{item().dataset_name}",
+																"type": "Expression"
+															},
+															"type": "String"
+														}
+													}
+												},
+												"linkedServiceName": {
+													"referenceName": "LS_APAC_EXPORT_SQL",
+													"type": "LinkedServiceReference",
+													"parameters": {
+														"KeyVaultSecretName": {
+															"value": "@{item().key_vault_secret_name}",
+															"type": "Expression"
+														}
+													}
+												}
+											},
+											{
+												"name": "Copy_Snowflake_to_SQL_FullLoad_Profit",
+												"description": "Copy snowflake extracted files data from BLOB to SQL server tables",
+												"type": "Copy",
+												"dependsOn": [
+													{
+														"activity": "SP-UpdateStatusInProgress",
+														"dependencyConditions": [
+															"Succeeded"
+														]
+													}
+												],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 0,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"source": {
+														"type": "DelimitedTextSource",
+														"storeSettings": {
+															"type": "AzureBlobFSReadSettings",
+															"recursive": true,
+															"enablePartitionDiscovery": false
+														},
+														"formatSettings": {
+															"type": "DelimitedTextReadSettings"
+														}
+													},
+													"sink": {
+														"type": "SqlServerSink",
+														"preCopyScript": {
+															"value": "delete from dbo.@{item().base_table_name}",
+															"type": "Expression"
+														}
+													},
+													"enableStaging": false,
+													"translator": {
+														"type": "TabularTranslator",
+														"typeConversion": true,
+														"typeConversionSettings": {
+															"allowDataTruncation": true,
+															"treatBooleanAsNumber": false
+														}
+													}
+												},
+												"inputs": [
+													{
+														"referenceName": "DS_KHCDE_IRI_AU_STORE_BLOB_CSV_FolderFile",
+														"type": "DatasetReference",
+														"parameters": {
+															"container_name": {
+																"value": "@{item().container_name}",
+																"type": "Expression"
+															},
+															"blob_name": {
+																"value": "@{item().extract_blob_location}",
+																"type": "Expression"
+															},
+															"file_name": {
+																"value": "@{item().extract_file_name}",
+																"type": "Expression"
+															},
+															"field_delimiter": ","
+														}
+													}
+												],
+												"outputs": [
+													{
+														"referenceName": "DS_KHCDE_APAC_INDO_DF_SQL_INGEST",
+														"type": "DatasetReference",
+														"parameters": {
+															"key_vault_secret_name": {
+																"value": "@{item().key_vault_secret_name}",
+																"type": "Expression"
+															},
+															"base_table_name": {
+																"value": "@{item().base_table_name}",
+																"type": "Expression"
+															}
+														}
+													}
+												]
+											},
+											{
+												"name": "SP-UpdateStatusSuccess",
+												"description": "Update Status to In Success",
+												"type": "SqlServerStoredProcedure",
+												"dependsOn": [
+													{
+														"activity": "Copy_Snowflake_to_SQL_FullLoad_Profit",
+														"dependencyConditions": [
+															"Succeeded"
+														]
+													}
+												],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"storedProcedureName": "[dbo].[Profit_SYS_UpdateControlSFStatus]",
+													"storedProcedureParameters": {
+														"Comments": {
+															"value": "Success",
+															"type": "String"
+														},
+														"Status": {
+															"value": "0",
+															"type": "Byte"
+														},
+														"TableName": {
+															"value": {
+																"value": "@{item().dataset_name}",
+																"type": "Expression"
+															},
+															"type": "String"
+														}
+													}
+												},
+												"linkedServiceName": {
+													"referenceName": "LS_APAC_EXPORT_SQL",
+													"type": "LinkedServiceReference",
+													"parameters": {
+														"KeyVaultSecretName": {
+															"value": "@{item().key_vault_secret_name}",
+															"type": "Expression"
+														}
+													}
+												}
+											},
+											{
+												"name": "SP-UpdateStatusFailed",
+												"description": "Update Status to Failed",
+												"type": "SqlServerStoredProcedure",
+												"dependsOn": [
+													{
+														"activity": "Copy_Snowflake_to_SQL_FullLoad_Profit",
+														"dependencyConditions": [
+															"Failed"
+														]
+													}
+												],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"storedProcedureName": "[dbo].[Profit_SYS_UpdateControlSFStatus]",
+													"storedProcedureParameters": {
+														"Comments": {
+															"value": "Failed",
+															"type": "String"
+														},
+														"Status": {
+															"value": "2",
+															"type": "Byte"
+														},
+														"TableName": {
+															"value": {
+																"value": "@{item().dataset_name}",
+																"type": "Expression"
+															},
+															"type": "String"
+														}
+													}
+												},
+												"linkedServiceName": {
+													"referenceName": "LS_APAC_EXPORT_SQL",
+													"type": "LinkedServiceReference",
+													"parameters": {
+														"KeyVaultSecretName": {
+															"value": "@{item().key_vault_secret_name}",
+															"type": "Expression"
+														}
+													}
+												}
+											},
+											{
+												"name": "SP-Profit_Copy_SQL_Failed",
+												"description": "This activity logs failure of Data Extract in khc_audit_log_detail table and failure of pipeline in  khc_audit_log table.",
+												"type": "SqlServerStoredProcedure",
+												"dependsOn": [
+													{
+														"activity": "Copy_Snowflake_to_SQL_FullLoad_Profit",
+														"dependencyConditions": [
+															"Failed"
+														]
+													}
+												],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+													"storedProcedureParameters": {
+														"action_ind": {
+															"value": "U",
+															"type": "String"
+														},
+														"activity_name": {
+															"value": {
+																"value": "COPY_SQL",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"activity_status": {
+															"value": {
+																"value": "Failed",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"application_name": {
+															"value": {
+																"value": "@pipeline().parameters.Application_Name",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"dataset_name": {
+															"value": {
+																"value": "@pipeline().parameters.dataset_group",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"error_code": {
+															"value": {
+																"value": "N.A.",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"error_detail": {
+															"value": {
+																"value": "N.A.",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"pipeline_run_id": {
+															"value": {
+																"value": "@pipeline().RunId",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"pipeline_status": {
+															"value": {
+																"value": "Failed",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"skip_pipeline_audit_update": {
+															"value": {
+																"value": "N",
+																"type": "Expression"
+															},
+															"type": "String"
+														}
+													}
+												},
+												"linkedServiceName": {
+													"referenceName": "LS_SQL",
+													"type": "LinkedServiceReference"
+												}
+											},
+											{
+												"name": "SP-UpdateProfitVersionTable",
+												"description": "Update Status to In Success",
+												"type": "SqlServerStoredProcedure",
+												"dependsOn": [
+													{
+														"activity": "Copy_Snowflake_to_SQL_FullLoad_Profit",
+														"dependencyConditions": [
+															"Succeeded"
+														]
+													}
+												],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"storedProcedureName": "[dbo].[Profit_UpdateProfitVersion]"
+												},
+												"linkedServiceName": {
+													"referenceName": "LS_APAC_EXPORT_SQL",
+													"type": "LinkedServiceReference",
+													"parameters": {
+														"KeyVaultSecretName": {
+															"value": "khcde-kv-sec-anz-profit-out-sql-conn-string",
+															"type": "Expression"
+														}
+													}
+												}
+											}
+										]
+									},
+									{
+										"value": "Profitability_MasterData",
+										"activities": [
+											{
+												"name": "Copy_Snowflake_to_SQL_Full_Load",
+												"description": "Copy snowflake extracted files data from BLOB to SQL server tables",
+												"type": "Copy",
+												"dependsOn": [
+													{
+														"activity": "SP-UpdateStatusInProgress_1",
+														"dependencyConditions": [
+															"Succeeded"
+														]
+													}
+												],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"source": {
+														"type": "DelimitedTextSource",
+														"storeSettings": {
+															"type": "AzureBlobFSReadSettings",
+															"recursive": false,
+															"enablePartitionDiscovery": false
+														},
+														"formatSettings": {
+															"type": "DelimitedTextReadSettings"
+														}
+													},
+													"sink": {
+														"type": "SqlServerSink",
+														"preCopyScript": {
+															"value": "delete from dbo.@{item().base_table_name}",
+															"type": "Expression"
+														}
+													},
+													"enableStaging": false,
+													"enableSkipIncompatibleRow": true,
+													"logSettings": {
+														"enableCopyActivityLog": true,
+														"copyActivityLogSettings": {
+															"logLevel": "Warning",
+															"enableReliableLogging": false
+														},
+														"logLocationSettings": {
+															"linkedServiceName": {
+																"referenceName": "LS_AZ_STRGV2",
+																"type": "LinkedServiceReference"
+															},
+															"path": "khc-logs/khc_master_data/2021-09-21"
+														}
+													}
+												},
+												"inputs": [
+													{
+														"referenceName": "DS_KHCDE_ANZ_PROFIT_BLOB_CSV_FolderFile",
+														"type": "DatasetReference",
+														"parameters": {
+															"container_name": "khc-enterprise-data",
+															"blob_name": {
+																"value": "@{item().extract_blob_location}",
+																"type": "Expression"
+															},
+															"file_name": {
+																"value": "@{item().extract_file_name}",
+																"type": "Expression"
+															},
+															"field_delimiter": ","
+														}
+													}
+												],
+												"outputs": [
+													{
+														"referenceName": "DS_KHCDE_APAC_INDO_DF_SQL_INGEST",
+														"type": "DatasetReference",
+														"parameters": {
+															"key_vault_secret_name": {
+																"value": "@{item().key_vault_secret_name}",
+																"type": "Expression"
+															},
+															"base_table_name": {
+																"value": "@{item().base_table_name}",
+																"type": "Expression"
+															}
+														}
+													}
+												]
+											},
+											{
+												"name": "SP-UpdateStatusInProgress_1",
+												"description": "Update Status to In Progress",
+												"type": "SqlServerStoredProcedure",
+												"dependsOn": [],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"storedProcedureName": "[dbo].[Profit_SYS_UpdateControlSFStatus]",
+													"storedProcedureParameters": {
+														"Comments": {
+															"value": "NA",
+															"type": "String"
+														},
+														"Status": {
+															"value": "1",
+															"type": "Byte"
+														},
+														"TableName": {
+															"value": {
+																"value": "@{item().dataset_name}",
+																"type": "Expression"
+															},
+															"type": "String"
+														}
+													}
+												},
+												"linkedServiceName": {
+													"referenceName": "LS_APAC_EXPORT_SQL",
+													"type": "LinkedServiceReference",
+													"parameters": {
+														"KeyVaultSecretName": {
+															"value": "@{item().key_vault_secret_name}",
+															"type": "Expression"
+														}
+													}
+												}
+											},
+											{
+												"name": "SP-UpdateStatusSuccess_1",
+												"description": "Update Status to In Success",
+												"type": "SqlServerStoredProcedure",
+												"dependsOn": [
+													{
+														"activity": "Copy_Snowflake_to_SQL_Full_Load",
+														"dependencyConditions": [
+															"Succeeded"
+														]
+													}
+												],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"storedProcedureName": "[dbo].[Profit_SYS_UpdateControlSFStatus]",
+													"storedProcedureParameters": {
+														"Comments": {
+															"value": "Success",
+															"type": "String"
+														},
+														"Status": {
+															"value": "0",
+															"type": "Byte"
+														},
+														"TableName": {
+															"value": {
+																"value": "@{item().dataset_name}",
+																"type": "Expression"
+															},
+															"type": "String"
+														}
+													}
+												},
+												"linkedServiceName": {
+													"referenceName": "LS_APAC_EXPORT_SQL",
+													"type": "LinkedServiceReference",
+													"parameters": {
+														"KeyVaultSecretName": {
+															"value": "@{item().key_vault_secret_name}",
+															"type": "Expression"
+														}
+													}
+												}
+											},
+											{
+												"name": "SP-Profit_Copy_SQL_Failed_1",
+												"description": "This activity logs failure of Data Extract in khc_audit_log_detail table and failure of pipeline in  khc_audit_log table.",
+												"type": "SqlServerStoredProcedure",
+												"dependsOn": [
+													{
+														"activity": "Copy_Snowflake_to_SQL_Full_Load",
+														"dependencyConditions": [
+															"Failed"
+														]
+													}
+												],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 0,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+													"storedProcedureParameters": {
+														"action_ind": {
+															"value": "U",
+															"type": "String"
+														},
+														"activity_name": {
+															"value": {
+																"value": "COPY_SQL",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"activity_status": {
+															"value": {
+																"value": "Failed",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"application_name": {
+															"value": {
+																"value": "@pipeline().parameters.Application_Name",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"dataset_name": {
+															"value": {
+																"value": "@pipeline().parameters.dataset_group",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"error_code": {
+															"value": {
+																"value": "N.A.",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"error_detail": {
+															"value": {
+																"value": "N.A.",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"pipeline_run_id": {
+															"value": {
+																"value": "@pipeline().RunId",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"pipeline_status": {
+															"value": {
+																"value": "Failed",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"skip_pipeline_audit_update": {
+															"value": {
+																"value": "N",
+																"type": "Expression"
+															},
+															"type": "String"
+														}
+													}
+												},
+												"linkedServiceName": {
+													"referenceName": "LS_SQL",
+													"type": "LinkedServiceReference"
+												}
+											},
+											{
+												"name": "SP-UpdateStatusFailed_1",
+												"description": "Update Status to Failed",
+												"type": "SqlServerStoredProcedure",
+												"dependsOn": [
+													{
+														"activity": "Copy_Snowflake_to_SQL_Full_Load",
+														"dependencyConditions": [
+															"Failed"
+														]
+													}
+												],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"storedProcedureName": "[dbo].[Profit_SYS_UpdateControlSFStatus]",
+													"storedProcedureParameters": {
+														"Comments": {
+															"value": "Failed",
+															"type": "String"
+														},
+														"Status": {
+															"value": "2",
+															"type": "Byte"
+														},
+														"TableName": {
+															"value": {
+																"value": "@{item().dataset_name}",
+																"type": "Expression"
+															},
+															"type": "String"
+														}
+													}
+												},
+												"linkedServiceName": {
+													"referenceName": "LS_APAC_EXPORT_SQL",
+													"type": "LinkedServiceReference",
+													"parameters": {
+														"KeyVaultSecretName": {
+															"value": "@{item().key_vault_secret_name}",
+															"type": "Expression"
+														}
+													}
+												}
+											}
+										]
+									}
+								],
+								"defaultActivities": [
+									{
+										"name": "Copy_Snowflake_to_SQL_Append",
+										"description": "Copy snowflake extracted files data from BLOB to SQL server tables",
+										"type": "Copy",
+										"dependsOn": [],
+										"policy": {
+											"timeout": "7.00:00:00",
+											"retry": 0,
+											"retryIntervalInSeconds": 30,
+											"secureOutput": false,
+											"secureInput": false
+										},
+										"userProperties": [],
+										"typeProperties": {
+											"source": {
+												"type": "DelimitedTextSource",
+												"storeSettings": {
+													"type": "AzureBlobFSReadSettings",
+													"recursive": false,
+													"wildcardFileName": "*",
+													"enablePartitionDiscovery": false
+												},
+												"formatSettings": {
+													"type": "DelimitedTextReadSettings"
+												}
+											},
+											"sink": {
+												"type": "SqlServerSink"
+											},
+											"enableStaging": false,
+											"enableSkipIncompatibleRow": true,
+											"logSettings": {
+												"enableCopyActivityLog": true,
+												"copyActivityLogSettings": {
+													"logLevel": "Warning",
+													"enableReliableLogging": false
+												},
+												"logLocationSettings": {
+													"linkedServiceName": {
+														"referenceName": "LS_AZ_STRGV2",
+														"type": "LinkedServiceReference"
+													},
+													"path": "khc-logs/khc_master_data/2021-09-21"
+												}
+											}
+										},
+										"inputs": [
+											{
+												"referenceName": "DS_KHCDE_IRI_AU_STORE_BLOB_CSV_FolderFile",
+												"type": "DatasetReference",
+												"parameters": {
+													"container_name": "khc-enterprise-data",
+													"blob_name": {
+														"value": "@{item().extract_blob_location}",
+														"type": "Expression"
+													},
+													"file_name": {
+														"value": "@{item().extract_file_name}",
+														"type": "Expression"
+													},
+													"field_delimiter": ","
+												}
+											}
+										],
+										"outputs": [
+											{
+												"referenceName": "DS_KHCDE_APAC_INDO_DF_SQL_INGEST",
+												"type": "DatasetReference",
+												"parameters": {
+													"key_vault_secret_name": {
+														"value": "@{item().key_vault_secret_name}",
+														"type": "Expression"
+													},
+													"base_table_name": {
+														"value": "@{item().base_table_name}",
+														"type": "Expression"
+													}
+												}
+											}
+										]
+									},
+									{
+										"name": "SP-Copy_SQL_Failed_01",
+										"description": "This activity logs failure of Data Extract in khc_audit_log_detail table and failure of pipeline in  khc_audit_log table.",
+										"type": "SqlServerStoredProcedure",
+										"dependsOn": [
+											{
+												"activity": "Copy_Snowflake_to_SQL_Append",
+												"dependencyConditions": [
+													"Failed"
+												]
+											}
+										],
+										"policy": {
+											"timeout": "7.00:00:00",
+											"retry": 5,
+											"retryIntervalInSeconds": 30,
+											"secureOutput": false,
+											"secureInput": false
+										},
+										"userProperties": [],
+										"typeProperties": {
+											"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+											"storedProcedureParameters": {
+												"action_ind": {
+													"value": "U",
+													"type": "String"
+												},
+												"activity_name": {
+													"value": "Copy_SQL",
+													"type": "String"
+												},
+												"activity_status": {
+													"value": "Failed",
+													"type": "String"
+												},
+												"application_name": {
+													"value": {
+														"value": "@pipeline().parameters.application_name",
+														"type": "Expression"
+													},
+													"type": "String"
+												},
+												"dataset_name": {
+													"value": {
+														"value": "@pipeline().parameters.dataset_group",
+														"type": "Expression"
+													},
+													"type": "String"
+												},
+												"error_code": {
+													"value": {
+														"value": "@activity('Copy_Snowflake_to_SQL_Append').Error.errorCode",
+														"type": "Expression"
+													},
+													"type": "String"
+												},
+												"error_detail": {
+													"value": {
+														"value": "@activity('Copy_Snowflake_to_SQL_Append').Error.message",
+														"type": "Expression"
+													},
+													"type": "String"
+												},
+												"pipeline_run_id": {
+													"value": {
+														"value": "@pipeline().RunId",
+														"type": "Expression"
+													},
+													"type": "String"
+												},
+												"pipeline_status": {
+													"value": "Failed ",
+													"type": "String"
+												},
+												"skip_pipeline_audit_update": {
+													"value": "N",
+													"type": "String"
+												}
+											}
+										},
+										"linkedServiceName": {
+											"referenceName": "LS_SQL",
+											"type": "LinkedServiceReference"
+										}
+									}
+								]
+							}
+						},
+						{
+							"name": "SP-PipelineStart01",
+							"description": "This Activity logs starting of pipeline in khc_audit_log table.",
+							"type": "SqlServerStoredProcedure",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 5,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+								"storedProcedureParameters": {
+									"action_ind": {
+										"value": {
+											"value": "I",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"application_name": {
+										"value": {
+											"value": "@pipeline().parameters.application_name",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"dataset_name": {
+										"value": {
+											"value": "@pipeline().parameters.dataset_group",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_name": {
+										"value": {
+											"value": "@pipeline().Pipeline",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_run_id": {
+										"value": {
+											"value": "@pipeline().RunId",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_status": {
+										"value": {
+											"value": "Master_Pool_Load_Started",
+											"type": "Expression"
+										},
+										"type": "String"
+									}
+								}
+							},
+							"linkedServiceName": {
+								"referenceName": "LS_SQL",
+								"type": "LinkedServiceReference"
+							}
+						}
+					]
+				}
+			},
+			{
+				"name": "WB-SendFailureEmail04",
+				"description": "Send email notification upon failure of event file creation",
+				"type": "WebActivity",
+				"dependsOn": [
+					{
+						"activity": "SP-ActivityFailed04",
+						"dependencyConditions": [
+							"Completed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"url": {
+						"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+						"type": "Expression"
+					},
+					"method": "POST",
+					"body": {
+						"value": "{ \n        \"to_email\": \"@{variables('emailTo')}\", \n        \"subject\": \"Failed Copy to SQL: @{pipeline().parameters.application_name} - @{split(pipeline().parameters.dataset_group,'.')[0]}\", \n        \"body\": \"Dear All,<br><br>The cloud analytics data load process failed for the Application: @{pipeline().parameters.application_name}<br> Please find below the details: <br><br> Pipeline Name: @{pipeline().Pipeline} <br> Pipeline Run ID: @{pipeline().RunId}<br> Pipeline Trigger Name: @{pipeline().TriggerName}<br> Pipeline Trigger Type: @{pipeline().TriggerType}<br> Pipeline Start Time: @{pipeline().TriggerTime}<br> Activity: LU-Metadata<br>Next Step: Please check the DatasetGroup and active_ind<br><br>Parameters:<br>===========<br>Application Name: @{pipeline().parameters.application_name}<br>Dataset Group: @{pipeline().parameters.dataset_group}<br><br>Please take care.<br><br>Regards,<br>Cloud Analytics Team\", \n        \"importance\": \"High\"\n}",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "SP-ActivityFailed04",
+				"description": "This activity logs failure of copy extracted data to SQL server activity in khc_audit_log_detail table and failure of pipeline in  khc_audit_log table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "ForEach_Row",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": "LU-Metadata",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@activity('LU-Metadata').output.value[0].application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@activity('LU-Metadata').output.value[0].dataset_group",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_code": {
+							"value": {
+								"value": "@{activity('LU-Metadata').Error.errorCode}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_detail": {
+							"value": {
+								"value": "@{activity('LU-Metadata').Error.message}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-ActivityFailed01",
+				"description": "This activity logs failure of LU-Metadata activity in khc_audit_log_detail table and failure of pipeline in  khc_audit_log table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "LU-Metadata",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": "LU-Metadata",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@activity('LU-Metadata').output.value[0].application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@activity('LU-Metadata').output.value[0].dataset_group",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_code": {
+							"value": {
+								"value": "@{activity('LU-Metadata').Error.errorCode}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_detail": {
+							"value": {
+								"value": "@{activity('LU-Metadata').Error.message}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-ActivitySuccessful",
+				"description": "This activity logs success of copy to sql activity in khc_audit_log_detail table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "ForEach_Row",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": "U",
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.dataset_group",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@{pipeline().Pipeline}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": "Successfull",
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			}
+		],
+		"parameters": {
+			"application_name": {
+				"type": "string"
+			},
+			"dataset_group": {
+				"type": "string"
+			}
+		},
+		"variables": {
+			"emailTo": {
+				"type": "String",
+				"defaultValue": "8cd7b897.Heinz365.onmicrosoft.com@amer.teams.ms"
+			}
+		},
+		"folder": {
+			"name": "Apac_Master"
+		},
+		"annotations": []
+	},
+	"type": "Microsoft.DataFactory/factories/pipelines"
+}

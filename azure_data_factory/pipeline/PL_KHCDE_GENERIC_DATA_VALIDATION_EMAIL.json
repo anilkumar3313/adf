@@ -1,0 +1,557 @@
+{
+	"name": "PL_KHCDE_GENERIC_DATA_VALIDATION_EMAIL",
+	"properties": {
+		"description": "Send Emails after Data Validation",
+		"activities": [
+			{
+				"name": "LU-Validation-Email-List",
+				"description": "Get the list of emails to be sent with details",
+				"type": "Lookup",
+				"dependsOn": [
+					{
+						"activity": "EP-Data-Validation-SP",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "DelimitedTextSource",
+						"storeSettings": {
+							"type": "AzureBlobFSReadSettings",
+							"recursive": true,
+							"wildcardFileName": "*",
+							"enablePartitionDiscovery": false
+						},
+						"formatSettings": {
+							"type": "DelimitedTextReadSettings"
+						}
+					},
+					"dataset": {
+						"referenceName": "DS_KHCDE_DATA_VALIDATION_EMAIL_LIST",
+						"type": "DatasetReference"
+					},
+					"firstRowOnly": false
+				}
+			},
+			{
+				"name": "FE-Email",
+				"description": "For each entry for email",
+				"type": "ForEach",
+				"dependsOn": [
+					{
+						"activity": "LU-Validation-Email-List",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"items": {
+						"value": "@activity('LU-Validation-Email-List').output.value",
+						"type": "Expression"
+					},
+					"isSequential": true,
+					"activities": [
+						{
+							"name": "WB-SendSuccessEmail_attachment",
+							"description": "It send Successfull Email alert",
+							"type": "WebActivity",
+							"dependsOn": [
+								{
+									"activity": "set_to_mail_variable",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 5,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"url": {
+									"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+									"type": "Expression"
+								},
+								"method": "POST",
+								"body": {
+									"value": "{ \n        \"to_email\": \"@{variables('emailTo')}\", \n        \"subject\": \"@{item().SUBJECT}\", \n        \"body\": \"@{item().BODY}\", \n        \"attachment_path\": \"@{concat( 'khc-enterprise-data/info_tech/data_validations/sfk-extracts/stage/failure_data_extract/', last(split(item().ATTACHMENT_PATH,'/')),'_',variables('CurrentTime'), '.zip')}\",\n        \"importance\": \"@{item().IMPORTANCE}\"\n}",
+									"type": "Expression"
+								}
+							}
+						},
+						{
+							"name": "Copy zip_file_data",
+							"type": "Copy",
+							"dependsOn": [
+								{
+									"activity": "SV-Time",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"source": {
+									"type": "BinarySource",
+									"storeSettings": {
+										"type": "AzureBlobFSReadSettings",
+										"recursive": true,
+										"wildcardFileName": {
+											"value": "*@{last(split(item().ATTACHMENT_PATH,'/'))}*",
+											"type": "Expression"
+										},
+										"deleteFilesAfterCompletion": false
+									},
+									"formatSettings": {
+										"type": "BinaryReadSettings"
+									}
+								},
+								"sink": {
+									"type": "BinarySink",
+									"storeSettings": {
+										"type": "AzureBlobFSWriteSettings"
+									}
+								},
+								"enableStaging": false
+							},
+							"inputs": [
+								{
+									"referenceName": "DS_ADLS_NonCompressed",
+									"type": "DatasetReference",
+									"parameters": {
+										"container_name": {
+											"value": "khc-enterprise-data",
+											"type": "Expression"
+										},
+										"stage_path": {
+											"value": "@replace(replace(item().ATTACHMENT_PATH,concat('/',last(split(item().ATTACHMENT_PATH,'/'))),''),'khc-enterprise-data/','')",
+											"type": "Expression"
+										}
+									}
+								}
+							],
+							"outputs": [
+								{
+									"referenceName": "DS_KHCDE_US_SALES_FolderFile_Zip",
+									"type": "DatasetReference",
+									"parameters": {
+										"container": {
+											"value": "khc-enterprise-data",
+											"type": "Expression"
+										},
+										"path": {
+											"value": "@replace(replace(item().ATTACHMENT_PATH,concat('/',last(split(item().ATTACHMENT_PATH,'/'))),''),'khc-enterprise-data/','')",
+											"type": "Expression"
+										},
+										"filename": {
+											"value": "@concat(last(split(item().ATTACHMENT_PATH,'/')),'_',variables('CurrentTime'), '.zip')",
+											"type": "Expression"
+										}
+									}
+								}
+							]
+						},
+						{
+							"name": "SV-Time",
+							"description": "Set Variable - Date",
+							"type": "SetVariable",
+							"dependsOn": [],
+							"userProperties": [],
+							"typeProperties": {
+								"variableName": "CurrentTime",
+								"value": {
+									"value": "@utcnow('yyyyMMdd_HHmmss')",
+									"type": "Expression"
+								}
+							}
+						},
+						{
+							"name": "set_to_mail_variable",
+							"description": "Set the mail addresses to get pipeline notification",
+							"type": "SetVariable",
+							"dependsOn": [
+								{
+									"activity": "Copy zip_file_data",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"userProperties": [],
+							"typeProperties": {
+								"variableName": "emailTo",
+								"value": {
+									"value": "@if(equals(toLower(pipeline().globalParameters.AZURE_ENV),'prod'),item().EMAIL_ID,'dd895406.Heinz365.onmicrosoft.com@amer.teams.ms')",
+									"type": "Expression"
+								}
+							}
+						}
+					]
+				}
+			},
+			{
+				"name": "CP-ToArchiveDataFiles",
+				"description": "Copies file(s) to archive",
+				"type": "Copy",
+				"dependsOn": [
+					{
+						"activity": "SV-Date",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					},
+					{
+						"activity": "DL-Delete-Unzipped-Data-Files",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "BinarySource",
+						"storeSettings": {
+							"type": "AzureBlobFSReadSettings",
+							"recursive": true,
+							"deleteFilesAfterCompletion": true
+						},
+						"formatSettings": {
+							"type": "BinaryReadSettings"
+						}
+					},
+					"sink": {
+						"type": "BinarySink",
+						"storeSettings": {
+							"type": "AzureBlobFSWriteSettings"
+						}
+					},
+					"enableStaging": false,
+					"validateDataConsistency": false
+				},
+				"inputs": [
+					{
+						"referenceName": "DS_KHCDE_GENERIC_BLOB_BINARY_Folder",
+						"type": "DatasetReference",
+						"parameters": {
+							"container_name": {
+								"value": "khc-enterprise-data",
+								"type": "Expression"
+							},
+							"blob_name": {
+								"value": "info_tech/data_validations/sfk-extracts/stage",
+								"type": "Expression"
+							}
+						}
+					}
+				],
+				"outputs": [
+					{
+						"referenceName": "DS_KHCDE_GENERIC_BLOB_BINARY_Folder",
+						"type": "DatasetReference",
+						"parameters": {
+							"container_name": {
+								"value": "khc-enterprise-data",
+								"type": "Expression"
+							},
+							"blob_name": {
+								"value": "@{concat('info_tech/data_validations/sfk-extracts/archive/', variables('CurrentDate'),'/')}",
+								"type": "Expression"
+							}
+						}
+					}
+				]
+			},
+			{
+				"name": "SV-Date",
+				"description": "Set Variable - Date",
+				"type": "SetVariable",
+				"dependsOn": [
+					{
+						"activity": "SP-PipelineStart",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"variableName": "CurrentDate",
+					"value": {
+						"value": "@utcnow('yyyy-MM-dd')",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "SP-Pipelinesuccesful_Master_Pool",
+				"description": "This Activity logs completion of pipeline in khc_audit_log table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "CP-ToArchiveDataFiles",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": "U",
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.dataset_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@{pipeline().Pipeline}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": "Successful",
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-PipelineStart",
+				"description": "This Activity logs starting of pipeline in khc_audit_log table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": {
+								"value": "I",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.dataset_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@pipeline().Pipeline",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@pipeline().RunId",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Triggered",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "EP-Data-Validation-SP",
+				"description": "Trigger the DBT job to trigger the Stored Proc",
+				"type": "ExecutePipeline",
+				"dependsOn": [
+					{
+						"activity": "SP-PipelineStart",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"pipeline": {
+						"referenceName": "PL_KHCDE_GENERIC_DBTProcessing",
+						"type": "PipelineReference"
+					},
+					"waitOnCompletion": true,
+					"parameters": {
+						"ApplicationName": {
+							"value": "khc_dataops",
+							"type": "Expression"
+						},
+						"DatasetGroup": {
+							"value": "validation_email",
+							"type": "Expression"
+						},
+						"ParameterJson": {
+							"value": "{'conVar': {'param1': {'key': 'AsyncPollingInterval', 'value': '120'}, 'param2': {'key': 'CPUCount', 'value': '1'}, 'param3': {'key': 'RAMSize', 'value': '1'}, 'param4': {'key': 'INGEST_FILENAME_SFK_TABLE', 'value': 'n'}, 'param5': {'key': 'DATAFILE_COLUMN_COUNT', 'value': '9'}, 'param6': {'key': 'DELETE_FILES_FROM_SOURCE', 'value': 'y'}, 'param7': {'key': 'DELETE_FILES_FROM_STAGE', 'value': 'y'}}, 'conEnvVar': {'param1': {'key': 'AZURE_KVNAME', 'value': 'KHCDE-KV-'}, 'param2': {'key': 'KVSEC_SFK_USER_NAME', 'value': 'khcde-kv-sec-snowflake-info-tech-user'}, 'param3': {'key': 'KVSEC_SFK_PW_NAME', 'value': 'khcde-kv-sec-snowflake-info-tech-pw'}, 'param4': {'key': 'KVSEC_APP_USER_NAME', 'value': 'khcde-kv-sec-khcde-user'}, 'param5': {'key': 'KVSEC_APP_PW_NAME', 'value': 'khcde-kv-sec-khcde-sqlpwd'}, 'param6': {'key': 'KVSEC_BLOBKEY_NAME', 'value': 'khcde-kv-sec-storage-account-key'}}}",
+							"type": "Expression"
+						}
+					}
+				}
+			},
+			{
+				"name": "DL-Delete-Unzipped-Data-Files",
+				"description": "Delete the files which are not zipped.",
+				"type": "Delete",
+				"dependsOn": [
+					{
+						"activity": "FE-Email",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"dataset": {
+						"referenceName": "DS_ADLS_NonCompressed",
+						"type": "DatasetReference",
+						"parameters": {
+							"container_name": {
+								"value": "khc-enterprise-data",
+								"type": "Expression"
+							},
+							"stage_path": {
+								"value": "info_tech/data_validations/sfk-extracts/stage/failure_data_extract",
+								"type": "Expression"
+							}
+						}
+					},
+					"enableLogging": false,
+					"storeSettings": {
+						"type": "AzureBlobFSReadSettings",
+						"recursive": true,
+						"wildcardFileName": {
+							"value": "*.csv",
+							"type": "Expression"
+						},
+						"enablePartitionDiscovery": false
+					}
+				}
+			}
+		],
+		"parameters": {
+			"application_name": {
+				"type": "string",
+				"defaultValue": "khc_dataops"
+			},
+			"dataset_name": {
+				"type": "string",
+				"defaultValue": "validation_email"
+			}
+		},
+		"variables": {
+			"CurrentDate": {
+				"type": "String"
+			},
+			"CurrentTime": {
+				"type": "String"
+			},
+			"emailTo": {
+				"type": "String"
+			}
+		},
+		"folder": {
+			"name": "Generic_Frameworks"
+		},
+		"annotations": []
+	}
+}

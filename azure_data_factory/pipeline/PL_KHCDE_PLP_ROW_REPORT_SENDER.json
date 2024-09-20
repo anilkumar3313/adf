@@ -1,0 +1,686 @@
+{
+	"name": "PL_KHCDE_PLP_ROW_REPORT_SENDER",
+	"properties": {
+		"description": "This pipeline is used to send reports to the respective teams based on the dataset_group running",
+		"activities": [
+			{
+				"name": "LU-Metadata",
+				"description": "This activity pulls the details of the snowflake table and blob location from khc_enggextract_metadata table which needs to extracted.",
+				"type": "Lookup",
+				"dependsOn": [
+					{
+						"activity": "set_env_variable",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "SqlServerSource",
+						"sqlReaderQuery": {
+							"value": "select application_name,\ndataset_name,\ndataset_group,\nadf_trigger_name,\nsnowflake_role,\nwarehouse_size,\nsnowflake_database,\nsnowflake_schema,\nbase_table_name,\nsnowflake_stage_name,\nsnowflake_file_format,\ncopy_options,\ncontainer_name,\nextract_blob_location,\nextract_archival_blob_name,\nreplace(replace(replace(replace(replace(extract_file_name,'<yyyy>','*'),'<MM>','*'),'<dd>','*'),'<hh24>','*'),'<ss>','*') as extract_file_name,\nserver_name,\nreplace(sftp_path, '<env>', '@{variables('env')}') as sftp_path,\nsftp_copy_ind,\nactive_ind\nfrom khc_enggextract_metadata where application_name= '@{pipeline().parameters.ApplicationName}' and dataset_group = '@{pipeline().parameters.Dataset_group}' and dataset_name <>'@{pipeline().parameters.Dataset_group}' and active_ind = 'y'",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "DS_KHCDE_GENERIC_MSSQL_Metadata",
+						"type": "DatasetReference"
+					},
+					"firstRowOnly": false
+				}
+			},
+			{
+				"name": "set_env_variable",
+				"description": "Set the variable - ENV from global parameters - AZURE_ENV",
+				"type": "SetVariable",
+				"dependsOn": [
+					{
+						"activity": "SP-PipelineStart",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"variableName": "env",
+					"value": {
+						"value": "@pipeline().globalParameters.AZURE_ENV",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "ForEach-LU",
+				"description": "Loops over the inner activities for each entry of the metadata",
+				"type": "ForEach",
+				"dependsOn": [
+					{
+						"activity": "LU-Metadata",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"items": {
+						"value": "@activity('LU-Metadata').output.value",
+						"type": "Expression"
+					},
+					"isSequential": false,
+					"batchCount": 5,
+					"activities": [
+						{
+							"name": "Lookup_file",
+							"description": "Reads the extract file",
+							"type": "Lookup",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"source": {
+									"type": "DelimitedTextSource",
+									"storeSettings": {
+										"type": "AzureBlobFSReadSettings",
+										"recursive": true,
+										"wildcardFileName": {
+											"value": "@{concat(item().extract_file_name,'*')}",
+											"type": "Expression"
+										},
+										"enablePartitionDiscovery": false
+									},
+									"formatSettings": {
+										"type": "DelimitedTextReadSettings"
+									}
+								},
+								"dataset": {
+									"referenceName": "DS_KHCDE_GENERIC_BLOB_CSV_WITH_HEADER",
+									"type": "DatasetReference",
+									"parameters": {
+										"container_name": "khc-enterprise-data",
+										"blob_name": {
+											"value": "@{item().extract_blob_location}",
+											"type": "Expression"
+										},
+										"field_delimiter": ","
+									}
+								},
+								"firstRowOnly": false
+							}
+						},
+						{
+							"name": "Switch-emailsender",
+							"description": "switch to send the email with or without attachment based on the dataset_group condition and data available in extracts",
+							"type": "Switch",
+							"dependsOn": [
+								{
+									"activity": "Lookup_file",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"userProperties": [],
+							"typeProperties": {
+								"on": {
+									"value": "@concat(pipeline().parameters.Dataset_group,'#',item().dataset_name,'#',if(greater(activity('Lookup_file').output.count,0),'T','F'))",
+									"type": "Expression"
+								},
+								"cases": [
+									{
+										"value": "EMEA_DATA#EMEA_KICKOUT_REPORT#T",
+										"activities": [
+											{
+												"name": "EmailSender_emea_kickout_Withattachment",
+												"description": "This activity sends the success email when the pipeline is successfully completed and share the kickout report on email",
+												"type": "WebActivity",
+												"dependsOn": [],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"url": {
+														"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+														"type": "Expression"
+													},
+													"method": "POST",
+													"body": {
+														"value": "{ \n\"to_email\":\"@{variables('to_emails_data_assurance')}\", \n\"subject\":\"SST EMEA Kickout Report\", \n\"body\": \"Data Load and extract process has been completed Successfully for application @{pipeline().parameters.ApplicationName}. The pipelinename is @{pipeline().Pipeline}. The pipelineid is @{pipeline().RunId}. The Dataset name is @{pipeline().parameters.Dataset_group}.<br> <b>Please find the attached emea region kickout report</b>\",\n\"attachment_path\":\"@{concat('khc-enterprise-data/',item().extract_blob_location,item().extract_file_name)}\",\n\"importance\": \"Low\"\n}\n",
+														"type": "Expression"
+													}
+												}
+											}
+										]
+									},
+									{
+										"value": "EMEA_DATA#EMEA_KICKOUT_REPORT#F",
+										"activities": [
+											{
+												"name": "EmailSender_emea_kickout_Withoutattachment",
+												"description": "This activity sends the success email when the pipeline is successfully completed and no kickouts were found.",
+												"type": "WebActivity",
+												"dependsOn": [],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"url": {
+														"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+														"type": "Expression"
+													},
+													"method": "POST",
+													"body": {
+														"value": "{ \n\"to_email\":\"@{variables('to_emails_data_assurance')}\", \n\"subject\":\"SST EMEA Kickout Report\", \n\"body\": \"Data Load and extract process has been completed Successfully for application @{pipeline().parameters.ApplicationName}. The pipelinename is @{pipeline().Pipeline}. The pipelineid is @{pipeline().RunId}. The Dataset name is @{pipeline().parameters.Dataset_group}.<br> <b>There were no kickouts found.</b>\",\n\"importance\": \"Low\"\n}\n",
+														"type": "Expression"
+													}
+												}
+											}
+										]
+									},
+									{
+										"value": "EMEA_DATA#EMEA_PRODUCT_FINIT_KICKOUT_RECOMMENDATIONS#T",
+										"activities": [
+											{
+												"name": "EmailSender_product_finit_recom_Withattachment",
+												"description": "This activity sends the success email when the pipeline is successfully completed and share the emea product finit kickout recommendations on email",
+												"type": "WebActivity",
+												"dependsOn": [],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"url": {
+														"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+														"type": "Expression"
+													},
+													"method": "POST",
+													"body": {
+														"value": "{ \n\"to_email\":\"@{variables('to_emails_data_assurance')}\", \n\"subject\":\"SST EMEA Product Kickout FinIT Recommendations\", \n\"body\": \"Data Load and extract process has been completed Successfully for application @{pipeline().parameters.ApplicationName}. The pipelinename is @{pipeline().Pipeline}. The pipelineid is @{pipeline().RunId}. The Dataset name is @{pipeline().parameters.Dataset_group}.<br> <b>Please find the attached emea product kickout FinIT recommendations</b>\",\n\"attachment_path\":\"@{concat('khc-enterprise-data/',item().extract_blob_location,item().extract_file_name)}\",\n\"importance\": \"Low\"\n}\n",
+														"type": "Expression"
+													}
+												}
+											}
+										]
+									},
+									{
+										"value": "EMEA_DATA#EMEA_PRODUCT_FINIT_KICKOUT_RECOMMENDATIONS#F",
+										"activities": [
+											{
+												"name": "EmailSender_product_finit_recom_Withoutattachment",
+												"description": "This activity sends the success email when the pipeline is successfully completed and no kickout recommendations were found.",
+												"type": "WebActivity",
+												"dependsOn": [],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"url": {
+														"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+														"type": "Expression"
+													},
+													"method": "POST",
+													"body": {
+														"value": "{ \n\"to_email\":\"@{variables('to_emails_data_assurance')}\", \n\"subject\":\"SST EMEA Product Kickout FinIT Recommendations\", \n\"body\": \"Data Load and extract process has been completed Successfully for application @{pipeline().parameters.ApplicationName}. The pipelinename is @{pipeline().Pipeline}. The pipelineid is @{pipeline().RunId}. The Dataset name is @{pipeline().parameters.Dataset_group}.<br> <b>There were no emea product kickout  recommendations for FinIT.</b>\",\n\"importance\": \"Low\"\n}\n",
+														"type": "Expression"
+													}
+												}
+											}
+										]
+									},
+									{
+										"value": "EMEA_DATA#EMEA_PRODUCT_BUSINESS_KICKOUT_RECOMMENDATIONS#T",
+										"activities": [
+											{
+												"name": "EmailSender_product_business_recom_Withattachment",
+												"description": "This activity sends the success email when the pipeline is successfully completed and share the emea product business kickout recommendations on email",
+												"type": "WebActivity",
+												"dependsOn": [],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"url": {
+														"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+														"type": "Expression"
+													},
+													"method": "POST",
+													"body": {
+														"value": "{ \n\"to_email\":\"@{variables('to_emails_data_assurance')}\", \n\"subject\":\"SST EMEA Product Kickout Business Recommendations\", \n\"body\": \"Hi, Local and International FP&A team members,<br><br>You are receiving this email because you are listed as a master data owner for SST.<br>The attached report shows the master data inconsistencies or missing mappings for the kick-out members (Product and Customer).<br>Those inconsistencies must be solved, and the missing mappings must be added before SST month-end locking (Deadline: Day 2, Week 1).<br><br>You can access the International Finance Automation and Analytics portal to update your mapping report.<br><br>Thanks in advance for your assistance.<br><br>Best Regards,<br>Global Finance IT and Data Assurance Teams<br><br><br>This is an automated message. In case of questions, please contact:<br>For questions on the report – DLKHCFINANCEDATAOPS@kraftheinz.com<br>For changes on the distribution list – DL_KHC_ROW_SST_BUSINESS_LEADS@kraftheinz.com<br>Data Load and extract process has been completed Successfully for application @{pipeline().parameters.ApplicationName}. The pipelinename is @{pipeline().Pipeline}. The pipelineid is @{pipeline().RunId}. The Dataset name is @{pipeline().parameters.Dataset_group}.\",\n\"attachment_path\":\"@{concat('khc-enterprise-data/',item().extract_blob_location,item().extract_file_name)}\",\n\"importance\": \"Low\"\n}\n",
+														"type": "Expression"
+													}
+												}
+											}
+										]
+									},
+									{
+										"value": "EMEA_DATA#EMEA_PRODUCT_BUSINESS_KICKOUT_RECOMMENDATIONS#F",
+										"activities": [
+											{
+												"name": "EmailSender_product_business_recom_Withoutattachment",
+												"description": "This activity sends the success email when the pipeline is successfully completed and no kickout recommendations were found.",
+												"type": "WebActivity",
+												"dependsOn": [],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"url": {
+														"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+														"type": "Expression"
+													},
+													"method": "POST",
+													"body": {
+														"value": "{ \n\"to_email\":\"@{variables('to_emails_data_assurance')}\", \n\"subject\":\"SST EMEA Product Kickout Business Recommendations\", \n\"body\": \"Data Load and extract process has been completed Successfully for application @{pipeline().parameters.ApplicationName}. The pipelinename is @{pipeline().Pipeline}. The pipelineid is @{pipeline().RunId}. The Dataset name is @{pipeline().parameters.Dataset_group}.<br> <b>There were no emea product kickout  recommendations for Business.</b>\",\n\"importance\": \"Low\"\n}\n",
+														"type": "Expression"
+													}
+												}
+											}
+										]
+									},
+									{
+										"value": "EMEA_DATA#EMEA_CUSTOMER_FINIT_KICKOUT_RECOMMENDATIONS#T",
+										"activities": [
+											{
+												"name": "EmailSender_customer_finit_recom_Withattachment",
+												"description": "This activity sends the success email when the pipeline is successfully completed and share the emea customer finit kickout recommendations on email",
+												"type": "WebActivity",
+												"dependsOn": [],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"url": {
+														"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+														"type": "Expression"
+													},
+													"method": "POST",
+													"body": {
+														"value": "{ \n\"to_email\":\"@{variables('to_emails_data_assurance')}\", \n\"subject\":\"SST EMEA Customer Kickout FinIT Recommendations\", \n\"body\": \"Data Load and extract process has been completed Successfully for application @{pipeline().parameters.ApplicationName}. The pipelinename is @{pipeline().Pipeline}. The pipelineid is @{pipeline().RunId}. The Dataset name is @{pipeline().parameters.Dataset_group}.<br> <b>Please find the attached emea customer kickout FinIT recommendations</b>\",\n\"attachment_path\":\"@{concat('khc-enterprise-data/',item().extract_blob_location,item().extract_file_name)}\",\n\"importance\": \"Low\"\n}\n",
+														"type": "Expression"
+													}
+												}
+											}
+										]
+									},
+									{
+										"value": "EMEA_DATA#EMEA_CUSTOMER_FINIT_KICKOUT_RECOMMENDATIONS#F",
+										"activities": [
+											{
+												"name": "EmailSender_customer_finit_recom_Withoutattachment",
+												"description": "This activity sends the success email when the pipeline is successfully completed and no kickout recommendations were found.",
+												"type": "WebActivity",
+												"dependsOn": [],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"url": {
+														"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+														"type": "Expression"
+													},
+													"method": "POST",
+													"body": {
+														"value": "{ \n\"to_email\":\"@{variables('to_emails_data_assurance')}\", \n\"subject\":\"SST EMEA Customer Kickout FinIT Recommendations\", \n\"body\": \"Data Load and extract process has been completed Successfully for application @{pipeline().parameters.ApplicationName}. The pipelinename is @{pipeline().Pipeline}. The pipelineid is @{pipeline().RunId}. The Dataset name is @{pipeline().parameters.Dataset_group}.<br> <b>There were no emea customer kickout  recommendations for FinIT.</b>\",\n\"importance\": \"Low\"\n}\n",
+														"type": "Expression"
+													}
+												}
+											}
+										]
+									},
+									{
+										"value": "EMEA_DATA#EMEA_CUSTOMER_BUSINESS_KICKOUT_RECOMMENDATIONS#T",
+										"activities": [
+											{
+												"name": "EmailSender_customer_business_recom_Withattachment",
+												"description": "This activity sends the success email when the pipeline is successfully completed and share the emea customer business kickout recommendations on email",
+												"type": "WebActivity",
+												"dependsOn": [],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"url": {
+														"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+														"type": "Expression"
+													},
+													"method": "POST",
+													"body": {
+														"value": "{ \n\"to_email\":\"@{variables('to_emails_data_assurance')}\", \n\"subject\":\"SST EMEA Customer Kickout Business Recommendations\", \n\"body\": \"Data Load and extract process has been completed Successfully for application @{pipeline().parameters.ApplicationName}. The pipelinename is @{pipeline().Pipeline}. The pipelineid is @{pipeline().RunId}. The Dataset name is @{pipeline().parameters.Dataset_group}.<br> <b>Please find the attached emea customer kickout Business recommendations</b>\",\n\"attachment_path\":\"@{concat('khc-enterprise-data/',item().extract_blob_location,item().extract_file_name)}\",\n\"importance\": \"Low\"\n}\n",
+														"type": "Expression"
+													}
+												}
+											}
+										]
+									},
+									{
+										"value": "EMEA_DATA#EMEA_CUSTOMER_BUSINESS_KICKOUT_RECOMMENDATIONS#F",
+										"activities": [
+											{
+												"name": "EmailSender_customer_business_recom_Withoutattachment",
+												"description": "This activity sends the success email when the pipeline is successfully completed and no kickout recommendations were found.",
+												"type": "WebActivity",
+												"dependsOn": [],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"url": {
+														"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+														"type": "Expression"
+													},
+													"method": "POST",
+													"body": {
+														"value": "{ \n\"to_email\":\"@{variables('to_emails_data_assurance')}\", \n\"subject\":\"SST EMEA Customer Kickout Business Recommendations\", \n\"body\": \"Data Load and extract process has been completed Successfully for application @{pipeline().parameters.ApplicationName}. The pipelinename is @{pipeline().Pipeline}. The pipelineid is @{pipeline().RunId}. The Dataset name is @{pipeline().parameters.Dataset_group}.<br> <b>There were no emea customer kickout  recommendations for Business.</b>\",\n\"importance\": \"Low\"\n}\n",
+														"type": "Expression"
+													}
+												}
+											}
+										]
+									}
+								]
+							}
+						}
+					]
+				}
+			},
+			{
+				"name": "SP-PipelineStart",
+				"description": "This Activity logs starting of pipeline in khc_audit_log table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": {
+								"value": "I",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.ApplicationName",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@{pipeline().parameters.Dataset_Group}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@pipeline().Pipeline",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@pipeline().RunId",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Processing",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-PipelineSuccess",
+				"description": "This activity logs pipeline success in audit log",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "ForEach-LU",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": {
+								"value": "U",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@{pipeline().parameters.ApplicationName}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@{pipeline().parameters.Dataset_group}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@{pipeline().Pipeline}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Successful",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-PipelineFailed",
+				"description": "This activity logs pipeline failure in audit log",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "ForEach-LU",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": {
+								"value": "U",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@{pipeline().parameters.ApplicationName}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@{pipeline().parameters.Dataset_group}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@{pipeline().Pipeline}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			}
+		],
+		"parameters": {
+			"ApplicationName": {
+				"type": "string"
+			},
+			"Dataset_group": {
+				"type": "string"
+			}
+		},
+		"variables": {
+			"env": {
+				"type": "String"
+			},
+			"to_emails_data_assurance": {
+				"type": "String",
+				"defaultValue": "DLKHCFINANCEDATAOPS@kraftheinz.com"
+			}
+		},
+		"folder": {
+			"name": "Product_Line_Profitability/sub-pipeline"
+		},
+		"annotations": []
+	}
+}

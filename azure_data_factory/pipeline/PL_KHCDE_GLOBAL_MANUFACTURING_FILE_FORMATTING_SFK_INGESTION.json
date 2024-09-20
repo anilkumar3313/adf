@@ -1,0 +1,879 @@
+{
+	"name": "PL_KHCDE_GLOBAL_MANUFACTURING_FILE_FORMATTING_SFK_INGESTION",
+	"properties": {
+		"activities": [
+			{
+				"name": "Lookup_SFK_METADATA",
+				"type": "Lookup",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "SqlServerSource",
+						"sqlReaderQuery": {
+							"value": "SELECT * FROM [dbo].[khc_orchestration_metadata] where [parent_id] like 'global_manufacturing_%' and [data_level]=1 and [dataset_name]='@{pipeline().parameters.dataset_name}'",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "DS_KHCDE_GENERIC_MSSQL_Metadata",
+						"type": "DatasetReference"
+					}
+				}
+			},
+			{
+				"name": "SW-FileFormat",
+				"type": "Switch",
+				"dependsOn": [
+					{
+						"activity": "Lookup_SFK_METADATA",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"on": {
+						"value": "@substring(activity('Lookup_SFK_METADATA').output.firstRow.pattern_type,0,3)",
+						"type": "Expression"
+					},
+					"cases": [
+						{
+							"value": "xls",
+							"activities": [
+								{
+									"name": "GM_GetExcelWithWildcard",
+									"description": "This activity is to retrieve the excel sheet name with wildcard value.",
+									"type": "GetMetadata",
+									"dependsOn": [
+										{
+											"activity": "EP-DeleteBlobIfExist",
+											"dependencyConditions": [
+												"Succeeded"
+											]
+										}
+									],
+									"policy": {
+										"timeout": "7.00:00:00",
+										"retry": 0,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"dataset": {
+											"referenceName": "DS_KHCDE_ADLS_Blob",
+											"type": "DatasetReference",
+											"parameters": {
+												"container": {
+													"value": "@activity('Lookup_SFK_METADATA').output.firstRow.container_name",
+													"type": "Expression"
+												},
+												"stage_path": {
+													"value": "@activity('Lookup_SFK_METADATA').output.firstRow.stage_blob_name",
+													"type": "Expression"
+												}
+											}
+										},
+										"fieldList": [
+											"exists",
+											"itemName",
+											"childItems"
+										],
+										"storeSettings": {
+											"type": "AzureBlobFSReadSettings",
+											"recursive": true
+										},
+										"formatSettings": {
+											"type": "BinaryReadSettings"
+										}
+									}
+								},
+								{
+									"name": "Get_Excel_With_Exact_Name",
+									"description": "This activity filters out only the exact matching name of the trigger file.",
+									"type": "Filter",
+									"dependsOn": [
+										{
+											"activity": "GM_GetExcelWithWildcard",
+											"dependencyConditions": [
+												"Succeeded"
+											]
+										}
+									],
+									"userProperties": [],
+									"typeProperties": {
+										"items": {
+											"value": "@activity('GM_GetExcelWithWildcard').output.childItems",
+											"type": "Expression"
+										},
+										"condition": {
+											"value": "@contains(item().name,replace(activity('Lookup_SFK_METADATA').output.firstRow.filename,'*',''))",
+											"type": "Expression"
+										}
+									}
+								},
+								{
+									"name": "Get_Excel_With_Wildcard_Audit_Detail_Success",
+									"description": "This activity logs success of sfk ingestion file a activity in khc_audit_log_detail table and success of pipeline in  khc_audit_log table.",
+									"type": "SqlServerStoredProcedure",
+									"dependsOn": [
+										{
+											"activity": "GM_GetExcelWithWildcard",
+											"dependencyConditions": [
+												"Succeeded"
+											]
+										}
+									],
+									"policy": {
+										"timeout": "7.00:00:00",
+										"retry": 0,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+										"storedProcedureParameters": {
+											"activity_name": {
+												"value": "Get_Excel_With_Wildcard",
+												"type": "String"
+											},
+											"activity_status": {
+												"value": "Successful",
+												"type": "String"
+											},
+											"application_name": {
+												"value": {
+													"value": "@activity('LU-Metadata-Level2').output.firstRow.application_name",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"dataset_name": {
+												"value": {
+													"value": "@activity('LU-Metadata-Level2').output.firstRow.dataset_name",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"pipeline_run_id": {
+												"value": {
+													"value": "@pipeline().RunId",
+													"type": "Expression"
+												},
+												"type": "String"
+											}
+										}
+									},
+									"linkedServiceName": {
+										"referenceName": "LS_SQL",
+										"type": "LinkedServiceReference"
+									}
+								},
+								{
+									"name": "Get_Excel_With_Wildcard_Audit_Detail_Failure",
+									"description": "This activity logs failure of Get_Excel_With_Wildcard activity in khc_audit_log_detail table and failure of pipeline in  khc_audit_log table.",
+									"type": "SqlServerStoredProcedure",
+									"dependsOn": [
+										{
+											"activity": "GM_GetExcelWithWildcard",
+											"dependencyConditions": [
+												"Failed"
+											]
+										}
+									],
+									"policy": {
+										"timeout": "7.00:00:00",
+										"retry": 0,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+										"storedProcedureParameters": {
+											"action_ind": {
+												"value": "U",
+												"type": "String"
+											},
+											"activity_name": {
+												"value": "Get_excel_with_wildcard",
+												"type": "String"
+											},
+											"activity_status": {
+												"value": "Failed",
+												"type": "String"
+											},
+											"application_name": {
+												"value": {
+													"value": "@activity('LU-Metadata-Level2').output.firstRow.application_name",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"dataset_name": {
+												"value": {
+													"value": "@activity('LU-Metadata-Level2').output.firstRow.dataset_name",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"error_code": {
+												"value": {
+													"value": "@activity('GM_GetExcelWithWildcard').Error.errorCode",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"error_detail": {
+												"value": {
+													"value": "@activity('GM_GetExcelWithWildcard').Error.message",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"pipeline_run_id": {
+												"value": {
+													"value": "@pipeline().RunId",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"pipeline_status": {
+												"value": "Failed",
+												"type": "String"
+											},
+											"skip_pipeline_audit_update": {
+												"value": "N",
+												"type": "String"
+											}
+										}
+									},
+									"linkedServiceName": {
+										"referenceName": "LS_SQL",
+										"type": "LinkedServiceReference"
+									}
+								},
+								{
+									"name": "Get_Excel_With_Exact_Name_Audit_Detail_Success",
+									"description": "This activity logs success of Get_Excel_With_Exact_Name activity in khc_audit_log_detail table and success of pipeline in  khc_audit_log table.",
+									"type": "SqlServerStoredProcedure",
+									"dependsOn": [
+										{
+											"activity": "Get_Excel_With_Exact_Name",
+											"dependencyConditions": [
+												"Succeeded"
+											]
+										}
+									],
+									"policy": {
+										"timeout": "7.00:00:00",
+										"retry": 0,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+										"storedProcedureParameters": {
+											"activity_name": {
+												"value": "Get_Excel_With_Exact_Name",
+												"type": "String"
+											},
+											"activity_status": {
+												"value": "Successful",
+												"type": "String"
+											},
+											"application_name": {
+												"value": {
+													"value": "@activity('LU-Metadata-Level2').output.firstRow.application_name",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"dataset_name": {
+												"value": {
+													"value": "@activity('LU-Metadata-Level2').output.firstRow.dataset_name",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"pipeline_run_id": {
+												"value": {
+													"value": "@pipeline().RunId",
+													"type": "Expression"
+												},
+												"type": "String"
+											}
+										}
+									},
+									"linkedServiceName": {
+										"referenceName": "LS_SQL",
+										"type": "LinkedServiceReference"
+									}
+								},
+								{
+									"name": "Get_Excel_With_Exact_Name_Audit_Detail_Failure",
+									"description": "This activity logs failure of Get_Excel_With_Exact_Name_Audit_Detail_Failure activity in khc_audit_log_detail table and failure of pipeline in  khc_audit_log table.",
+									"type": "SqlServerStoredProcedure",
+									"dependsOn": [
+										{
+											"activity": "Get_Excel_With_Exact_Name",
+											"dependencyConditions": [
+												"Failed"
+											]
+										}
+									],
+									"policy": {
+										"timeout": "7.00:00:00",
+										"retry": 0,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+										"storedProcedureParameters": {
+											"action_ind": {
+												"value": "U",
+												"type": "String"
+											},
+											"activity_name": {
+												"value": "Get_Excel_With_Exact_Name",
+												"type": "String"
+											},
+											"activity_status": {
+												"value": "Failed",
+												"type": "String"
+											},
+											"application_name": {
+												"value": {
+													"value": "@activity('LU-Metadata-Level2').output.firstRow.application_name",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"dataset_name": {
+												"value": {
+													"value": "@activity('LU-Metadata-Level2').output.firstRow.dataset_name",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"error_code": {
+												"value": {
+													"value": "@activity('Get_Excel_With_Exact_Name').Error.errorCode",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"error_detail": {
+												"value": {
+													"value": "@activity('Get_Excel_With_Exact_Name').Error.errorCode",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"pipeline_run_id": {
+												"value": {
+													"value": "@pipeline().RunId",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"pipeline_status": {
+												"value": "Failed",
+												"type": "String"
+											},
+											"skip_pipeline_audit_update": {
+												"value": "N",
+												"type": "String"
+											}
+										}
+									},
+									"linkedServiceName": {
+										"referenceName": "LS_SQL",
+										"type": "LinkedServiceReference"
+									}
+								},
+								{
+									"name": "Split_Excel_To_CSV_Audit_Detail_Success",
+									"description": "This activity logs success of Split_Excel_To_CSV activity in khc_audit_log_detail table and success of pipeline in  khc_audit_log table.",
+									"type": "SqlServerStoredProcedure",
+									"dependsOn": [
+										{
+											"activity": "EP-File_Conversion",
+											"dependencyConditions": [
+												"Succeeded"
+											]
+										}
+									],
+									"policy": {
+										"timeout": "7.00:00:00",
+										"retry": 0,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+										"storedProcedureParameters": {
+											"activity_name": {
+												"value": "Split_Excel_To_CSV",
+												"type": "String"
+											},
+											"activity_status": {
+												"value": "Successful",
+												"type": "String"
+											},
+											"application_name": {
+												"value": {
+													"value": "@activity('LU-Metadata-Level2').output.firstRow.application_name",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"dataset_name": {
+												"value": {
+													"value": "@activity('LU-Metadata-Level2').output.firstRow.dataset_name ",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"pipeline_run_id": {
+												"value": {
+													"value": "@pipeline().RunId",
+													"type": "Expression"
+												},
+												"type": "String"
+											}
+										}
+									},
+									"linkedServiceName": {
+										"referenceName": "LS_SQL",
+										"type": "LinkedServiceReference"
+									}
+								},
+								{
+									"name": "Split_Excel_To_CSV_Audit_Detail_Failure",
+									"description": "This activity logs failure of Split_Excel_To_CSV activity in khc_audit_log_detail table and failure of pipeline in  khc_audit_log table.",
+									"type": "SqlServerStoredProcedure",
+									"dependsOn": [
+										{
+											"activity": "EP-File_Conversion",
+											"dependencyConditions": [
+												"Failed"
+											]
+										}
+									],
+									"policy": {
+										"timeout": "7.00:00:00",
+										"retry": 0,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+										"storedProcedureParameters": {
+											"action_ind": {
+												"value": "U",
+												"type": "String"
+											},
+											"activity_name": {
+												"value": "Split_Excel_To_CSV",
+												"type": "String"
+											},
+											"activity_status": {
+												"value": "Failed",
+												"type": "String"
+											},
+											"application_name": {
+												"value": {
+													"value": "@activity('LU-Metadata-Level2').output.firstRow.application_name",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"dataset_name": {
+												"value": {
+													"value": "@activity('LU-Metadata-Level2').output.firstRow.dataset_name ",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"error_code": {
+												"value": {
+													"value": "@activity('EP-File_Conversion').Error.errorCode",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"error_detail": {
+												"value": {
+													"value": "@activity('EP-File_Conversion').Error.message",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"pipeline_run_id": {
+												"value": {
+													"value": "@pipeline().RunId",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"pipeline_status": {
+												"value": "Failed",
+												"type": "String"
+											},
+											"skip_pipeline_audit_update": {
+												"value": "N",
+												"type": "String"
+											}
+										}
+									},
+									"linkedServiceName": {
+										"referenceName": "LS_SQL",
+										"type": "LinkedServiceReference"
+									}
+								},
+								{
+									"name": "LU-Metadata-Level2",
+									"type": "Lookup",
+									"dependsOn": [],
+									"policy": {
+										"timeout": "7.00:00:00",
+										"retry": 0,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"source": {
+											"type": "SqlServerSource",
+											"sqlReaderQuery": {
+												"value": "SELECT * FROM [dbo].[khc_orchestration_metadata] where [parent_id] like 'global_manufacturing_%' and [data_level]=2 and [dataset_name]='@{pipeline().parameters.dataset_name}'",
+												"type": "Expression"
+											},
+											"queryTimeout": "02:00:00",
+											"partitionOption": "None"
+										},
+										"dataset": {
+											"referenceName": "DS_KHCDE_GENERIC_MSSQL_Metadata",
+											"type": "DatasetReference"
+										},
+										"firstRowOnly": true
+									}
+								},
+								{
+									"name": "EP-SFK_Ingestion",
+									"type": "ExecutePipeline",
+									"dependsOn": [
+										{
+											"activity": "EP-File_Conversion",
+											"dependencyConditions": [
+												"Succeeded"
+											]
+										}
+									],
+									"userProperties": [],
+									"typeProperties": {
+										"pipeline": {
+											"referenceName": "PL_KHCDE_GENERIC_SnowflakeIngestion",
+											"type": "PipelineReference"
+										},
+										"waitOnCompletion": true,
+										"parameters": {
+											"ApplicationName": {
+												"value": "@activity('LU-Metadata-Level2').output.firstRow.application_name",
+												"type": "Expression"
+											},
+											"DatasetGroup": {
+												"value": "@activity('LU-Metadata-Level2').output.firstRow.dataset_group",
+												"type": "Expression"
+											},
+											"ParameterJson": {
+												"value": "@activity('LU-Metadata-Level2').output.firstRow.parameter_json",
+												"type": "Expression"
+											}
+										}
+									}
+								},
+								{
+									"name": "SP_DeleteStage_Audit_Detail_Success",
+									"description": "This activity logs success of sfk ingestion file a activity in khc_audit_log_detail table and success of pipeline in  khc_audit_log table.",
+									"type": "SqlServerStoredProcedure",
+									"dependsOn": [
+										{
+											"activity": "EP-DeleteBlobIfExist",
+											"dependencyConditions": [
+												"Succeeded"
+											]
+										}
+									],
+									"policy": {
+										"timeout": "7.00:00:00",
+										"retry": 0,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+										"storedProcedureParameters": {
+											"activity_name": {
+												"value": "Get_Excel_With_Wildcard",
+												"type": "String"
+											},
+											"activity_status": {
+												"value": "Successful",
+												"type": "String"
+											},
+											"application_name": {
+												"value": {
+													"value": "@activity('LU-Metadata-Level2').output.firstRow.application_name",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"dataset_name": {
+												"value": {
+													"value": "@activity('LU-Metadata-Level2').output.firstRow.dataset_name",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"pipeline_run_id": {
+												"value": {
+													"value": "@pipeline().RunId",
+													"type": "Expression"
+												},
+												"type": "String"
+											}
+										}
+									},
+									"linkedServiceName": {
+										"referenceName": "LS_SQL",
+										"type": "LinkedServiceReference"
+									}
+								},
+								{
+									"name": "SP_DeleteStage_Audit_Detail_Failure",
+									"description": "This activity logs failure of Get_Excel_With_Wildcard activity in khc_audit_log_detail table and failure of pipeline in  khc_audit_log table.",
+									"type": "SqlServerStoredProcedure",
+									"dependsOn": [
+										{
+											"activity": "EP-DeleteBlobIfExist",
+											"dependencyConditions": [
+												"Failed"
+											]
+										}
+									],
+									"policy": {
+										"timeout": "7.00:00:00",
+										"retry": 0,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+										"storedProcedureParameters": {
+											"action_ind": {
+												"value": "U",
+												"type": "String"
+											},
+											"activity_name": {
+												"value": "Get_excel_with_wildcard",
+												"type": "String"
+											},
+											"activity_status": {
+												"value": "Failed",
+												"type": "String"
+											},
+											"application_name": {
+												"value": {
+													"value": "@activity('LU-Metadata-Level2').output.firstRow.application_name",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"dataset_name": {
+												"value": {
+													"value": "@activity('LU-Metadata-Level2').output.firstRow.dataset_name",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"error_code": {
+												"value": {
+													"value": "@activity('EP-DeleteBlobIfExist').Error.errorCode",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"error_detail": {
+												"value": {
+													"value": "@activity('EP-DeleteBlobIfExist').Error.errorCode",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"pipeline_run_id": {
+												"value": {
+													"value": "@pipeline().RunId",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"pipeline_status": {
+												"value": "Failed",
+												"type": "String"
+											},
+											"skip_pipeline_audit_update": {
+												"value": "N",
+												"type": "String"
+											}
+										}
+									},
+									"linkedServiceName": {
+										"referenceName": "LS_SQL",
+										"type": "LinkedServiceReference"
+									}
+								},
+								{
+									"name": "EP-File_Conversion",
+									"type": "ExecutePipeline",
+									"dependsOn": [
+										{
+											"activity": "Get_Excel_With_Exact_Name",
+											"dependencyConditions": [
+												"Succeeded"
+											]
+										}
+									],
+									"userProperties": [],
+									"typeProperties": {
+										"pipeline": {
+											"referenceName": "PL_KHCDE_GLOBAL_MANUFACTURING_FILEFORMAT_ITER",
+											"type": "PipelineReference"
+										},
+										"waitOnCompletion": true,
+										"parameters": {
+											"List_Of_Files": {
+												"value": "@activity('Get_Excel_With_Exact_Name').output.value",
+												"type": "Expression"
+											},
+											"container_name": {
+												"value": "@activity('LU-Metadata-Level2').output.firstRow.container_name",
+												"type": "Expression"
+											},
+											"retrieval_blob_name": {
+												"value": "@activity('Lookup_SFK_METADATA').output.firstRow.stage_blob_name",
+												"type": "Expression"
+											},
+											"staging_blob_name": {
+												"value": "@activity('LU-Metadata-Level2').output.firstRow.stage_blob_name",
+												"type": "Expression"
+											}
+										}
+									}
+								},
+								{
+									"name": "EP-DeleteBlobIfExist",
+									"type": "ExecutePipeline",
+									"dependsOn": [
+										{
+											"activity": "LU-Metadata-Level2",
+											"dependencyConditions": [
+												"Succeeded"
+											]
+										}
+									],
+									"userProperties": [],
+									"typeProperties": {
+										"pipeline": {
+											"referenceName": "PL_KHCDE_GLOBAL_MANUFACTURING_DELETE_STAGE_BLOB",
+											"type": "PipelineReference"
+										},
+										"waitOnCompletion": true,
+										"parameters": {
+											"container": {
+												"value": "@activity('LU-Metadata-Level2').output.firstRow.container_name",
+												"type": "Expression"
+											},
+											"stage_blob_name": {
+												"value": "@activity('LU-Metadata-Level2').output.firstRow.stage_blob_name",
+												"type": "Expression"
+											}
+										}
+									}
+								}
+							]
+						}
+					],
+					"defaultActivities": [
+						{
+							"name": "EP-SFK_ingestion_default",
+							"type": "ExecutePipeline",
+							"dependsOn": [],
+							"userProperties": [],
+							"typeProperties": {
+								"pipeline": {
+									"referenceName": "PL_KHCDE_GENERIC_SnowflakeIngestion",
+									"type": "PipelineReference"
+								},
+								"waitOnCompletion": true,
+								"parameters": {
+									"ApplicationName": {
+										"value": "@activity('Lookup_SFK_METADATA').output.firstRow.application_name",
+										"type": "Expression"
+									},
+									"DatasetGroup": {
+										"value": "@activity('Lookup_SFK_METADATA').output.firstRow.dataset_group",
+										"type": "Expression"
+									},
+									"ParameterJson": {
+										"value": "@activity('Lookup_SFK_METADATA').output.firstRow.parameter_json",
+										"type": "Expression"
+									}
+								}
+							}
+						}
+					]
+				}
+			}
+		],
+		"parameters": {
+			"dataset_name": {
+				"type": "string"
+			}
+		},
+		"folder": {
+			"name": "Global_Manufacturing"
+		},
+		"annotations": []
+	}
+}

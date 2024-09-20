@@ -1,0 +1,919 @@
+{
+	"name": "PL_KHCDE_IRI_NZ_DEMANTRA_INGESTION_STATUSCHECK",
+	"properties": {
+		"description": "PL_KHCDE_IRI_NZ_DEMANTRA_INGESTION_STATUSCHECK",
+		"activities": [
+			{
+				"name": "Lookup_SP_status",
+				"description": "Lookup_SP_status",
+				"type": "Lookup",
+				"dependsOn": [
+					{
+						"activity": "SP-PipelineStart_Extract",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "OracleSource",
+						"oracleReaderQuery": {
+							"value": "select sum(rc) as record_cnt from\n(select count(*) as rc from hz.T_SRC_HZ_SCAN_STATE where substr(product_code,-2) in (10,11)\nunion\nselect count(*) as rc from hz.T_SRC_HZ_SCAN_NAT where substr(product_code,-2) in (10,11)\n)",
+							"type": "Expression"
+						},
+						"partitionOption": "None",
+						"queryTimeout": "02:00:00"
+					},
+					"dataset": {
+						"referenceName": "DS_KHCDE_DEMANTRA_ORACLE_DEST",
+						"type": "DatasetReference",
+						"parameters": {
+							"TableName": "_noset"
+						}
+					},
+					"firstRowOnly": false
+				}
+			},
+			{
+				"name": "If Condition check status",
+				"description": "If Condition check status",
+				"type": "IfCondition",
+				"dependsOn": [
+					{
+						"activity": "Lookup_SP_status",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"expression": {
+						"value": "@equals(int(activity('Lookup_SP_status').output.value[0].record_cnt ), 0)\n",
+						"type": "Expression"
+					},
+					"ifFalseActivities": [
+						{
+							"name": "Error_Notification",
+							"description": "Error_Notification",
+							"type": "WebActivity",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 5,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"url": {
+									"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+									"type": "Expression"
+								},
+								"method": "POST",
+								"headers": {
+									"Content-Type": "application/json"
+								},
+								"body": {
+									"value": "{\n\"subject\": \"Azure Data Factory- IRI NZ Scan data load to Demantra – Failed\",\n\"body\": \"Hi, <br> Kindly note that insertion to T_SRC_HZ_SCAN_STATE & T_SRC_HZ_SCAN_NAT tables failed because scan data for IRI NZ exists in T_SRC_HZ_SCAN_STATE or T_SRC_HZ_SCAN_NAT. <br><br>Thanks & Regards, <br>KHC APAC DE Team\",\n\"to_email\": \"@{if(equals(pipeline().globalParameters.AZURE_ENV,'PROD'),'Demantra_APAC_IT@kraftheinz.com;HASSQLSerAdm@kraftheinz.com;ANZ_AnalyticsSupport@kraftheinz.com','ANZ_AnalyticsSupport@kraftheinz.com')}\",\n\"cc_email\": \"@{if(equals(pipeline().globalParameters.AZURE_ENV,'PROD'),'DL_KHC_ANJ_DESupport@kraftheinz.com','DL_KHC_ANJ_DESupport@kraftheinz.com')}\",\n\"importance\": \"High\"\n}",
+									"type": "Expression"
+								}
+							}
+						}
+					],
+					"ifTrueActivities": [
+						{
+							"name": "Execute Pipeline_Demantra",
+							"description": "Execute Pipeline_Demantra",
+							"type": "ExecutePipeline",
+							"dependsOn": [
+								{
+									"activity": "SP-PipelineStart_Extract_copy1",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"userProperties": [],
+							"typeProperties": {
+								"pipeline": {
+									"referenceName": "PL_KHCDE_IRI_NZ_DEMANTRA_ORACLE_INGENSTION",
+									"type": "PipelineReference"
+								},
+								"waitOnCompletion": true
+							}
+						},
+						{
+							"name": "Success_Notification",
+							"description": "Success_Notification",
+							"type": "WebActivity",
+							"dependsOn": [
+								{
+									"activity": "Execute Pipeline_Demantra",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 5,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"url": {
+									"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+									"type": "Expression"
+								},
+								"method": "POST",
+								"headers": {
+									"Content-Type": "application/json"
+								},
+								"body": {
+									"value": "{\n\"subject\": \"Azure Data Factory- IRI ANZ Scan data load to Demantra – Successful\",\n\"body\": \"Hi, <br>IRI ANZ - Scan data load to Demantra - Successful <br><br>Thanks & Regards, <br>KHC APAC DE Team\",\n\"to_email\": \"@{if(equals(pipeline().globalParameters.AZURE_ENV,'PROD'),'Demantra_APAC_IT@kraftheinz.com;ANZ_AnalyticsSupport@kraftheinz.com','ANZ_AnalyticsSupport@kraftheinz.com')}\",\n\"cc_email\": \"@{if(equals(pipeline().globalParameters.AZURE_ENV,'PROD'),'DL_KHC_ANJ_DESupport@kraftheinz.com','DL_KHC_ANJ_DESupport@kraftheinz.com')}\",\n\"importance\": \"High\"\n}",
+									"type": "Expression"
+								}
+							}
+						},
+						{
+							"name": "SP-PipelineSuccessful_Master_copy1",
+							"description": "SP-PipelineSuccessful_Master",
+							"type": "SqlServerStoredProcedure",
+							"dependsOn": [
+								{
+									"activity": "Execute Pipeline_Demantra",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 5,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+								"storedProcedureParameters": {
+									"action_ind": {
+										"value": {
+											"value": "U",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"application_name": {
+										"value": {
+											"value": "iri_international",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"dataset_name": {
+										"value": {
+											"value": "demantra_extraction",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_name": {
+										"value": {
+											"value": "@{pipeline().Pipeline}",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_run_id": {
+										"value": {
+											"value": "@{pipeline().RunId}",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_status": {
+										"value": {
+											"value": "Successful",
+											"type": "Expression"
+										},
+										"type": "String"
+									}
+								}
+							},
+							"linkedServiceName": {
+								"referenceName": "LS_SQL",
+								"type": "LinkedServiceReference"
+							}
+						},
+						{
+							"name": "SP-PipelineFailed_Master03_copy1",
+							"description": "SP-PipelineFailed_Master03",
+							"type": "SqlServerStoredProcedure",
+							"dependsOn": [
+								{
+									"activity": "Execute Pipeline_Demantra",
+									"dependencyConditions": [
+										"Failed"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 5,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+								"storedProcedureParameters": {
+									"action_ind": {
+										"value": {
+											"value": "U",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"application_name": {
+										"value": {
+											"value": "iri_international",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"dataset_name": {
+										"value": {
+											"value": "demantra_extraction",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_name": {
+										"value": {
+											"value": "@{pipeline().Pipeline}",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_run_id": {
+										"value": {
+											"value": "@{pipeline().RunId}",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_status": {
+										"value": {
+											"value": "Failed",
+											"type": "Expression"
+										},
+										"type": "String"
+									}
+								}
+							},
+							"linkedServiceName": {
+								"referenceName": "LS_SQL",
+								"type": "LinkedServiceReference"
+							}
+						},
+						{
+							"name": "SP-PipelineStart_Extract_copy1",
+							"description": "SP-PipelineStart_Extract",
+							"type": "SqlServerStoredProcedure",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 5,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+								"storedProcedureParameters": {
+									"action_ind": {
+										"value": {
+											"value": "I",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"application_name": {
+										"value": "iri_international",
+										"type": "String"
+									},
+									"dataset_name": {
+										"value": "iri_nz_demantra_ext",
+										"type": "String"
+									},
+									"pipeline_name": {
+										"value": {
+											"value": "@{pipeline().Pipeline}",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_run_id": {
+										"value": {
+											"value": "@{pipeline().RunId}",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_status": {
+										"value": {
+											"value": "Processing",
+											"type": "Expression"
+										},
+										"type": "String"
+									}
+								}
+							},
+							"linkedServiceName": {
+								"referenceName": "LS_SQL",
+								"type": "LinkedServiceReference"
+							}
+						},
+						{
+							"name": "FAilure_Notification",
+							"description": "Failure_Notification",
+							"type": "WebActivity",
+							"dependsOn": [
+								{
+									"activity": "Execute Pipeline_Demantra",
+									"dependencyConditions": [
+										"Failed"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 5,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"url": {
+									"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+									"type": "Expression"
+								},
+								"method": "POST",
+								"headers": {
+									"Content-Type": "application/json"
+								},
+								"body": {
+									"value": "{\n\"subject\": \"Azure Data Factory- IRI ANZ Scan data load to Demantra – Failure\",\n\"body\": \"Hi, <br>IRI ANZ - Scan data load to Demantra - FAiled <br><br>Thanks & Regards, <br>KHC APAC DE Team\",\n\"to_email\": \"@{if(equals(pipeline().globalParameters.AZURE_ENV,'PROD'),'Demantra_APAC_IT@kraftheinz.com;ANZ_AnalyticsSupport@kraftheinz.com','ANZ_AnalyticsSupport@kraftheinz.com')}\",\n\"cc_email\": \"@{if(equals(pipeline().globalParameters.AZURE_ENV,'PROD'),'DL_KHC_ANJ_DESupport@kraftheinz.com','DL_KHC_ANJ_DESupport@kraftheinz.com')}\",\n\"importance\": \"High\"\n}",
+									"type": "Expression"
+								}
+							}
+						}
+					]
+				}
+			},
+			{
+				"name": "SP-PipelineStart_Extract",
+				"description": "SP-PipelineStart_Extract",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": {
+								"value": "I",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": "iri_international",
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": "iri_nz_demantra_ext",
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@{pipeline().Pipeline}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Processing",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-PipelineSuccessful_Master",
+				"description": "SP-PipelineSuccessful_Master",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "If Condition check status",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					},
+					{
+						"activity": "If Condition check status_copy1",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": {
+								"value": "U",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "iri_international",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "demantra_extraction",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@{pipeline().Pipeline}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Successful",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-PipelineFailed_Master03",
+				"description": "SP-PipelineFailed_Master03",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "If Condition check status",
+						"dependencyConditions": [
+							"Failed"
+						]
+					},
+					{
+						"activity": "If Condition check status_copy1",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": {
+								"value": "U",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "iri_international",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "demantra_extraction",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@{pipeline().Pipeline}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "Lookup_SP_status_wwd",
+				"description": "Lookup_SP_status",
+				"type": "Lookup",
+				"dependsOn": [
+					{
+						"activity": "SP-PipelineStart_Extract",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "OracleSource",
+						"oracleReaderQuery": {
+							"value": "select sum(rc) as record_cnt from\n(select count(*) as rc from hz.T_SRC_WWD_V)",
+							"type": "Expression"
+						},
+						"partitionOption": "None",
+						"queryTimeout": "02:00:00"
+					},
+					"dataset": {
+						"referenceName": "DS_KHCDE_DEMANTRA_ORACLE_DEST",
+						"type": "DatasetReference",
+						"parameters": {
+							"TableName": "_noset"
+						}
+					},
+					"firstRowOnly": false
+				}
+			},
+			{
+				"name": "If Condition check status_copy1",
+				"description": "If Condition check status",
+				"type": "IfCondition",
+				"dependsOn": [
+					{
+						"activity": "Lookup_SP_status_wwd",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"expression": {
+						"value": "@equals(int(activity('Lookup_SP_status_wwd').output.value[0].record_cnt ), 0)\n",
+						"type": "Expression"
+					},
+					"ifFalseActivities": [
+						{
+							"name": "Error_Notification_WWD",
+							"description": "Error_Notification",
+							"type": "WebActivity",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 5,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"url": {
+									"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+									"type": "Expression"
+								},
+								"method": "POST",
+								"headers": {
+									"Content-Type": "application/json"
+								},
+								"body": {
+									"value": "{\n\"subject\": \"Azure Data Factory- IRI NZ WWD data load to Demantra – Failed\",\n\"body\": \"Hi, <br> Kindly note that insertion to T_SRC_WWD_V table failed because WWD data for IRI NZ already exists in T_SRC_WWD_V. <br><br>Thanks & Regards, <br>KHC APAC DE Team\",\n\"to_email\": \"@{if(equals(pipeline().globalParameters.AZURE_ENV,'PROD'),'Demantra_APAC_IT@kraftheinz.com;ANZ_AnalyticsSupport@kraftheinz.com','ANZ_AnalyticsSupport@kraftheinz.com')}\",\n\"cc_email\": \"@{if(equals(pipeline().globalParameters.AZURE_ENV,'PROD'),'DL_KHC_ANJ_DESupport@kraftheinz.com','DL_KHC_ANJ_DESupport@kraftheinz.com')}\",\n\"importance\": \"High\"\n}",
+									"type": "Expression"
+								}
+							}
+						}
+					],
+					"ifTrueActivities": [
+						{
+							"name": "LU_Metadata_WWD",
+							"description": "LU_Metadata",
+							"type": "Lookup",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 5,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"source": {
+									"type": "OracleSource",
+									"oracleReaderQuery": {
+										"value": "select 'T_SRC_WWD_V' as view_name, 'demantra_wwd_nz_fact.csv' as filename  from dual ",
+										"type": "Expression"
+									},
+									"partitionOption": "None",
+									"queryTimeout": "02:00:00"
+								},
+								"dataset": {
+									"referenceName": "DS_KHCDE_DEMANTRA_ORACLE_DEST",
+									"type": "DatasetReference",
+									"parameters": {
+										"TableName": "_noset"
+									}
+								},
+								"firstRowOnly": false
+							}
+						},
+						{
+							"name": "Copy BLOB to Oracle",
+							"description": "Copy BLOB to Oracle",
+							"type": "Copy",
+							"dependsOn": [
+								{
+									"activity": "LU_Metadata_WWD",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 5,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"source": {
+									"type": "DelimitedTextSource",
+									"storeSettings": {
+										"type": "AzureBlobFSReadSettings",
+										"recursive": true,
+										"enablePartitionDiscovery": false
+									},
+									"formatSettings": {
+										"type": "DelimitedTextReadSettings"
+									}
+								},
+								"sink": {
+									"type": "OracleSink",
+									"writeBatchSize": 10000
+								},
+								"enableStaging": false,
+								"translator": {
+									"type": "TabularTranslator",
+									"mappings": [
+										{
+											"source": {
+												"name": "SDATE",
+												"type": "DateTime"
+											},
+											"sink": {
+												"name": "SDATE",
+												"type": "DateTime"
+											}
+										},
+										{
+											"source": {
+												"name": "PRODUCT_CODE",
+												"type": "String"
+											},
+											"sink": {
+												"name": "LEVEL1",
+												"type": "String"
+											}
+										},
+										{
+											"source": {
+												"name": "KEY_ACCOUNT",
+												"type": "String"
+											},
+											"sink": {
+												"name": "LEVEL2",
+												"type": "String"
+											}
+										},
+										{
+											"source": {
+												"name": "WWD_VOLUME",
+												"type": "Decimal"
+											},
+											"sink": {
+												"name": "DEMAND_LY",
+												"type": "Decimal"
+											}
+										}
+									]
+								}
+							},
+							"inputs": [
+								{
+									"referenceName": "DS_KHCDE_IRI_NZ_DEMANTRA_SOURCE",
+									"type": "DatasetReference",
+									"parameters": {
+										"filename": {
+											"value": "demantra_wwd_nz_fact.csv",
+											"type": "Expression"
+										}
+									}
+								}
+							],
+							"outputs": [
+								{
+									"referenceName": "DS_KHCDE_DEMANTRA_ORACLE_DEST",
+									"type": "DatasetReference",
+									"parameters": {
+										"TableName": {
+											"value": "@activity('LU_Metadata_WWD').output.value[0].view_name",
+											"type": "Expression"
+										}
+									}
+								}
+							]
+						},
+						{
+							"name": "DeleteFilefrom BLOB",
+							"description": "DeleteFilefrom BLOB",
+							"type": "Delete",
+							"dependsOn": [
+								{
+									"activity": "Copy BLOB to Oracle",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 5,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"dataset": {
+									"referenceName": "DS_KHCDE_IRI_NZ_DEMANTRA_SOURCE",
+									"type": "DatasetReference",
+									"parameters": {
+										"filename": {
+											"value": "demantra_wwd_nz_fact.csv",
+											"type": "Expression"
+										}
+									}
+								},
+								"enableLogging": false,
+								"storeSettings": {
+									"type": "AzureBlobFSReadSettings",
+									"recursive": true
+								}
+							}
+						},
+						{
+							"name": "Success_Notification_WWD",
+							"description": "Success_Notification",
+							"type": "WebActivity",
+							"dependsOn": [
+								{
+									"activity": "Copy BLOB to Oracle",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 5,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"url": {
+									"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+									"type": "Expression"
+								},
+								"method": "POST",
+								"headers": {
+									"Content-Type": "application/json"
+								},
+								"body": {
+									"value": "{\n\"subject\": \"Azure Data Factory- IRI NZ WWD data load to Demantra – Successful\",\n\"body\": \"Hi, <br> Kindly note that insertion to T_SRC_WWD_V table is Successfully completed. <br><br>Thanks & Regards, <br>KHC APAC DE Team\",\n\"to_email\": \"@{if(equals(pipeline().globalParameters.AZURE_ENV,'PROD'),'Demantra_APAC_IT@kraftheinz.com;ANZ_AnalyticsSupport@kraftheinz.com','ANZ_AnalyticsSupport@kraftheinz.com')}\",\n\"cc_email\": \"@{if(equals(pipeline().globalParameters.AZURE_ENV,'PROD'),'DL_KHC_ANJ_DESupport@kraftheinz.com','DL_KHC_ANJ_DESupport@kraftheinz.com')}\",\n\"importance\": \"High\"\n}",
+									"type": "Expression"
+								}
+							}
+						}
+					]
+				}
+			}
+		],
+		"folder": {
+			"name": "IRI_International/Sub_Pipelines"
+		},
+		"annotations": []
+	}
+}

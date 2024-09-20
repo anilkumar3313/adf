@@ -1,0 +1,481 @@
+{
+	"name": "PL_KHCDE_GENERIC_MASTER",
+	"properties": {
+		"description": "Copy the file from source SFTP, FTP & File Shares to AZ Storage account",
+		"activities": [
+			{
+				"name": "LU-Metadata",
+				"description": "Fetches all the records from khc_orchestration_metadata based on below conditions.\n1. Below propertise length should be greater then 0 - \nserver_name, application_name, dataset_name, server_path, filename, data_filename, container_name, archival_blob_name, stage_blob_name, blob_trigger_name, \n\n2. Data_level =1 \n3. active_ind = 'y'\n4. file_zip_ind in ('y', 'n')  \n5. file_checksum_ind in ('y', 'n')\n6. server_name in \n('LS_Sftp_Globalscape','LS_FS_BLYFORD','LS_SFTP_ECOM_US_SHIPT','LS_AZ_STRGV2','LS_FS_BLYFORD_HNADATA','LS_Sftp_AU_IRI','LS_FTP_ASPERA','LS_FTP_B2B04','LS_FTP_B2B05','LS_SFTP_CA_NIELSEN','LS_SFTP_BLACKSMITH','LS_S3_SIGNAL','LS_SFTP_SAP_CATALYST_AL11','LS_FTP_HYL_CANADA','LS_SFTP_SOBEYS_CANADA','LS_SFTP_SALES_CA_METRO','LS_SFTP_IRI_GLOBAL','LS_FS_ORACLE_APPS_112','LS_SFTP_NIELSEN_SDEL2','LS_AZ_KHC_DATASHARE_STRGV2','LS_FS_CA_FNP01','LS_FS_FOODSERVICE_US_VIA','LS_AZ_XTEL','LS_AZ_KHC_EXTERNALSHARE_STRGV2','LS_FS_APAC_CHINA','LS_SFTP_NORTHSTAR','LS_AZ_KHC_O9_EXTERNALSHARE_STRGV2','LS_SFTP_RUSSIA_EPOS','LS_SFTP_UPCLEAR','LS_FS_RUSSIA_TPO','LS_SFTP_RUSSIA_HIPERCOM','LS_S3_EQUINOX')",
+				"type": "Lookup",
+				"dependsOn": [
+					{
+						"activity": "set_env_variable",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "0.00:05:00",
+					"retry": 50,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "SqlServerSource",
+						"sqlReaderQuery": {
+							"value": "select\nparent_id\n,dependent_id\n,application_name\n,dataset_name\n,server_name\n, CASE WHEN server_name = 'LS_SFTP_SAP_CATALYST_AL11' AND '@{pipeline().globalParameters.SAP_ENV}' = 'DEV' then '/usr/sap/intf/pdev/EWD/RT'\n       WHEN server_name = 'LS_SFTP_SAP_CATALYST_AL11' AND '@{pipeline().globalParameters.SAP_ENV}' = 'QA' then '/usr/sap/intf/pqax/EWQ/RT' \n       WHEN server_name = 'LS_SFTP_SAP_CATALYST_AL11' AND '@{pipeline().globalParameters.SAP_ENV}' = 'REG' then '/usr/sap/intf/preg/EWR/RT'\n       WHEN server_name = 'LS_SFTP_SAP_CATALYST_AL11' AND '@{pipeline().globalParameters.SAP_ENV}' = 'SUPP' then '/usr/sap/intf/fqax/EWS/RT'\n       WHEN server_name = 'LS_SFTP_SAP_CATALYST_AL11' AND '@{pipeline().globalParameters.SAP_ENV}' = 'PROD' then '/usr/sap/intf/prdx/EWP/RT'\n       ELSE replace(server_path, '<env>', '@{variables('env')}') END as server_path\n,filename\n,data_filename\n,pattern_type\n,rename_prefix\n,file_zip_ind\n,file_checksum_ind\n,checksum_filename\n,field_delimiter\n,container_name\n,stage_blob_name\n,archival_blob_name\n,blob_trigger_name\n,dbt_trigger_name\n,adf_trigger_name\n,dataset_group\n,CASE WHEN ( '@{pipeline().parameters.delete_file_from_source}' IS NULL OR trim('@{pipeline().parameters.delete_file_from_source}') ='' )  OR trim('@{pipeline().parameters.delete_file_from_source}') NOT IN ('n','y') THEN ISNULL(JSON_VALUE(REPLACE(parameter_json,'''','\"'),'$.conVar.param6.value'),'y')\n       ELSE trim('@{pipeline().parameters.delete_file_from_source}') END DELETE_FILES_FROM_SOURCE\n,CASE WHEN ( '@{pipeline().parameters.delete_file_from_stage}' IS NULL OR trim('@{pipeline().parameters.delete_file_from_stage}') ='' ) OR trim('@{pipeline().parameters.delete_file_from_stage}') NOT IN ('n','y') THEN ISNULL(JSON_VALUE(REPLACE(parameter_json,'''','\"'),'$.conVar.param7.value'),'y') \n\t   ELSE trim('@{pipeline().parameters.delete_file_from_stage}') end DELETE_FILES_FROM_STAGE\n,data_level\n,active_ind\nfrom khc_orchestration_metadata\nwhere len(trim(server_name)) > 0\n  and len(trim(application_name)) > 0\n  and len(trim(dataset_name)) > 0\n  and len(trim(server_path)) > 0\n  and len(trim(filename)) > 0\n  and len(trim(data_filename)) > 0\n  and file_zip_ind in ('y', 'n')\n  and file_checksum_ind in ('y', 'n')\n  and len(trim(container_name)) > 0\n  and len(trim(archival_blob_name)) > 0\n  and len(trim(stage_blob_name)) > 0\n  and len(trim(blob_trigger_name)) > 0\n  and application_name like '@{pipeline().parameters.application_name}'\n  and dataset_name like '@{pipeline().parameters.dataset_name}'\n  and parent_id like '@{pipeline().parameters.parent_id}'\n  and data_level = 1\n  and active_ind = 'y'\n  and server_name in ('LS_Sftp_Globalscape','LS_FS_BLYFORD','LS_SFTP_ECOM_US_SHIPT','LS_FS_BLYFORD_HNADATA','LS_Sftp_AU_IRI','LS_FTP_ASPERA','LS_FTP_B2B04','LS_FTP_B2B05','LS_SFTP_CA_NIELSEN','LS_SFTP_BLACKSMITH','LS_S3_SIGNAL','LS_SFTP_SAP_CATALYST_AL11','LS_FTP_HYL_CANADA','LS_SFTP_SOBEYS_CANADA','LS_SFTP_SALES_CA_METRO','LS_SFTP_IRI_GLOBAL','LS_FS_ORACLE_APPS_112','LS_SFTP_NIELSEN_SDEL2','LS_AZ_KHC_DATASHARE_STRGV2','LS_FS_CA_FNP01','LS_FS_FOODSERVICE_US_VIA','LS_AZ_XTEL','LS_FS_APAC_CHINA','LS_SFTP_NORTHSTAR','LS_AZ_KHC_O9_EXTERNALSHARE_STRGV2','LS_SFTP_RUSSIA_EPOS','LS_SFTP_UPCLEAR','LS_FS_RUSSIA_TPO','LS_SFTP_RUSSIA_HIPERCOM','LS_S3_EQUINOX','LS_SFTP_APAC_LUCIA','LS_SFTP_SIEVO_EXTRACT','LS_AZ_FileShare_AnalyticalBoost')",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "DS_KHCDE_GENERIC_MSSQL_Metadata",
+						"type": "DatasetReference"
+					},
+					"firstRowOnly": false
+				}
+			},
+			{
+				"name": "FE-Metadata",
+				"description": "This loop iterates over all records fetched from previous activity.",
+				"type": "ForEach",
+				"dependsOn": [
+					{
+						"activity": "LU-Metadata",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"items": {
+						"value": "@activity('LU-Metadata').output.value",
+						"type": "Expression"
+					},
+					"isSequential": false,
+					"batchCount": 50,
+					"activities": [
+						{
+							"name": "EP-parallel_run_pipeline",
+							"description": "Executes parallel pipeline for the for loop values.",
+							"type": "ExecutePipeline",
+							"dependsOn": [],
+							"userProperties": [],
+							"typeProperties": {
+								"pipeline": {
+									"referenceName": "PL_KHCDE_GENERIC_SUB_MASTER_PARALLEL_RUN",
+									"type": "PipelineReference"
+								},
+								"waitOnCompletion": true,
+								"parameters": {
+									"iteration_obj": {
+										"value": "@item()",
+										"type": "Expression"
+									},
+									"generic_master_run_id": {
+										"value": "@pipeline().RunId",
+										"type": "Expression"
+									}
+								}
+							}
+						}
+					]
+				}
+			},
+			{
+				"name": "Wait-EnforcePipelineSuccess",
+				"description": "This enforces pipelien success. \nAs failure of any compnent is recorded in audit tables seprately.  ",
+				"type": "Wait",
+				"dependsOn": [
+					{
+						"activity": "Wait_untill_parallel_pipeline_complete",
+						"dependencyConditions": [
+							"Succeeded",
+							"Failed"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"waitTimeInSeconds": 1
+				}
+			},
+			{
+				"name": "set_env_variable",
+				"description": "Set the variable - ENV from global parameters - AZURE_ENV",
+				"type": "SetVariable",
+				"dependsOn": [
+					{
+						"activity": "Pipeline_Start",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"variableName": "env",
+					"value": {
+						"value": "@pipeline().globalParameters.AZURE_ENV",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "Pipeline_Start",
+				"description": "This Activity logs starting of pipeline in khc_audit_log table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "0.00:05:00",
+					"retry": 50,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": "I",
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.dataset_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@pipeline().Pipeline",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@pipeline().RunId",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Processing",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "Pipeline_Successful",
+				"description": "This Activity logs completion of pipeline in khc_audit_log table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "Wait-EnforcePipelineSuccess",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "0.00:05:00",
+					"retry": 50,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": {
+								"value": "U",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.dataset_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@pipeline().Pipeline",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@pipeline().RunId",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": "Successful",
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "Wait_untill_parallel_pipeline_complete",
+				"description": "This activity waits untill all parallel pipeline's instances completes there execution. ",
+				"type": "Until",
+				"dependsOn": [
+					{
+						"activity": "FE-Metadata",
+						"dependencyConditions": [
+							"Succeeded",
+							"Failed"
+						]
+					},
+					{
+						"activity": "FE-Metadata-externalshare-strgv2",
+						"dependencyConditions": [
+							"Succeeded",
+							"Failed"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"expression": {
+						"value": "@equals(int(variables('in_process_parallel_pipeline_count')),0)",
+						"type": "Expression"
+					},
+					"activities": [
+						{
+							"name": "LU_Audit_table",
+							"description": "Fetches all the records from khc_orchestration_metadata based on below conditions.\n1. Below propertise length should be greater then 0 - \nserver_name, application_name, dataset_name, server_path, filename, data_filename, container_name, archival_blob_name, stage_blob_name, blob_trigger_name, \n\n2. Data_level =1 \n3. active_ind = 'y'\n4. file_zip_ind in ('y', 'n')  \n5. file_checksum_ind in ('y', 'n')\n6. server_name in ('LS_Sftp_Globalscape','LS_FS_BLYFORD','LS_SFTP_ECOM_US_SHIPT','LS_AZ_STRGV2','LS_FS_BLYFORD_HNADATA','LS_Sftp_AU_IRI','LS_FTP_ASPERA','LS_FTP_B2B04','LS_FTP_B2B05','LS_SFTP_CA_NIELSEN','LS_SFTP_BLACKSMITH','LS_S3_SIGNAL','LS_SFTP_SAP_CATALYST_AL11','LS_FTP_HYL_CANADA','LS_SFTP_SOBEYS_CANADA','LS_SFTP_SALES_CA_METRO','LS_SFTP_IRI_GLOBAL','LS_FS_ORACLE_APPS_112','LS_SFTP_NIELSEN_SDEL2','LS_AZ_KHC_DATASHARE_STRGV2','LS_FS_CA_FNP01','LS_FS_FOODSERVICE_US_VIA','LS_AZ_XTEL','LS_AZ_KHC_EXTERNALSHARE_STRGV2','LS_FS_APAC_CHINA','LS_SFTP_NORTHSTAR','LS_AZ_KHC_O9_EXTERNALSHARE_STRGV2')\n\n\n\n",
+							"type": "Lookup",
+							"dependsOn": [
+								{
+									"activity": "Wait_for_audit_check",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "0.00:05:00",
+								"retry": 50,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"source": {
+									"type": "SqlServerSource",
+									"sqlReaderQuery": {
+										"value": "select count(*) as pipeline_run_count from khc_audit_log \nwhere pipeline_run_id like '@{pipeline().RunId}%>>%'\nand pipeline_status = 'Processing' and pipeline_name = 'PL_KHCDE_GENERIC_SUB_MASTER_PARALLEL_RUN'\nand pipeline_run_id not in \n(\nselect pipeline_run_id from khc_audit_log \nwhere pipeline_run_id like '@{pipeline().RunId}%>>%'\ngroup by pipeline_run_id\nhaving count(*)>1\n)",
+										"type": "Expression"
+									},
+									"queryTimeout": "02:00:00",
+									"partitionOption": "None"
+								},
+								"dataset": {
+									"referenceName": "DS_KHCDE_GENERIC_MSSQL_Metadata",
+									"type": "DatasetReference"
+								},
+								"firstRowOnly": false
+							}
+						},
+						{
+							"name": "Set_in_proccesing_pipeline_count",
+							"type": "SetVariable",
+							"dependsOn": [
+								{
+									"activity": "LU_Audit_table",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"userProperties": [],
+							"typeProperties": {
+								"variableName": "in_process_parallel_pipeline_count",
+								"value": {
+									"value": "@string(activity('LU_Audit_table').output.value[0].pipeline_run_count)",
+									"type": "Expression"
+								}
+							}
+						},
+						{
+							"name": "Wait_for_audit_check",
+							"type": "Wait",
+							"dependsOn": [],
+							"userProperties": [],
+							"typeProperties": {
+								"waitTimeInSeconds": 300
+							}
+						}
+					],
+					"timeout": "0.07:00:00"
+				}
+			},
+			{
+				"name": "LU-Metadata-externalshare-strgv2",
+				"description": "Fetches all the records from khc_orchestration_metadata based on below conditions.\n1. Below propertise length should be greater then 0 - \nserver_name, application_name, dataset_name, server_path, filename, data_filename, container_name, archival_blob_name, stage_blob_name, blob_trigger_name, \n\n2. Data_level =1 \n3. active_ind = 'y'\n4. file_zip_ind in ('y', 'n')  \n5. file_checksum_ind in ('y', 'n')\n6. server_name equal to \n'LS_AZ_KHC_EXTERNALSHARE_STRGV2'",
+				"type": "Lookup",
+				"dependsOn": [
+					{
+						"activity": "set_env_variable",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "0.00:05:00",
+					"retry": 50,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "SqlServerSource",
+						"sqlReaderQuery": {
+							"value": "select\nparent_id\n,dependent_id\n,application_name\n,dataset_name\n,server_name\n, CASE WHEN server_name = 'LS_SFTP_SAP_CATALYST_AL11' AND '@{pipeline().globalParameters.SAP_ENV}' = 'DEV' then '/usr/sap/intf/pdev/EWD/RT'\n       WHEN server_name = 'LS_SFTP_SAP_CATALYST_AL11' AND '@{pipeline().globalParameters.SAP_ENV}' = 'QA' then '/usr/sap/intf/pqax/EWQ/RT' \n       WHEN server_name = 'LS_SFTP_SAP_CATALYST_AL11' AND '@{pipeline().globalParameters.SAP_ENV}' = 'REG' then '/usr/sap/intf/preg/EWR/RT'\n       WHEN server_name = 'LS_SFTP_SAP_CATALYST_AL11' AND '@{pipeline().globalParameters.SAP_ENV}' = 'SUPP' then '/usr/sap/intf/fqax/EWS/RT'\n       WHEN server_name = 'LS_SFTP_SAP_CATALYST_AL11' AND '@{pipeline().globalParameters.SAP_ENV}' = 'PROD' then '/usr/sap/intf/prdx/EWP/RT'\n       ELSE replace(server_path, '<env>', '@{variables('env')}') END as server_path\n,filename\n,data_filename\n,pattern_type\n,rename_prefix\n,file_zip_ind\n,file_checksum_ind\n,checksum_filename\n,field_delimiter\n,container_name\n,stage_blob_name\n,archival_blob_name\n,blob_trigger_name\n,dbt_trigger_name\n,adf_trigger_name\n,dataset_group\n,CASE WHEN ( '@{pipeline().parameters.delete_file_from_source}' IS NULL OR trim('@{pipeline().parameters.delete_file_from_source}') ='' )  OR trim('@{pipeline().parameters.delete_file_from_source}') NOT IN ('n','y') THEN ISNULL(JSON_VALUE(REPLACE(parameter_json,'''','\"'),'$.conVar.param6.value'),'y')\n       ELSE trim('@{pipeline().parameters.delete_file_from_source}') END DELETE_FILES_FROM_SOURCE\n,CASE WHEN ( '@{pipeline().parameters.delete_file_from_stage}' IS NULL OR trim('@{pipeline().parameters.delete_file_from_stage}') ='' ) OR trim('@{pipeline().parameters.delete_file_from_stage}') NOT IN ('n','y') THEN ISNULL(JSON_VALUE(REPLACE(parameter_json,'''','\"'),'$.conVar.param7.value'),'y') \n\t   ELSE trim('@{pipeline().parameters.delete_file_from_stage}') end DELETE_FILES_FROM_STAGE\n,data_level\n,active_ind\nfrom khc_orchestration_metadata\nwhere len(trim(server_name)) > 0\n  and len(trim(application_name)) > 0\n  and len(trim(dataset_name)) > 0\n  and len(trim(server_path)) > 0\n  and len(trim(filename)) > 0\n  and len(trim(data_filename)) > 0\n  and file_zip_ind in ('y', 'n')\n  and file_checksum_ind in ('y', 'n')\n  and len(trim(container_name)) > 0\n  and len(trim(archival_blob_name)) > 0\n  and len(trim(stage_blob_name)) > 0\n  and len(trim(blob_trigger_name)) > 0\n  and application_name like '@{pipeline().parameters.application_name}'\n  and dataset_name like '@{pipeline().parameters.dataset_name}'\n  and parent_id like '@{pipeline().parameters.parent_id}'\n  and data_level = 1\n  and active_ind = 'y'\n  and server_name = 'LS_AZ_KHC_EXTERNALSHARE_STRGV2'",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "DS_KHCDE_GENERIC_MSSQL_Metadata",
+						"type": "DatasetReference"
+					},
+					"firstRowOnly": false
+				}
+			},
+			{
+				"name": "FE-Metadata-externalshare-strgv2",
+				"description": "This loop iterates over all records fetched from previous activity.",
+				"type": "ForEach",
+				"dependsOn": [
+					{
+						"activity": "LU-Metadata-externalshare-strgv2",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"items": {
+						"value": "@activity('LU-Metadata-externalshare-strgv2').output.value",
+						"type": "Expression"
+					},
+					"isSequential": false,
+					"batchCount": 50,
+					"activities": [
+						{
+							"name": "EP-parallel_run_pipeline_externalshare_strgv2",
+							"description": "Executes parallel pipeline for the for loop values.",
+							"type": "ExecutePipeline",
+							"dependsOn": [],
+							"userProperties": [],
+							"typeProperties": {
+								"pipeline": {
+									"referenceName": "PL_KHCDE_GENERIC_SUB_MASTER_PARALLEL_RUN",
+									"type": "PipelineReference"
+								},
+								"waitOnCompletion": true,
+								"parameters": {
+									"iteration_obj": {
+										"value": "@item()",
+										"type": "Expression"
+									},
+									"generic_master_run_id": {
+										"value": "@pipeline().RunId",
+										"type": "Expression"
+									}
+								}
+							}
+						}
+					]
+				}
+			}
+		],
+		"concurrency": 1,
+		"parameters": {
+			"application_name": {
+				"type": "string",
+				"defaultValue": "%"
+			},
+			"dataset_name": {
+				"type": "string",
+				"defaultValue": "%"
+			},
+			"parent_id": {
+				"type": "string",
+				"defaultValue": "%"
+			},
+			"delete_file_from_source": {
+				"type": "string"
+			},
+			"delete_file_from_stage": {
+				"type": "string"
+			}
+		},
+		"variables": {
+			"env": {
+				"type": "String",
+				"defaultValue": "DEV"
+			},
+			"in_process_parallel_pipeline_count": {
+				"type": "String",
+				"defaultValue": "1"
+			}
+		},
+		"folder": {
+			"name": "Generic_Frameworks"
+		},
+		"annotations": []
+	},
+	"type": "Microsoft.DataFactory/factories/pipelines"
+}

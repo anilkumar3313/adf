@@ -1,0 +1,1404 @@
+{
+	"name": "PL_KHCDE_PRICE_COMPARE_MASTER",
+	"properties": {
+		"description": "Master Pipeline of Price Compare",
+		"activities": [
+			{
+				"name": "SV-date",
+				"description": "date variable",
+				"type": "SetVariable",
+				"dependsOn": [
+					{
+						"activity": "Start-Notification",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"variableName": "date",
+					"value": {
+						"value": "@{string(formatDateTime(addhours(utcnow(), 5), 'yyyyMMdd'))}",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "Get-Ingestion-Metadata",
+				"description": "Get Ingestion Metadata Record",
+				"type": "Lookup",
+				"dependsOn": [
+					{
+						"activity": "SV-date",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "SqlServerSource",
+						"sqlReaderQuery": {
+							"value": "select\nserver_path\n, filename\n, container_name\n, stage_blob_name\n, archival_blob_name\n, parameter_json\nfrom khc_orchestration_metadata\nwhere application_name = '@{pipeline().parameters.application_name}'\nand dataset_group = '@{pipeline().parameters.dataset_group}'\nand active_ind = 'y'\nand data_level = 1",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "DS_KHCDE_GENERIC_MSSQL_Metadata",
+						"type": "DatasetReference"
+					},
+					"firstRowOnly": false
+				}
+			},
+			{
+				"name": "RunPythonScript",
+				"description": "Run Python Script of Price Compare",
+				"type": "ExecutePipeline",
+				"dependsOn": [
+					{
+						"activity": "Until1",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"pipeline": {
+						"referenceName": "PL_KHCDE_GENERIC_Python",
+						"type": "PipelineReference"
+					},
+					"waitOnCompletion": true,
+					"parameters": {
+						"ApplicationName": {
+							"value": "@pipeline().parameters.application_name",
+							"type": "Expression"
+						},
+						"DatasetGroup": {
+							"value": "@pipeline().parameters.dataset_group",
+							"type": "Expression"
+						},
+						"ParameterJson": {
+							"value": "@activity('Get-Ingestion-Metadata').output.value[0].parameter_json",
+							"type": "Expression"
+						},
+						"pythonArgs": {
+							"value": "@variables('date')",
+							"type": "Expression"
+						}
+					}
+				}
+			},
+			{
+				"name": "Until1",
+				"description": "Until Condition",
+				"type": "Until",
+				"dependsOn": [
+					{
+						"activity": "ForEach1",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"expression": {
+						"value": "@equals(string(activity('Get-Ingestion-Metadata').output.count),string(variables('fileCount')))",
+						"type": "Expression"
+					},
+					"activities": [
+						{
+							"name": "If Condition1",
+							"type": "IfCondition",
+							"dependsOn": [],
+							"userProperties": [],
+							"typeProperties": {
+								"expression": {
+									"value": "@equals(string(activity('Get-Ingestion-Metadata').output.count),string(variables('fileCount')))",
+									"type": "Expression"
+								},
+								"ifFalseActivities": [
+									{
+										"name": "Wait1",
+										"type": "Wait",
+										"dependsOn": [],
+										"userProperties": [],
+										"typeProperties": {
+											"waitTimeInSeconds": 360
+										}
+									}
+								]
+							}
+						}
+					],
+					"timeout": "7.00:00:00"
+				}
+			},
+			{
+				"name": "Start-Notification",
+				"description": "Notification alert of Price Compare Job Started",
+				"type": "WebActivity",
+				"dependsOn": [
+					{
+						"activity": "Audit_PipelineStart",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"url": {
+						"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+						"type": "Expression"
+					},
+					"method": "POST",
+					"headers": {
+						"Content-Type": "application/json"
+					},
+					"body": {
+						"value": "{\n        \"to_email\": \"@{variables('email_to')}\",\n        \"subject\": \"@{concat(toUpper(replace(pipeline().parameters.dataset_group,'_',' ')),' - ')} Processing has been started.\",\n        \"body\":\"@{concat(toUpper(replace(pipeline().parameters.dataset_group,'_',' ')),' - ')} Processing (Ingestion & Python Process) has been started.\"\n} ",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "Failure-Notification_PythonScript",
+				"description": "Failure Notification Alert of Process",
+				"type": "WebActivity",
+				"dependsOn": [
+					{
+						"activity": "RunPythonScript",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"url": {
+						"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+						"type": "Expression"
+					},
+					"method": "POST",
+					"headers": {
+						"Content-Type": "application/json"
+					},
+					"body": {
+						"value": "{\n        \"to_email\": \"@{variables('email_to')}\",\n        \"subject\": \"@{concat(toUpper(replace(pipeline().parameters.dataset_group,'_',' ')),' - ')} Processing has failed.\",\n        \"body\":\"@{concat(toUpper(replace(pipeline().parameters.dataset_group,'_',' ')),' - ')} Processing (Ingestion & Python Process) did not complete successfully. Please contact KHC Data Engineering using the KHC Cloud Analytics Platform team site.\"\n} ",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "Success-Notification",
+				"description": "Success Notification alert of process",
+				"type": "WebActivity",
+				"dependsOn": [
+					{
+						"activity": "Switch2",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"url": {
+						"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+						"type": "Expression"
+					},
+					"method": "POST",
+					"headers": {
+						"Content-Type": "application/json"
+					},
+					"body": {
+						"value": "{\n        \"to_email\": \"@{variables('email_to')}\",\n        \"subject\": \"@{concat(toUpper(replace(pipeline().parameters.dataset_group,'_',' ')),' - ')} Processing has completed.\",\n        \"body\":\"@{concat(toUpper(replace(pipeline().parameters.dataset_group,'_',' ')),' - ')} Processing (Ingestion & Python Process) has been successfully completed\"\n} ",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "ForEach1",
+				"description": "Loop through all the record",
+				"type": "ForEach",
+				"dependsOn": [
+					{
+						"activity": "Get-Ingestion-Metadata",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"items": {
+						"value": "@activity('Get-Ingestion-MetaData').output.value",
+						"type": "Expression"
+					},
+					"isSequential": true,
+					"activities": [
+						{
+							"name": "Switch1",
+							"description": "Process selection ",
+							"type": "Switch",
+							"dependsOn": [],
+							"userProperties": [],
+							"typeProperties": {
+								"on": {
+									"value": "@pipeline().parameters.dataset_group",
+									"type": "Expression"
+								},
+								"cases": [
+									{
+										"value": "price_compare",
+										"activities": [
+											{
+												"name": "CopyData_PCOMP",
+												"type": "Copy",
+												"dependsOn": [],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 0,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"source": {
+														"type": "BinarySource",
+														"storeSettings": {
+															"type": "FileServerReadSettings",
+															"recursive": true,
+															"wildcardFileName": {
+																"value": "@item().filename",
+																"type": "Expression"
+															},
+															"deleteFilesAfterCompletion": false
+														},
+														"formatSettings": {
+															"type": "BinaryReadSettings"
+														}
+													},
+													"sink": {
+														"type": "BinarySink",
+														"storeSettings": {
+															"type": "AzureBlobFSWriteSettings"
+														}
+													},
+													"enableStaging": false
+												},
+												"inputs": [
+													{
+														"referenceName": "DS_KHCDE_GENERIC_WILKES_BARRE_FOLDER",
+														"type": "DatasetReference",
+														"parameters": {
+															"fs_path": {
+																"value": "@item().server_path",
+																"type": "Expression"
+															}
+														}
+													}
+												],
+												"outputs": [
+													{
+														"referenceName": "DS_KHCDE_GENERIC_BLOB_BINARY_Folder",
+														"type": "DatasetReference",
+														"parameters": {
+															"container_name": {
+																"value": "@item().container_name",
+																"type": "Expression"
+															},
+															"blob_name": {
+																"value": "@{replace(item().archival_blob_name, 'yyyyMMdd', variables('date'))}",
+																"type": "Expression"
+															}
+														}
+													}
+												]
+											},
+											{
+												"name": "Reset-FileCountVar_PCOMP",
+												"type": "SetVariable",
+												"dependsOn": [
+													{
+														"activity": "CopyData_PCOMP",
+														"dependencyConditions": [
+															"Succeeded"
+														]
+													}
+												],
+												"userProperties": [],
+												"typeProperties": {
+													"variableName": "fileCount",
+													"value": {
+														"value": "@{add(int(variables('fileCount_temp')),1)}",
+														"type": "Expression"
+													}
+												}
+											},
+											{
+												"name": "Reset-FileCount_temp-Var_PCOMP",
+												"type": "SetVariable",
+												"dependsOn": [
+													{
+														"activity": "Reset-FileCountVar_PCOMP",
+														"dependencyConditions": [
+															"Succeeded"
+														]
+													}
+												],
+												"userProperties": [],
+												"typeProperties": {
+													"variableName": "fileCount_temp",
+													"value": {
+														"value": "@variables('fileCount')",
+														"type": "Expression"
+													}
+												}
+											},
+											{
+												"name": "CopyData_PCOMP_Failure",
+												"description": "This activity logs failure of EP_snowflake_ingestion activity in  khc_audit_log_detail table and failure of pipeline in  khc_audit_log table.",
+												"type": "SqlServerStoredProcedure",
+												"dependsOn": [
+													{
+														"activity": "CopyData_PCOMP",
+														"dependencyConditions": [
+															"Failed"
+														]
+													}
+												],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 0,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+													"storedProcedureParameters": {
+														"action_ind": {
+															"value": "U",
+															"type": "String"
+														},
+														"activity_name": {
+															"value": "CopyData_PCOMP",
+															"type": "String"
+														},
+														"activity_status": {
+															"value": "Failed",
+															"type": "String"
+														},
+														"application_name": {
+															"value": {
+																"value": "@pipeline().parameters.application_name",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"dataset_name": {
+															"value": {
+																"value": "@item().dataset_name",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"error_code": {
+															"value": {
+																"value": "N.A.",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"error_detail": {
+															"value": {
+																"value": "N.A.",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"pipeline_run_id": {
+															"value": {
+																"value": "@pipeline().RunId",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"pipeline_status": {
+															"value": "Failed ",
+															"type": "String"
+														},
+														"skip_pipeline_audit_update": {
+															"value": "N",
+															"type": "String"
+														}
+													}
+												},
+												"linkedServiceName": {
+													"referenceName": "LS_SQL",
+													"type": "LinkedServiceReference"
+												}
+											}
+										]
+									},
+									{
+										"value": "ibl",
+										"activities": [
+											{
+												"name": "CopyData_IBL",
+												"type": "Copy",
+												"dependsOn": [],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 0,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"source": {
+														"type": "BinarySource",
+														"storeSettings": {
+															"type": "FileServerReadSettings",
+															"recursive": true,
+															"wildcardFileName": {
+																"value": "@item().filename",
+																"type": "Expression"
+															},
+															"deleteFilesAfterCompletion": false
+														},
+														"formatSettings": {
+															"type": "BinaryReadSettings"
+														}
+													},
+													"sink": {
+														"type": "BinarySink",
+														"storeSettings": {
+															"type": "AzureBlobFSWriteSettings"
+														}
+													},
+													"enableStaging": false
+												},
+												"inputs": [
+													{
+														"referenceName": "DS_KHCDE_GENERIC_GENPACT_FOLDER",
+														"type": "DatasetReference",
+														"parameters": {
+															"fs_path": {
+																"value": "@item().server_path",
+																"type": "Expression"
+															}
+														}
+													}
+												],
+												"outputs": [
+													{
+														"referenceName": "DS_KHCDE_GENERIC_BLOB_BINARY_Folder",
+														"type": "DatasetReference",
+														"parameters": {
+															"container_name": {
+																"value": "@item().container_name",
+																"type": "Expression"
+															},
+															"blob_name": {
+																"value": "@{replace(item().archival_blob_name, 'yyyyMMdd', variables('date'))}",
+																"type": "Expression"
+															}
+														}
+													}
+												]
+											},
+											{
+												"name": "Reset-FileCountVar_IBL",
+												"type": "SetVariable",
+												"dependsOn": [
+													{
+														"activity": "CopyData_IBL",
+														"dependencyConditions": [
+															"Succeeded"
+														]
+													}
+												],
+												"userProperties": [],
+												"typeProperties": {
+													"variableName": "fileCount",
+													"value": {
+														"value": "@{add(int(variables('fileCount_temp')),1)}",
+														"type": "Expression"
+													}
+												}
+											},
+											{
+												"name": "Reset-FileCount_temp-Var_IBL",
+												"type": "SetVariable",
+												"dependsOn": [
+													{
+														"activity": "Reset-FileCountVar_IBL",
+														"dependencyConditions": [
+															"Succeeded"
+														]
+													}
+												],
+												"userProperties": [],
+												"typeProperties": {
+													"variableName": "fileCount_temp",
+													"value": {
+														"value": "@variables('fileCount')",
+														"type": "Expression"
+													}
+												}
+											},
+											{
+												"name": "CopyData_IBK_Failure",
+												"description": "This activity logs failure of EP_snowflake_ingestion activity in  khc_audit_log_detail table and failure of pipeline in  khc_audit_log table.",
+												"type": "SqlServerStoredProcedure",
+												"dependsOn": [
+													{
+														"activity": "CopyData_IBL",
+														"dependencyConditions": [
+															"Failed"
+														]
+													}
+												],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 0,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+													"storedProcedureParameters": {
+														"action_ind": {
+															"value": "U",
+															"type": "String"
+														},
+														"activity_name": {
+															"value": "CopyData_IBL",
+															"type": "String"
+														},
+														"activity_status": {
+															"value": "Failed",
+															"type": "String"
+														},
+														"application_name": {
+															"value": {
+																"value": "@pipeline().parameters.application_name",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"dataset_name": {
+															"value": {
+																"value": "@item().dataset_name",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"error_code": {
+															"value": {
+																"value": "N.A.",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"error_detail": {
+															"value": {
+																"value": "N.A.",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"pipeline_run_id": {
+															"value": {
+																"value": "@pipeline().RunId",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"pipeline_status": {
+															"value": "Failed ",
+															"type": "String"
+														},
+														"skip_pipeline_audit_update": {
+															"value": "N",
+															"type": "String"
+														}
+													}
+												},
+												"linkedServiceName": {
+													"referenceName": "LS_SQL",
+													"type": "LinkedServiceReference"
+												}
+											}
+										]
+									}
+								]
+							}
+						}
+					]
+				}
+			},
+			{
+				"name": "Switch2",
+				"description": "Process Selection",
+				"type": "Switch",
+				"dependsOn": [
+					{
+						"activity": "RunPythonScript",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"on": {
+						"value": "@pipeline().parameters.dataset_group",
+						"type": "Expression"
+					},
+					"cases": [
+						{
+							"value": "price_compare",
+							"activities": [
+								{
+									"name": "CopyData_PCOMP_out",
+									"type": "Copy",
+									"dependsOn": [],
+									"policy": {
+										"timeout": "7.00:00:00",
+										"retry": 0,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"source": {
+											"type": "BinarySource",
+											"storeSettings": {
+												"type": "AzureBlobFSReadSettings",
+												"recursive": true
+											},
+											"formatSettings": {
+												"type": "BinaryReadSettings"
+											}
+										},
+										"sink": {
+											"type": "BinarySink",
+											"storeSettings": {
+												"type": "FileServerWriteSettings"
+											}
+										},
+										"enableStaging": false
+									},
+									"inputs": [
+										{
+											"referenceName": "DS_KHCDE_GENERIC_BLOB_BINARY_Folder",
+											"type": "DatasetReference",
+											"parameters": {
+												"container_name": {
+													"value": "@activity('Get-Ingestion-Metadata').output.value[0].container_name",
+													"type": "Expression"
+												},
+												"blob_name": {
+													"value": "@concat(activity('Get-Ingestion-Metadata').output.value[0].stage_blob_name,'/',pipeline().parameters.dataset_group)",
+													"type": "Expression"
+												}
+											}
+										}
+									],
+									"outputs": [
+										{
+											"referenceName": "DS_KHCDE_GENERIC_WILKES_BARRE_FOLDER",
+											"type": "DatasetReference",
+											"parameters": {
+												"fs_path": "PCOMP"
+											}
+										}
+									]
+								}
+							]
+						},
+						{
+							"value": "ibl",
+							"activities": [
+								{
+									"name": "CopyData_IBL_out",
+									"type": "Copy",
+									"dependsOn": [],
+									"policy": {
+										"timeout": "7.00:00:00",
+										"retry": 0,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"source": {
+											"type": "BinarySource",
+											"storeSettings": {
+												"type": "AzureBlobFSReadSettings",
+												"recursive": true
+											},
+											"formatSettings": {
+												"type": "BinaryReadSettings"
+											}
+										},
+										"sink": {
+											"type": "BinarySink",
+											"storeSettings": {
+												"type": "FileServerWriteSettings"
+											}
+										},
+										"enableStaging": false
+									},
+									"inputs": [
+										{
+											"referenceName": "DS_KHCDE_GENERIC_BLOB_BINARY_Folder",
+											"type": "DatasetReference",
+											"parameters": {
+												"container_name": {
+													"value": "@activity('Get-Ingestion-Metadata').output.value[0].container_name",
+													"type": "Expression"
+												},
+												"blob_name": {
+													"value": "@concat(activity('Get-Ingestion-Metadata').output.value[0].stage_blob_name,'/',pipeline().parameters.dataset_group)",
+													"type": "Expression"
+												}
+											}
+										}
+									],
+									"outputs": [
+										{
+											"referenceName": "DS_KHCDE_GENERIC_GENPACT_FOLDER",
+											"type": "DatasetReference",
+											"parameters": {
+												"fs_path": "Freshness_rpt"
+											}
+										}
+									]
+								}
+							]
+						}
+					]
+				}
+			},
+			{
+				"name": "list_files_at_gcp_audit_details_success",
+				"description": "This activity logs success of list_files_at_gcp activity in khc_audit_log_detail table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "RunPythonScript",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": "EP_RunPythonScript",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Successful",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.dataset_group",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "EP_run_python_audit_details_failure",
+				"description": "This activity logs failure of EP_snowflake_ingestion activity in  khc_audit_log_detail table and failure of pipeline in  khc_audit_log table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "RunPythonScript",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": "U",
+							"type": "String"
+						},
+						"activity_name": {
+							"value": "EP_RunPythonScript",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": "Failed",
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.dataset_group",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_code": {
+							"value": {
+								"value": "N.A.",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_detail": {
+							"value": {
+								"value": "N.A.",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@pipeline().RunId",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": "Failed ",
+							"type": "String"
+						},
+						"skip_pipeline_audit_update": {
+							"value": "N",
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "FileIngestion_Failure",
+				"description": "This activity logs failure of EP_snowflake_ingestion activity in  khc_audit_log_detail table and failure of pipeline in  khc_audit_log table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "Until1",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": "U",
+							"type": "String"
+						},
+						"activity_name": {
+							"value": "ForEach1_Until",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": "Failed",
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.dataset_group",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_code": {
+							"value": {
+								"value": "N.A.",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_detail": {
+							"value": {
+								"value": "N.A.",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@pipeline().RunId",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": "Failed ",
+							"type": "String"
+						},
+						"skip_pipeline_audit_update": {
+							"value": "N",
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "Audit_PipelineStart",
+				"description": "Insert pipeline start Audit entry into khc_audit_log table",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": {
+								"value": "I",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.dataset_group",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@{pipeline().Pipeline}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Processing",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "Audit_PipelineEnd",
+				"description": "update the Audit entry for the pipeline  run id to success",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "Switch2",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": {
+								"value": "U",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.dataset_group",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@{pipeline().Pipeline}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Successful",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "Failure-Notification_SV_Date",
+				"description": "Failure Notification Alert of Process",
+				"type": "WebActivity",
+				"dependsOn": [
+					{
+						"activity": "SV-date",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"url": {
+						"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+						"type": "Expression"
+					},
+					"method": "POST",
+					"headers": {
+						"Content-Type": "application/json"
+					},
+					"body": {
+						"value": "{\n        \"to_email\": \"@{variables('email_to')}\",\n        \"subject\": \"@{concat(toUpper(replace(pipeline().parameters.dataset_group,'_',' ')),' - ')} Processing has failed.\",\n        \"body\":\"@{concat(toUpper(replace(pipeline().parameters.dataset_group,'_',' ')),' - ')} Processing (Ingestion & Python Process) did not complete successfully. Please contact KHC Data Engineering using the KHC Cloud Analytics Platform team site.\"\n} ",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "Failure-Notification_LU_Metadata",
+				"description": "Failure Notification Alert of Process",
+				"type": "WebActivity",
+				"dependsOn": [
+					{
+						"activity": "Get-Ingestion-Metadata",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"url": {
+						"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+						"type": "Expression"
+					},
+					"method": "POST",
+					"headers": {
+						"Content-Type": "application/json"
+					},
+					"body": {
+						"value": "{\n        \"to_email\": \"@{variables('email_to')}\",\n        \"subject\": \"@{concat(toUpper(replace(pipeline().parameters.dataset_group,'_',' ')),' - ')} Processing has failed.\",\n        \"body\":\"@{concat(toUpper(replace(pipeline().parameters.dataset_group,'_',' ')),' - ')} Processing (Ingestion & Python Process) did not complete successfully. Please contact KHC Data Engineering using the KHC Cloud Analytics Platform team site.\"\n} ",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "Failure-Notification_ForEach",
+				"description": "Failure Notification Alert of Process",
+				"type": "WebActivity",
+				"dependsOn": [
+					{
+						"activity": "ForEach1",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"url": {
+						"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+						"type": "Expression"
+					},
+					"method": "POST",
+					"headers": {
+						"Content-Type": "application/json"
+					},
+					"body": {
+						"value": "{\n        \"to_email\": \"@{variables('email_to')}\",\n        \"subject\": \"@{concat(toUpper(replace(pipeline().parameters.dataset_group,'_',' ')),' - ')} Processing has failed.\",\n        \"body\":\"@{concat(toUpper(replace(pipeline().parameters.dataset_group,'_',' ')),' - ')} Processing (Ingestion & Python Process) did not complete successfully. Please contact KHC Data Engineering using the KHC Cloud Analytics Platform team site.\"\n} ",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "Failure-Notification_Until",
+				"description": "Failure Notification Alert of Process",
+				"type": "WebActivity",
+				"dependsOn": [
+					{
+						"activity": "Until1",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"url": {
+						"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+						"type": "Expression"
+					},
+					"method": "POST",
+					"headers": {
+						"Content-Type": "application/json"
+					},
+					"body": {
+						"value": "{\n        \"to_email\": \"@{variables('email_to')}\",\n        \"subject\": \"@{concat(toUpper(replace(pipeline().parameters.dataset_group,'_',' ')),' - ')} Processing has failed.\",\n        \"body\":\"@{concat(toUpper(replace(pipeline().parameters.dataset_group,'_',' ')),' - ')} Processing (Ingestion & Python Process) did not complete successfully. Please contact KHC Data Engineering using the KHC Cloud Analytics Platform team site.\"\n} ",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "Failure-Notification_Switch",
+				"description": "Failure Notification Alert of Process",
+				"type": "WebActivity",
+				"dependsOn": [
+					{
+						"activity": "Switch2",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"url": {
+						"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+						"type": "Expression"
+					},
+					"method": "POST",
+					"headers": {
+						"Content-Type": "application/json"
+					},
+					"body": {
+						"value": "{\n        \"to_email\": \"@{variables('email_to')}\",\n        \"subject\": \"@{concat(toUpper(replace(pipeline().parameters.dataset_group,'_',' ')),' - ')} Processing has failed.\",\n        \"body\":\"@{concat(toUpper(replace(pipeline().parameters.dataset_group,'_',' ')),' - ')} Processing (Ingestion & Python Process) did not complete successfully. Please contact KHC Data Engineering using the KHC Cloud Analytics Platform team site.\"\n} ",
+						"type": "Expression"
+					}
+				}
+			}
+		],
+		"concurrency": 1,
+		"parameters": {
+			"application_name": {
+				"type": "string"
+			},
+			"dataset_group": {
+				"type": "string"
+			}
+		},
+		"variables": {
+			"date": {
+				"type": "string"
+			},
+			"fileCount": {
+				"type": "String",
+				"defaultValue": "0"
+			},
+			"fileCount_temp": {
+				"type": "String",
+				"defaultValue": "0"
+			},
+			"email_to": {
+				"type": "String",
+				"defaultValue": "DLWBOMTL@kraftfoods.com,DLUSWBREPORTINGPRICING@kraftheinz.com, Matthew.Lanfrank@kraftheinz.com, Cody.Gorel@kraftheinz.com, jude.schappert@kraftheinz.com, christopher.malonis@kraftheinz.com,G-ROBOTGP061.G-ROBOTGP061@kraftheinz.com"
+			}
+		},
+		"folder": {
+			"name": "Price_Compare"
+		},
+		"annotations": []
+	}
+}

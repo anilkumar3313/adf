@@ -1,0 +1,100 @@
+{
+	"name": "PL_KHCDE_IRI_NZ_SFK_INGESTION_CHECK",
+	"properties": {
+		"activities": [
+			{
+				"name": "Until-Sfk_Ingestion_Check",
+				"type": "Until",
+				"dependsOn": [],
+				"userProperties": [],
+				"typeProperties": {
+					"expression": {
+						"value": "@equals(variables('exit_ind'), 'y')",
+						"type": "Expression"
+					},
+					"activities": [
+						{
+							"name": "LU-Metadata_Audit_Log",
+							"type": "Lookup",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"source": {
+									"type": "SqlServerSource",
+									"sqlReaderQuery": {
+										"value": "select pipeline_status,pipeline_start_time from\n(select pipeline_status,max(pipeline_start_time) as pipeline_start_time from khc_audit_log l inner join dbo.khc_orchestration_metadata m on\nl.application_name = m.application_name and l.dataset_name = m.dataset_group\nwhere l.application_name ='iri_international' and parent_id like 'iri_international_nz%'\nand pipeline_name='PL_KHCDE_GENERIC_SnowflakeIngestion'  and cast(pipeline_start_time as date) = cast(getdate() as date)\ngroup by pipeline_status\nunion\nselect 'Successful',convert(datetime,'1900-01-01 00:00:00', 120)) adf\norder by pipeline_start_time desc",
+										"type": "Expression"
+									},
+									"queryTimeout": "02:00:00",
+									"partitionOption": "None"
+								},
+								"dataset": {
+									"referenceName": "DS_KHCDE_GENERIC_MSSQL_Metadata",
+									"type": "DatasetReference"
+								},
+								"firstRowOnly": true
+							}
+						},
+						{
+							"name": "Set variable1",
+							"type": "SetVariable",
+							"dependsOn": [
+								{
+									"activity": "LU-Metadata_Audit_Log",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"userProperties": [],
+							"typeProperties": {
+								"variableName": "exit_ind",
+								"value": {
+									"value": "@if(equals(activity('LU-Metadata_Audit_Log').output.firstRow.pipeline_status,'Processing'),'n','y')",
+									"type": "Expression"
+								}
+							}
+						},
+						{
+							"name": "Wait1",
+							"type": "Wait",
+							"dependsOn": [
+								{
+									"activity": "Set variable1",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"userProperties": [],
+							"typeProperties": {
+								"waitTimeInSeconds": {
+									"value": "@if(equals(variables('exit_ind'),'n'),int(300),int(1))",
+									"type": "Expression"
+								}
+							}
+						}
+					],
+					"timeout": "7.00:00:00"
+				}
+			}
+		],
+		"variables": {
+			"exit_ind": {
+				"type": "String",
+				"defaultValue": "n"
+			}
+		},
+		"folder": {
+			"name": "IRI_International/Sub_Pipelines"
+		},
+		"annotations": []
+	}
+}

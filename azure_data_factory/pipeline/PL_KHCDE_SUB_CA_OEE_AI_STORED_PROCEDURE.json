@@ -1,0 +1,1167 @@
+{
+	"name": "PL_KHCDE_SUB_CA_OEE_AI_STORED_PROCEDURE",
+	"properties": {
+		"description": "Sub pipeline to extract from stored procedure from AI DreamVersion",
+		"activities": [
+			{
+				"name": "SV-PARAM2",
+				"description": "Set Parameter 2 for stored procedure input",
+				"type": "SetVariable",
+				"dependsOn": [],
+				"userProperties": [],
+				"typeProperties": {
+					"variableName": "PARAM2",
+					"value": {
+						"value": "@{addHours(pipeline().parameters.LAST_EXT_TIME,-20)}",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "SV-PARAM1",
+				"description": "Set Parameter 1 for stored procedure input",
+				"type": "SetVariable",
+				"dependsOn": [],
+				"userProperties": [],
+				"typeProperties": {
+					"variableName": "PARAM1",
+					"value": {
+						"value": "@{addHours(pipeline().parameters.LAST_EXT_TIME,-24)}",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "UntilExtraction",
+				"description": "Until current day+1 extracting all the data in 4 hours sample",
+				"type": "Until",
+				"dependsOn": [
+					{
+						"activity": "SV-PARAM1",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					},
+					{
+						"activity": "SV-PARAM2",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					},
+					{
+						"activity": "Audit_Pipeline_Start",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"expression": {
+						"value": "@or(greater(variables('PARAM2'),pipeline().parameters.EXT_TIME),equals(variables('data_extract_status'),'FAILED'))",
+						"type": "Expression"
+					},
+					"activities": [
+						{
+							"name": "CP-SQLToLand-NonDynamic",
+							"type": "Copy",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 3,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"source": {
+									"type": "SqlServerSource",
+									"sqlReaderQuery": {
+										"value": "@replace(replace(pipeline().parameters.extraction_query,'param1',variables('PARAM1')),'param2',variables('PARAM2'))",
+										"type": "Expression"
+									},
+									"queryTimeout": "02:00:00",
+									"partitionOption": "None"
+								},
+								"sink": {
+									"type": "DelimitedTextSink",
+									"storeSettings": {
+										"type": "AzureBlobFSWriteSettings",
+										"maxConcurrentConnections": 12
+									},
+									"formatSettings": {
+										"type": "DelimitedTextWriteSettings",
+										"quoteAllText": true,
+										"fileExtension": ".csv"
+									}
+								},
+								"enableStaging": false,
+								"parallelCopies": 12
+							},
+							"inputs": [
+								{
+									"referenceName": "DS_KHCDE_CA_OEE_AI_SQL_SERVER",
+									"type": "DatasetReference"
+								}
+							],
+							"outputs": [
+								{
+									"referenceName": "DS_KHCDE_AI_BLOB_CSV_Folder",
+									"type": "DatasetReference",
+									"parameters": {
+										"container_name": "@pipeline().parameters.container_name",
+										"blob_name": {
+											"value": "@{concat(replace(pipeline().parameters.archival_blob_name,'yyyyMMdd',formatDateTime(pipeline().parameters.EXT_TIME,'yyyyMMdd')),'/land')}",
+											"type": "Expression"
+										}
+									}
+								}
+							]
+						},
+						{
+							"name": "SV-set_param1_end",
+							"type": "SetVariable",
+							"dependsOn": [
+								{
+									"activity": "CP-SQLToLand-NonDynamic",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"userProperties": [],
+							"typeProperties": {
+								"variableName": "PARAM1",
+								"value": {
+									"value": "@variables('PARAM2')",
+									"type": "Expression"
+								}
+							}
+						},
+						{
+							"name": "SV-set_param2_end",
+							"type": "SetVariable",
+							"dependsOn": [
+								{
+									"activity": "SV-set_param1_end",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"userProperties": [],
+							"typeProperties": {
+								"variableName": "PARAM2",
+								"value": {
+									"value": "@{addHours(variables('PARAM1'),4)}",
+									"type": "Expression"
+								}
+							}
+						},
+						{
+							"name": "SV-DYNAMIC_EXTRACT_STATUS_FAIL",
+							"description": "Set the EXECUTE_STATUS = 'FAILED' when the Data Extract Step Fails",
+							"type": "SetVariable",
+							"dependsOn": [
+								{
+									"activity": "CP-SQLToLand-NonDynamic",
+									"dependencyConditions": [
+										"Failed"
+									]
+								}
+							],
+							"userProperties": [],
+							"typeProperties": {
+								"variableName": "data_extract_status",
+								"value": {
+									"value": "FAILED",
+									"type": "Expression"
+								}
+							}
+						}
+					],
+					"timeout": "7.00:00:00"
+				}
+			},
+			{
+				"name": "FETCH_STAGE_FILE",
+				"description": "Fetch stage blob details",
+				"type": "GetMetadata",
+				"dependsOn": [
+					{
+						"activity": "UntilExtraction",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"dataset": {
+						"referenceName": "DS_KHCDE_GENERIC_BLOB_BINARY_Folder",
+						"type": "DatasetReference",
+						"parameters": {
+							"container_name": {
+								"value": "@pipeline().parameters.container_name",
+								"type": "Expression"
+							},
+							"blob_name": {
+								"value": "@pipeline().parameters.stage_blob_name",
+								"type": "Expression"
+							}
+						}
+					},
+					"fieldList": [
+						"exists"
+					],
+					"storeSettings": {
+						"type": "AzureBlobFSReadSettings",
+						"recursive": true
+					},
+					"formatSettings": {
+						"type": "BinaryReadSettings"
+					}
+				}
+			},
+			{
+				"name": "IF_DELETE_STAGE_FILES",
+				"description": "Delete files at staging location if present from earlier run",
+				"type": "IfCondition",
+				"dependsOn": [
+					{
+						"activity": "FETCH_STAGE_FILE",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"expression": {
+						"value": "@activity('FETCH_STAGE_FILE').output.Exists",
+						"type": "Expression"
+					},
+					"ifTrueActivities": [
+						{
+							"name": "DELETE_STAGE_FILES",
+							"description": "Delete stage files",
+							"type": "Delete",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"dataset": {
+									"referenceName": "DS_KHCDE_GENERIC_BLOB_BINARY_Folder",
+									"type": "DatasetReference",
+									"parameters": {
+										"container_name": {
+											"value": "@pipeline().parameters.container_name",
+											"type": "Expression"
+										},
+										"blob_name": {
+											"value": "@pipeline().parameters.stage_blob_name",
+											"type": "Expression"
+										}
+									}
+								},
+								"enableLogging": false,
+								"storeSettings": {
+									"type": "AzureBlobFSReadSettings",
+									"recursive": false
+								}
+							}
+						},
+						{
+							"name": "SP-ActivityAndPipelineFailed_DeleteStage",
+							"description": "Update failue in deletion of stage n Audit logs",
+							"type": "SqlServerStoredProcedure",
+							"dependsOn": [
+								{
+									"activity": "DELETE_STAGE_FILES",
+									"dependencyConditions": [
+										"Failed"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+								"storedProcedureParameters": {
+									"action_ind": {
+										"value": "U",
+										"type": "String"
+									},
+									"activity_name": {
+										"value": {
+											"value": "DELETE STAGE FILES",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"activity_status": {
+										"value": {
+											"value": "Failed",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"application_name": {
+										"value": {
+											"value": "@pipeline().parameters.application_name",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"dataset_name": {
+										"value": {
+											"value": "@substring(pipeline().parameters.stage_blob_name,lastindexof(pipeline().parameters.stage_blob_name,'/'),add(sub(length(pipeline().parameters.stage_blob_name),lastindexof(pipeline().parameters.stage_blob_name,'/')),1))",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_run_id": {
+										"value": {
+											"value": "@{pipeline().RunId}",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"pipeline_status": {
+										"value": {
+											"value": "Failed ",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"skip_pipeline_audit_update": {
+										"value": "N",
+										"type": "String"
+									},
+									"error_code": {
+										"value": {
+											"value": "@activity('DELETE_STAGE_FILES').Error.errorCode",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"error_detail": {
+										"value": {
+											"value": "@activity('DELETE_STAGE_FILES').Error.message",
+											"type": "Expression"
+										},
+										"type": "String"
+									}
+								}
+							},
+							"linkedServiceName": {
+								"referenceName": "LS_SQL",
+								"type": "LinkedServiceReference"
+							}
+						}
+					]
+				}
+			},
+			{
+				"name": "COPY_FILES_TO_STAGE",
+				"description": "Check the Execution Status and Delete files from Stage if exists and Copy the files to Archive & Stage Folders",
+				"type": "Switch",
+				"dependsOn": [
+					{
+						"activity": "IF_DELETE_STAGE_FILES",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"on": {
+						"value": "@variables('data_extract_status')",
+						"type": "Expression"
+					},
+					"cases": [
+						{
+							"value": "SUCCESS",
+							"activities": [
+								{
+									"name": "COPY_TO_STAGE",
+									"description": "Copy land to stage",
+									"type": "Copy",
+									"dependsOn": [
+										{
+											"activity": "CREATE_EMPTY_FILE",
+											"dependencyConditions": [
+												"Succeeded"
+											]
+										}
+									],
+									"policy": {
+										"timeout": "7.00:00:00",
+										"retry": 0,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"source": {
+											"type": "BinarySource",
+											"storeSettings": {
+												"type": "AzureBlobFSReadSettings",
+												"recursive": true
+											},
+											"formatSettings": {
+												"type": "BinaryReadSettings"
+											}
+										},
+										"sink": {
+											"type": "BinarySink",
+											"storeSettings": {
+												"type": "AzureBlobFSWriteSettings"
+											}
+										},
+										"enableStaging": false
+									},
+									"inputs": [
+										{
+											"referenceName": "DS_KHCDE_GENERIC_BLOB_BINARY_Folder",
+											"type": "DatasetReference",
+											"parameters": {
+												"container_name": {
+													"value": "@pipeline().parameters.container_name",
+													"type": "Expression"
+												},
+												"blob_name": "@{concat(replace(pipeline().parameters.archival_blob_name,'yyyyMMdd',formatDateTime(pipeline().parameters.EXT_TIME,'yyyyMMdd')),'/land')}"
+											}
+										}
+									],
+									"outputs": [
+										{
+											"referenceName": "DS_KHCDE_GENERIC_BLOB_BINARY_Folder",
+											"type": "DatasetReference",
+											"parameters": {
+												"container_name": {
+													"value": "@pipeline().parameters.container_name",
+													"type": "Expression"
+												},
+												"blob_name": {
+													"value": "@pipeline().parameters.stage_blob_name",
+													"type": "Expression"
+												}
+											}
+										}
+									]
+								},
+								{
+									"name": "COPY_TO_ARCHIVE",
+									"description": "copy land to archive",
+									"type": "Copy",
+									"dependsOn": [],
+									"policy": {
+										"timeout": "7.00:00:00",
+										"retry": 0,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"source": {
+											"type": "BinarySource",
+											"storeSettings": {
+												"type": "AzureBlobFSReadSettings",
+												"recursive": true
+											},
+											"formatSettings": {
+												"type": "BinaryReadSettings"
+											}
+										},
+										"sink": {
+											"type": "BinarySink",
+											"storeSettings": {
+												"type": "AzureBlobFSWriteSettings"
+											}
+										},
+										"enableStaging": false
+									},
+									"inputs": [
+										{
+											"referenceName": "DS_KHCDE_GENERIC_BLOB_BINARY_Folder",
+											"type": "DatasetReference",
+											"parameters": {
+												"container_name": {
+													"value": "@pipeline().parameters.container_name",
+													"type": "Expression"
+												},
+												"blob_name": "@{concat(replace(pipeline().parameters.archival_blob_name,'yyyyMMdd',formatDateTime(pipeline().parameters.EXT_TIME,'yyyyMMdd')),'/land')}"
+											}
+										}
+									],
+									"outputs": [
+										{
+											"referenceName": "DS_KHCDE_GENERIC_BLOB_BINARY_Folder",
+											"type": "DatasetReference",
+											"parameters": {
+												"container_name": {
+													"value": "@pipeline().parameters.container_name",
+													"type": "Expression"
+												},
+												"blob_name": {
+													"value": "@{replace(pipeline().parameters.archival_blob_name, 'yyyyMMdd', formatDateTime(pipeline().parameters.EXT_TIME,'yyyyMMdd'))}",
+													"type": "Expression"
+												}
+											}
+										}
+									]
+								},
+								{
+									"name": "DELETE_FILE_FROM_LAND",
+									"description": "Delete file from Land",
+									"type": "Delete",
+									"dependsOn": [
+										{
+											"activity": "UPDATE_INCR_LAST_VALUE",
+											"dependencyConditions": [
+												"Succeeded"
+											]
+										}
+									],
+									"policy": {
+										"timeout": "7.00:00:00",
+										"retry": 0,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"dataset": {
+											"referenceName": "DS_KHCDE_GENERIC_BLOB_BINARY_Folder",
+											"type": "DatasetReference",
+											"parameters": {
+												"container_name": {
+													"value": "@pipeline().parameters.container_name",
+													"type": "Expression"
+												},
+												"blob_name": "@{concat(replace(pipeline().parameters.archival_blob_name,'yyyyMMdd',formatDateTime(pipeline().parameters.EXT_TIME,'yyyyMMdd')),'/land')}"
+											}
+										},
+										"enableLogging": false,
+										"storeSettings": {
+											"type": "AzureBlobFSReadSettings",
+											"recursive": true
+										}
+									}
+								},
+								{
+									"name": "UPDATE_INCR_LAST_VALUE",
+									"description": "Update current date as last extraction value in extraction control metadata",
+									"type": "SqlServerStoredProcedure",
+									"dependsOn": [
+										{
+											"activity": "COPY_TO_STAGE",
+											"dependencyConditions": [
+												"Succeeded"
+											]
+										},
+										{
+											"activity": "COPY_TO_ARCHIVE",
+											"dependencyConditions": [
+												"Succeeded"
+											]
+										}
+									],
+									"policy": {
+										"timeout": "7.00:00:00",
+										"retry": 0,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"storedProcedureName": "[dbo].[update_data_extract_last_incr_value]",
+										"storedProcedureParameters": {
+											"last_incr_value": {
+												"value": {
+													"value": "@{addHours(variables('PARAM1'),-4)}",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"parent_id": {
+												"value": {
+													"value": "@pipeline().parameters.parent_id",
+													"type": "Expression"
+												},
+												"type": "String"
+											}
+										}
+									},
+									"linkedServiceName": {
+										"referenceName": "LS_SQL",
+										"type": "LinkedServiceReference"
+									}
+								},
+								{
+									"name": "CREATE_TRIGGER_FILE",
+									"description": "Create a trigger file",
+									"type": "Copy",
+									"dependsOn": [
+										{
+											"activity": "UPDATE_INCR_LAST_VALUE",
+											"dependencyConditions": [
+												"Succeeded"
+											]
+										}
+									],
+									"policy": {
+										"timeout": "7.00:00:00",
+										"retry": 0,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"source": {
+											"type": "SqlServerSource",
+											"sqlReaderQuery": {
+												"value": "select current_timestamp",
+												"type": "Expression"
+											},
+											"queryTimeout": "02:00:00",
+											"partitionOption": "None"
+										},
+										"sink": {
+											"type": "DelimitedTextSink",
+											"storeSettings": {
+												"type": "AzureBlobFSWriteSettings"
+											},
+											"formatSettings": {
+												"type": "DelimitedTextWriteSettings",
+												"quoteAllText": true,
+												"fileExtension": ".txt"
+											}
+										},
+										"enableStaging": false,
+										"translator": {
+											"type": "TabularTranslator",
+											"typeConversion": true,
+											"typeConversionSettings": {
+												"allowDataTruncation": true,
+												"treatBooleanAsNumber": false
+											}
+										}
+									},
+									"inputs": [
+										{
+											"referenceName": "DS_KHCDE_GENERIC_MSSQL_Metadata",
+											"type": "DatasetReference"
+										}
+									],
+									"outputs": [
+										{
+											"referenceName": "DS_KHCDE_GENERIC_BLOB_CSV_FolderFile",
+											"type": "DatasetReference",
+											"parameters": {
+												"container_name": {
+													"value": "@pipeline().parameters.container_name",
+													"type": "Expression"
+												},
+												"blob_name": {
+													"value": "@if(contains(pipeline().parameters.blob_trigger_name, '/'), substring(pipeline().parameters.blob_trigger_name, 0, lastIndexOf(pipeline().parameters.blob_trigger_name, '/')), 'sales/triggers')",
+													"type": "Expression"
+												},
+												"file_name": {
+													"value": "@if(contains(pipeline().parameters.blob_trigger_name, '/'), last(split(pipeline().parameters.blob_trigger_name, '/')), pipeline().parameters.blob_trigger_name)",
+													"type": "Expression"
+												},
+												"field_delimiter": {
+													"value": ",",
+													"type": "Expression"
+												}
+											}
+										}
+									]
+								},
+								{
+									"name": "CREATE_EMPTY_FILE",
+									"description": "Create empty file to handle no data  to load scenario",
+									"type": "Copy",
+									"dependsOn": [],
+									"policy": {
+										"timeout": "7.00:00:00",
+										"retry": 0,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"source": {
+											"type": "SqlServerSource",
+											"sqlReaderQuery": "SELECT ''",
+											"queryTimeout": "02:00:00",
+											"partitionOption": "None"
+										},
+										"sink": {
+											"type": "DelimitedTextSink",
+											"storeSettings": {
+												"type": "AzureBlobFSWriteSettings"
+											},
+											"formatSettings": {
+												"type": "DelimitedTextWriteSettings",
+												"quoteAllText": true,
+												"fileExtension": ".txt"
+											}
+										},
+										"enableStaging": false,
+										"translator": {
+											"type": "TabularTranslator",
+											"typeConversion": true,
+											"typeConversionSettings": {
+												"allowDataTruncation": true,
+												"treatBooleanAsNumber": false
+											}
+										}
+									},
+									"inputs": [
+										{
+											"referenceName": "DS_KHCDE_GENERIC_MSSQL_Metadata",
+											"type": "DatasetReference"
+										}
+									],
+									"outputs": [
+										{
+											"referenceName": "DS_KHCDE_GENERIC_BLOB_CSV_FolderFile",
+											"type": "DatasetReference",
+											"parameters": {
+												"container_name": {
+													"value": "@pipeline().parameters.container_name",
+													"type": "Expression"
+												},
+												"blob_name": {
+													"value": "@{concat(replace(pipeline().parameters.archival_blob_name,'yyyyMMdd',formatDateTime(pipeline().parameters.EXT_TIME,'yyyyMMdd')),'/land')}",
+													"type": "Expression"
+												},
+												"file_name": "empty_file.csv",
+												"field_delimiter": ","
+											}
+										}
+									]
+								}
+							]
+						}
+					],
+					"defaultActivities": [
+						{
+							"name": "FAIL_THE_PIPE_LINE",
+							"type": "Lookup",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"source": {
+									"type": "SqlServerSource",
+									"sqlReaderQuery": "SELECT * FROM FAIL_THE_PIPE_LINE",
+									"queryTimeout": "02:00:00",
+									"partitionOption": "None"
+								},
+								"dataset": {
+									"referenceName": "DS_KHCDE_GENERIC_MSSQL_Metadata",
+									"type": "DatasetReference"
+								},
+								"firstRowOnly": false
+							}
+						}
+					]
+				}
+			},
+			{
+				"name": "Audit_Pipeline_Start",
+				"description": "Audit log to signify start of pipeline",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": {
+								"value": "I",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@substring(pipeline().parameters.stage_blob_name,add(lastindexof(pipeline().parameters.stage_blob_name,'/'),1),sub(sub(length(pipeline().parameters.stage_blob_name),lastindexof(pipeline().parameters.stage_blob_name,'/')),1))",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@{pipeline().Pipeline}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Processing",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "Audit_Pipeline_Success",
+				"description": "Audit log update for successful completion",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "COPY_FILES_TO_STAGE",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": {
+								"value": "U",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@substring(pipeline().parameters.stage_blob_name,add(lastindexof(pipeline().parameters.stage_blob_name,'/'),1),sub(sub(length(pipeline().parameters.stage_blob_name),lastindexof(pipeline().parameters.stage_blob_name,'/')),1))",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@{pipeline().Pipeline}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Successful",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "Audit_Pipeline_Failed",
+				"description": "Audit log for failure in completion",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "COPY_FILES_TO_STAGE",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": {
+								"value": "U",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@substring(pipeline().parameters.stage_blob_name,add(lastindexof(pipeline().parameters.stage_blob_name,'/'),1),sub(sub(length(pipeline().parameters.stage_blob_name),lastindexof(pipeline().parameters.stage_blob_name,'/')),1))",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@{pipeline().Pipeline}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-ActivityAndPipelineFailed_UntilLoop",
+				"description": "Update failue in deletion of stage n Audit logs",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "UntilExtraction",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": "U",
+							"type": "String"
+						},
+						"activity_name": {
+							"value": {
+								"value": "DELETE STAGE FILES",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@substring(pipeline().parameters.stage_blob_name,add(lastindexof(pipeline().parameters.stage_blob_name,'/'),1),sub(sub(length(pipeline().parameters.stage_blob_name),lastindexof(pipeline().parameters.stage_blob_name,'/')),1))",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Failed ",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"skip_pipeline_audit_update": {
+							"value": "N",
+							"type": "String"
+						},
+						"error_code": {
+							"value": {
+								"value": "@activity('CP-SQLToLand-NonDynamic').Error.errorCode",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_detail": {
+							"value": {
+								"value": "@activity('CP-SQLToLand-NonDynamic').Error.message",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			}
+		],
+		"parameters": {
+			"EXT_TIME": {
+				"type": "string",
+				"defaultValue": "2020-10-19 20:00:00"
+			},
+			"LAST_EXT_TIME": {
+				"type": "string",
+				"defaultValue": "2020-10-19"
+			},
+			"application_name": {
+				"type": "string",
+				"defaultValue": "ca_ai"
+			},
+			"stage_blob_name": {
+				"type": "string",
+				"defaultValue": "manufacturing/ca_oee/ai/stage/sp_getschedule"
+			},
+			"archival_blob_name": {
+				"type": "string",
+				"defaultValue": "manufacturing/ca_oee/ai/archive/sp_getschedule/yyyyMMdd"
+			},
+			"blob_trigger_name": {
+				"type": "string",
+				"defaultValue": "manufacturing/ca_oee/ai/trg/sp_getschedule_trigger.txt"
+			},
+			"container_name": {
+				"type": "string",
+				"defaultValue": "khc-enterprise-data"
+			},
+			"extraction_query": {
+				"type": "string",
+				"defaultValue": "DECLARE @DateStart datetime2(0) DECLARE @DateEnd datetime2(0) set @DateStart=convert(datetime2,'param1') set @DateEnd=convert(datetime2,'param2') EXECUTE [AI].[usp_RawData_GetSchedule] @DateStart,@DateEnd"
+			},
+			"parent_id": {
+				"type": "string",
+				"defaultValue": "ca_ai_1"
+			}
+		},
+		"variables": {
+			"PARAM1": {
+				"type": "String"
+			},
+			"PARAM2": {
+				"type": "String"
+			},
+			"data_extract_status": {
+				"type": "String",
+				"defaultValue": "SUCCESS"
+			}
+		},
+		"folder": {
+			"name": "CA_OEE/Sub_Pipelines"
+		},
+		"annotations": []
+	}
+}

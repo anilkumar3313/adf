@@ -1,0 +1,114 @@
+{
+	"name": "PL_KHCDE_APAC_ANZ_DF_ORDER_LOAD",
+	"properties": {
+		"description": "It execute the pipeline for group C entities.",
+		"activities": [
+			{
+				"name": "Get_Metadata",
+				"type": "GetMetadata",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"dataset": {
+						"referenceName": "DS_KHCDE_APAC_ANZ_DF_BLOB_Folder",
+						"type": "DatasetReference",
+						"parameters": {
+							"cw_fileName": {
+								"value": "abc.csv",
+								"type": "Expression"
+							},
+							"cw_containerName": {
+								"value": "khc-enterprise-data",
+								"type": "Expression"
+							},
+							"cw_filePath": {
+								"value": "master_data/master_data_management/data_foundation",
+								"type": "Expression"
+							}
+						}
+					},
+					"fieldList": [
+						"exists"
+					],
+					"storeSettings": {
+						"type": "AzureBlobFSReadSettings",
+						"recursive": true,
+						"enablePartitionDiscovery": false
+					},
+					"formatSettings": {
+						"type": "DelimitedTextReadSettings"
+					}
+				}
+			},
+			{
+				"name": "CheckFileExist",
+				"type": "IfCondition",
+				"dependsOn": [
+					{
+						"activity": "Get_Metadata",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"expression": {
+						"value": "@activity('Get_Metadata').output.exists",
+						"type": "Expression"
+					},
+					"ifFalseActivities": [
+						{
+							"name": "EP-GRPCWAITERROR",
+							"type": "ExecutePipeline",
+							"dependsOn": [],
+							"userProperties": [],
+							"typeProperties": {
+								"pipeline": {
+									"referenceName": "PL_KHCDE_APAC_ANZ_DF_GRPC_WAIT_ERROR",
+									"type": "PipelineReference"
+								},
+								"waitOnCompletion": true
+							}
+						}
+					],
+					"ifTrueActivities": [
+						{
+							"name": "EP- MAIN_GRPC_EXTRACT",
+							"type": "ExecutePipeline",
+							"dependsOn": [],
+							"userProperties": [],
+							"typeProperties": {
+								"pipeline": {
+									"referenceName": "PL_KHCDE_APAC_ANZ_DF_MAIN_GRPC_EXTRACT",
+									"type": "PipelineReference"
+								},
+								"waitOnCompletion": true,
+								"parameters": {
+									"DS_GRP": "apac_anz_df_groupc"
+								}
+							}
+						}
+					]
+				}
+			}
+		],
+		"parameters": {
+			"DS_GRP": {
+				"type": "string",
+				"defaultValue": "apac_anz_df_groupc"
+			}
+		},
+		"folder": {
+			"name": "Apac_Anz_DF"
+		},
+		"annotations": []
+	}
+}

@@ -1,0 +1,1270 @@
+{
+	"name": "PL_KHCDE_GENERIC_SUB_ServerCopy_PART4",
+	"properties": {
+		"description": "Copies files from source server(s) for the following Linked Services Part 4\nLS_SFTP_RUSSIA_HIPERCOM,\nLS_S3_EQUINOX",
+		"activities": [
+			{
+				"name": "SW-Server",
+				"description": "Switch the Source Linked service based on server name",
+				"type": "Switch",
+				"dependsOn": [],
+				"userProperties": [],
+				"typeProperties": {
+					"on": {
+						"value": "@{pipeline().parameters.server_name}",
+						"type": "Expression"
+					},
+					"cases": [
+						{
+							"value": "LS_SFTP_RUSSIA_HIPERCOM",
+							"activities": [
+								{
+									"name": "CP-RUSSIA_HIPERCOM_ToLand",
+									"description": "Copy files from RUSSIA_HIPERCOM sftp server to land blob storage.",
+									"type": "Copy",
+									"dependsOn": [],
+									"policy": {
+										"timeout": "7.00:00:00",
+										"retry": 5,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"source": {
+											"type": "BinarySource",
+											"storeSettings": {
+												"type": "SftpReadSettings",
+												"recursive": false,
+												"wildcardFileName": {
+													"value": "@{pipeline().parameters.filename}",
+													"type": "Expression"
+												},
+												"deleteFilesAfterCompletion": false
+											},
+											"formatSettings": {
+												"type": "BinaryReadSettings"
+											}
+										},
+										"sink": {
+											"type": "BinarySink",
+											"storeSettings": {
+												"type": "AzureBlobFSWriteSettings"
+											}
+										},
+										"enableStaging": false,
+										"skipErrorFile": {
+											"fileMissing": false
+										}
+									},
+									"inputs": [
+										{
+											"referenceName": "DS_KHCDE_GENERIC_RUSSIA_HIPERCOM_BINARY_Folder",
+											"type": "DatasetReference",
+											"parameters": {
+												"sftp_path": {
+													"value": "@{pipeline().parameters.server_path}",
+													"type": "Expression"
+												}
+											}
+										}
+									],
+									"outputs": [
+										{
+											"referenceName": "DS_KHCDE_GENERIC_BLOB_BINARY_Folder",
+											"type": "DatasetReference",
+											"parameters": {
+												"container_name": {
+													"value": "@{pipeline().parameters.container_name}",
+													"type": "Expression"
+												},
+												"blob_name": {
+													"value": "@{concat(replace(pipeline().parameters.archival_blob_name, 'yyyyMMdd', 'processing'), '/land')}",
+													"type": "Expression"
+												}
+											}
+										}
+									]
+								},
+								{
+									"name": "SV-goAhead_RUSSIA_HIPERCOM",
+									"description": "Set the goAhead variable ",
+									"type": "SetVariable",
+									"dependsOn": [
+										{
+											"activity": "CP-RUSSIA_HIPERCOM_ToLand",
+											"dependencyConditions": [
+												"Succeeded"
+											]
+										}
+									],
+									"userProperties": [],
+									"typeProperties": {
+										"variableName": "goAhead",
+										"value": {
+											"value": "@{if(greater(activity('CP-RUSSIA_HIPERCOM_ToLand').output.filesWritten, 0), 'Y', 'N')}",
+											"type": "Expression"
+										}
+									}
+								},
+								{
+									"name": "SP-CP-RUSSIA_HIPERCOM_ToLand",
+									"description": "Error Audit log entry will be logged for copy activity",
+									"type": "SqlServerStoredProcedure",
+									"dependsOn": [
+										{
+											"activity": "CP-RUSSIA_HIPERCOM_ToLand",
+											"dependencyConditions": [
+												"Failed"
+											]
+										}
+									],
+									"policy": {
+										"timeout": "0.00:10:00",
+										"retry": 50,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+										"storedProcedureParameters": {
+											"activity_name": {
+												"value": "CP-RUSSIA_HIPERCOM_ToLand",
+												"type": "String"
+											},
+											"activity_status": {
+												"value": {
+													"value": "Failed",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"application_name": {
+												"value": {
+													"value": "@pipeline().parameters.application_name",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"dataset_name": {
+												"value": {
+													"value": "@pipeline().parameters.dataset_name",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"error_code": {
+												"value": {
+													"value": "@activity('CP-RUSSIA_HIPERCOM_ToLand').output.errors[0].Code",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"error_detail": {
+												"value": {
+													"value": "@activity('CP-RUSSIA_HIPERCOM_ToLand').output.errors[0].Message",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"pipeline_run_id": {
+												"value": {
+													"value": "@{pipeline().RunId}",
+													"type": "Expression"
+												},
+												"type": "String"
+											}
+										}
+									},
+									"linkedServiceName": {
+										"referenceName": "LS_SQL",
+										"type": "LinkedServiceReference"
+									}
+								}
+							]
+						},
+						{
+							"value": "LS_S3_EQUINOX",
+							"activities": [
+								{
+									"name": "CP-EQUINOXToLand",
+									"description": "Copy EQUINOX S3 file to land blob storage",
+									"type": "Copy",
+									"dependsOn": [],
+									"policy": {
+										"timeout": "7.00:00:00",
+										"retry": 5,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"source": {
+											"type": "BinarySource",
+											"storeSettings": {
+												"type": "AmazonS3ReadSettings",
+												"recursive": false,
+												"wildcardFileName": {
+													"value": "@{pipeline().parameters.filename}",
+													"type": "Expression"
+												},
+												"deleteFilesAfterCompletion": false
+											},
+											"formatSettings": {
+												"type": "BinaryReadSettings"
+											}
+										},
+										"sink": {
+											"type": "BinarySink",
+											"storeSettings": {
+												"type": "AzureBlobFSWriteSettings"
+											}
+										},
+										"enableStaging": false,
+										"skipErrorFile": {
+											"fileMissing": false,
+											"fileForbidden": false
+										}
+									},
+									"inputs": [
+										{
+											"referenceName": "DS_KHCDE_GENERIC_EQUINOX_BINARY_Folder",
+											"type": "DatasetReference",
+											"parameters": {
+												"sftp_path": {
+													"value": "@{pipeline().parameters.server_path}",
+													"type": "Expression"
+												}
+											}
+										}
+									],
+									"outputs": [
+										{
+											"referenceName": "DS_KHCDE_GENERIC_BLOB_BINARY_Folder",
+											"type": "DatasetReference",
+											"parameters": {
+												"container_name": {
+													"value": "@{pipeline().parameters.container_name}",
+													"type": "Expression"
+												},
+												"blob_name": {
+													"value": "@{concat(replace(pipeline().parameters.archival_blob_name, 'yyyyMMdd', 'processing'), '/land')}",
+													"type": "Expression"
+												}
+											}
+										}
+									]
+								},
+								{
+									"name": "SV-goAhead_EQUINOX",
+									"description": "Set goAhead Variable for EQUINOX",
+									"type": "SetVariable",
+									"dependsOn": [
+										{
+											"activity": "CP-EQUINOXToLand",
+											"dependencyConditions": [
+												"Succeeded"
+											]
+										}
+									],
+									"userProperties": [],
+									"typeProperties": {
+										"variableName": "goAhead",
+										"value": {
+											"value": "@{if(greater(activity('CP-EQUINOXToLand').output.filesWritten, 0), 'Y', 'N')}",
+											"type": "Expression"
+										}
+									}
+								},
+								{
+									"name": "SP-CP-EQUINOXToLand",
+									"description": "Failure log added in Error log audit table",
+									"type": "SqlServerStoredProcedure",
+									"dependsOn": [
+										{
+											"activity": "CP-EQUINOXToLand",
+											"dependencyConditions": [
+												"Failed"
+											]
+										}
+									],
+									"policy": {
+										"timeout": "0.00:10:00",
+										"retry": 50,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+										"storedProcedureParameters": {
+											"activity_name": {
+												"value": "CP-EQUINOXToLand",
+												"type": "String"
+											},
+											"activity_status": {
+												"value": {
+													"value": "Failed",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"application_name": {
+												"value": {
+													"value": "@pipeline().parameters.application_name",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"dataset_name": {
+												"value": {
+													"value": "@pipeline().parameters.dataset_name",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"error_code": {
+												"value": {
+													"value": "@activity('CP-EQUINOXToLand').output.errors[0].Code",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"error_detail": {
+												"value": {
+													"value": "@activity('CP-EQUINOXToLand').output.errors[0].Message",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"pipeline_run_id": {
+												"value": {
+													"value": "@{pipeline().RunId}",
+													"type": "Expression"
+												},
+												"type": "String"
+											}
+										}
+									},
+									"linkedServiceName": {
+										"referenceName": "LS_SQL",
+										"type": "LinkedServiceReference"
+									}
+								}
+							]
+						},
+						{
+							"value": "LS_SFTP_APAC_LUCIA",
+							"activities": [
+								{
+									"name": "CP-APAC_LUCIA_ToLand",
+									"description": "Copy files from APAC_LUCIA sftp server to land blob storage.",
+									"type": "Copy",
+									"dependsOn": [],
+									"policy": {
+										"timeout": "7.00:00:00",
+										"retry": 5,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"source": {
+											"type": "BinarySource",
+											"storeSettings": {
+												"type": "SftpReadSettings",
+												"recursive": false,
+												"wildcardFileName": {
+													"value": "@{pipeline().parameters.filename}",
+													"type": "Expression"
+												},
+												"deleteFilesAfterCompletion": false
+											},
+											"formatSettings": {
+												"type": "BinaryReadSettings"
+											}
+										},
+										"sink": {
+											"type": "BinarySink",
+											"storeSettings": {
+												"type": "AzureBlobFSWriteSettings"
+											}
+										},
+										"enableStaging": false,
+										"skipErrorFile": {
+											"fileMissing": false
+										}
+									},
+									"inputs": [
+										{
+											"referenceName": "DS_KHCDE_GENERIC_APAC_LUCIA_BINARY_Folder",
+											"type": "DatasetReference",
+											"parameters": {
+												"sftp_path": {
+													"value": "@{pipeline().parameters.server_path}",
+													"type": "Expression"
+												}
+											}
+										}
+									],
+									"outputs": [
+										{
+											"referenceName": "DS_KHCDE_GENERIC_BLOB_BINARY_Folder",
+											"type": "DatasetReference",
+											"parameters": {
+												"container_name": {
+													"value": "@{pipeline().parameters.container_name}",
+													"type": "Expression"
+												},
+												"blob_name": {
+													"value": "@{concat(replace(pipeline().parameters.archival_blob_name, 'yyyyMMdd', 'processing'), '/land')}",
+													"type": "Expression"
+												}
+											}
+										}
+									]
+								},
+								{
+									"name": "SV-goAhead_APAC_LUCIA",
+									"description": "Set the goAhead variable ",
+									"type": "SetVariable",
+									"dependsOn": [
+										{
+											"activity": "CP-APAC_LUCIA_ToLand",
+											"dependencyConditions": [
+												"Succeeded"
+											]
+										}
+									],
+									"userProperties": [],
+									"typeProperties": {
+										"variableName": "goAhead",
+										"value": {
+											"value": "@{if(greater(activity('CP-APAC_LUCIA_ToLand').output.filesWritten, 0), 'Y', 'N')}",
+											"type": "Expression"
+										}
+									}
+								},
+								{
+									"name": "SP-CP-APAC_LUCIA_ToLand",
+									"description": "Error Audit log entry will be logged for copy activity",
+									"type": "SqlServerStoredProcedure",
+									"dependsOn": [
+										{
+											"activity": "CP-APAC_LUCIA_ToLand",
+											"dependencyConditions": [
+												"Failed"
+											]
+										}
+									],
+									"policy": {
+										"timeout": "0.00:10:00",
+										"retry": 50,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+										"storedProcedureParameters": {
+											"activity_name": {
+												"value": "CP-APAC_LUCIA_ToLand",
+												"type": "String"
+											},
+											"activity_status": {
+												"value": {
+													"value": "Failed",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"application_name": {
+												"value": {
+													"value": "@pipeline().parameters.application_name",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"dataset_name": {
+												"value": {
+													"value": "@pipeline().parameters.dataset_name",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"error_code": {
+												"value": {
+													"value": "@activity('CP-APAC_LUCIA_ToLand').output.errors[0].Code",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"error_detail": {
+												"value": {
+													"value": "@activity('CP-APAC_LUCIA_ToLand').output.errors[0].Message",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"pipeline_run_id": {
+												"value": {
+													"value": "@{pipeline().RunId}",
+													"type": "Expression"
+												},
+												"type": "String"
+											}
+										}
+									},
+									"linkedServiceName": {
+										"referenceName": "LS_SQL",
+										"type": "LinkedServiceReference"
+									}
+								}
+							]
+						},
+						{
+							"value": "LS_SFTP_SIEVO_EXTRACT",
+							"activities": [
+								{
+									"name": "CP-SIEVOToLand",
+									"description": "Copy the source files from SIEVO_EXTRACT to Land folder",
+									"type": "Copy",
+									"dependsOn": [],
+									"policy": {
+										"timeout": "7.00:00:00",
+										"retry": 5,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"source": {
+											"type": "BinarySource",
+											"storeSettings": {
+												"type": "SftpReadSettings",
+												"recursive": false,
+												"wildcardFileName": {
+													"value": "@{pipeline().parameters.filename}",
+													"type": "Expression"
+												},
+												"deleteFilesAfterCompletion": false
+											},
+											"formatSettings": {
+												"type": "BinaryReadSettings"
+											}
+										},
+										"sink": {
+											"type": "BinarySink",
+											"storeSettings": {
+												"type": "AzureBlobFSWriteSettings"
+											}
+										},
+										"enableStaging": false,
+										"skipErrorFile": {
+											"fileMissing": false,
+											"fileForbidden": false
+										}
+									},
+									"inputs": [
+										{
+											"referenceName": "DS_KHCDE_GENERIC_SIEVO_EXTRACT_BINARY_Folder",
+											"type": "DatasetReference",
+											"parameters": {
+												"sftp_path": {
+													"value": "@{pipeline().parameters.server_path}",
+													"type": "Expression"
+												}
+											}
+										}
+									],
+									"outputs": [
+										{
+											"referenceName": "DS_KHCDE_GENERIC_BLOB_BINARY_Folder",
+											"type": "DatasetReference",
+											"parameters": {
+												"container_name": {
+													"value": "@{pipeline().parameters.container_name}",
+													"type": "Expression"
+												},
+												"blob_name": {
+													"value": "@{concat(replace(pipeline().parameters.archival_blob_name, 'yyyyMMdd', 'processing'), '/land')}",
+													"type": "Expression"
+												}
+											}
+										}
+									]
+								},
+								{
+									"name": "SV-goAhead_Sievo",
+									"description": "Set Go ahead for Sievo Extract",
+									"type": "SetVariable",
+									"dependsOn": [
+										{
+											"activity": "CP-SIEVOToLand",
+											"dependencyConditions": [
+												"Succeeded"
+											]
+										}
+									],
+									"userProperties": [],
+									"typeProperties": {
+										"variableName": "goAhead",
+										"value": {
+											"value": "@{if(greater(activity('CP-SIEVOToLand').output.filesWritten, 0), 'Y', 'N')}",
+											"type": "Expression"
+										}
+									}
+								},
+								{
+									"name": "SP-CP-SIEVOToLand",
+									"description": "Stored procedure failure logged capture into error table",
+									"type": "SqlServerStoredProcedure",
+									"dependsOn": [
+										{
+											"activity": "CP-SIEVOToLand",
+											"dependencyConditions": [
+												"Failed"
+											]
+										}
+									],
+									"policy": {
+										"timeout": "0.00:10:00",
+										"retry": 50,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+										"storedProcedureParameters": {
+											"activity_name": {
+												"value": {
+													"value": "CP-SIEVOToLand",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"activity_status": {
+												"value": {
+													"value": "Failed",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"application_name": {
+												"value": {
+													"value": "@pipeline().parameters.application_name",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"dataset_name": {
+												"value": {
+													"value": "@pipeline().parameters.dataset_name",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"error_code": {
+												"value": {
+													"value": "@activity('CP-SIEVOToLand').output.errors[0].Code",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"error_detail": {
+												"value": {
+													"value": "@activity('CP-SIEVOToLand').output.errors[0].Message",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"pipeline_run_id": {
+												"value": {
+													"value": "@{pipeline().RunId}",
+													"type": "Expression"
+												},
+												"type": "String"
+											}
+										}
+									},
+									"linkedServiceName": {
+										"referenceName": "LS_SQL",
+										"type": "LinkedServiceReference"
+									}
+								}
+							]
+						},
+						{
+							"value": "LS_AZ_FileShare_AnalyticalBoost",
+							"activities": [
+								{
+									"name": "CP-AnalyticalBoostToLand",
+									"description": "Copy files from AnalyticalBoost to Blob Land folder",
+									"type": "Copy",
+									"dependsOn": [],
+									"policy": {
+										"timeout": "7.00:00:00",
+										"retry": 5,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"source": {
+											"type": "BinarySource",
+											"storeSettings": {
+												"type": "AzureFileStorageReadSettings",
+												"recursive": false,
+												"wildcardFileName": {
+													"value": "@{pipeline().parameters.filename}",
+													"type": "Expression"
+												}
+											},
+											"formatSettings": {
+												"type": "BinaryReadSettings"
+											}
+										},
+										"sink": {
+											"type": "BinarySink",
+											"storeSettings": {
+												"type": "AzureBlobFSWriteSettings"
+											}
+										},
+										"enableStaging": false,
+										"skipErrorFile": {
+											"fileMissing": false
+										}
+									},
+									"inputs": [
+										{
+											"referenceName": "DS_KHCDE_GENERIC_BINARY_FILESHARE_ANALYTICALBOOST",
+											"type": "DatasetReference",
+											"parameters": {
+												"server_path": {
+													"value": "@{pipeline().parameters.server_path}",
+													"type": "Expression"
+												}
+											}
+										}
+									],
+									"outputs": [
+										{
+											"referenceName": "DS_KHCDE_GENERIC_BLOB_BINARY_Folder",
+											"type": "DatasetReference",
+											"parameters": {
+												"container_name": {
+													"value": "@{pipeline().parameters.container_name}",
+													"type": "Expression"
+												},
+												"blob_name": {
+													"value": "@{concat(replace(pipeline().parameters.archival_blob_name, 'yyyyMMdd', 'processing'), '/land')}",
+													"type": "Expression"
+												}
+											}
+										}
+									]
+								},
+								{
+									"name": "SV-goAhead_AnalyticalBoost",
+									"description": "Set GoAhead Variable for AnalyticalBoost",
+									"type": "SetVariable",
+									"dependsOn": [
+										{
+											"activity": "CP-AnalyticalBoostToLand",
+											"dependencyConditions": [
+												"Succeeded"
+											]
+										}
+									],
+									"userProperties": [],
+									"typeProperties": {
+										"variableName": "goAhead",
+										"value": {
+											"value": "@{if(greater(activity('CP-AnalyticalBoostToLand').output.filesWritten, 0), 'Y', 'N')}",
+											"type": "Expression"
+										}
+									}
+								},
+								{
+									"name": "SP-CP-AnalyticalBoostToLand",
+									"description": "Call Stored Procedure to insert log into error log table into SQL",
+									"type": "SqlServerStoredProcedure",
+									"dependsOn": [
+										{
+											"activity": "CP-AnalyticalBoostToLand",
+											"dependencyConditions": [
+												"Failed"
+											]
+										}
+									],
+									"policy": {
+										"timeout": "0.00:10:00",
+										"retry": 50,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+										"storedProcedureParameters": {
+											"activity_name": {
+												"value": {
+													"value": "CP-GlobalscapeToLand",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"activity_status": {
+												"value": {
+													"value": "Failed",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"application_name": {
+												"value": {
+													"value": "@pipeline().parameters.application_name",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"dataset_name": {
+												"value": {
+													"value": "@pipeline().parameters.dataset_name",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"error_code": {
+												"value": {
+													"value": "@activity('CP-AnalyticalBoostToLand').output.errors[0].Code",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"error_detail": {
+												"value": {
+													"value": "@activity('CP-AnalyticalBoostToLand').output.errors[0].Message",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"pipeline_run_id": {
+												"value": {
+													"value": "@{pipeline().RunId}",
+													"type": "Expression"
+												},
+												"type": "String"
+											}
+										}
+									},
+									"linkedServiceName": {
+										"referenceName": "LS_SQL",
+										"type": "LinkedServiceReference"
+									}
+								}
+							]
+						}
+					],
+					"defaultActivities": [
+						{
+							"name": "SV-goAhead",
+							"description": "Set goAhead Variable for default value",
+							"type": "SetVariable",
+							"dependsOn": [],
+							"userProperties": [],
+							"typeProperties": {
+								"variableName": "goAhead",
+								"value": {
+									"value": "X",
+									"type": "Expression"
+								}
+							}
+						}
+					]
+				}
+			},
+			{
+				"name": "GM-goAhead",
+				"description": "Get Metadata of GoAhead folder",
+				"type": "GetMetadata",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "0.00:10:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"dataset": {
+						"referenceName": "DS_KHCDE_GENERIC_BLOB_BINARY_FolderFile",
+						"type": "DatasetReference",
+						"parameters": {
+							"container_name": {
+								"value": "@{pipeline().parameters.container_name}",
+								"type": "Expression"
+							},
+							"blob_name": {
+								"value": "@{concat(replace(pipeline().parameters.archival_blob_name, 'yyyyMMdd', 'processing'), '/noGo')}",
+								"type": "Expression"
+							},
+							"file_name": {
+								"value": "@if(contains(pipeline().parameters.blob_trigger_name, '/'), last(split(pipeline().parameters.blob_trigger_name, '/')), pipeline().parameters.blob_trigger_name)",
+								"type": "Expression"
+							}
+						}
+					},
+					"fieldList": [
+						"exists"
+					],
+					"storeSettings": {
+						"type": "AzureBlobFSReadSettings",
+						"recursive": true
+					},
+					"formatSettings": {
+						"type": "BinaryReadSettings"
+					}
+				}
+			},
+			{
+				"name": "SW-goAhead",
+				"description": "Switch based on goAhead Variable value",
+				"type": "Switch",
+				"dependsOn": [
+					{
+						"activity": "GM-goAhead",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					},
+					{
+						"activity": "SW-Server",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"on": {
+						"value": "@concat(variables('goAhead'), if(activity('GM-goAhead').output.exists, 1, 0))",
+						"type": "Expression"
+					},
+					"cases": [
+						{
+							"value": "Y0",
+							"activities": [
+								{
+									"name": "SP-ActivitySuccess01",
+									"type": "SqlServerStoredProcedure",
+									"dependsOn": [],
+									"policy": {
+										"timeout": "0.00:10:00",
+										"retry": 50,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"storedProcedureName": "[dbo].[generic_activity_audit_log]",
+										"storedProcedureParameters": {
+											"activity_name": {
+												"value": {
+													"value": "CP-ServerToLand",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"application_name": {
+												"value": {
+													"value": "@{pipeline().parameters.application_name}",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"dataset_name": {
+												"value": {
+													"value": "@{pipeline().parameters.dataset_name}",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"pipeline_run_id": {
+												"value": {
+													"value": "@{pipeline().parameters.pipeline_run_id}",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"activity_status": {
+												"value": {
+													"value": "Successful",
+													"type": "Expression"
+												},
+												"type": "String"
+											}
+										}
+									},
+									"linkedServiceName": {
+										"referenceName": "LS_SQL",
+										"type": "LinkedServiceReference"
+									}
+								}
+							]
+						},
+						{
+							"value": "Y1",
+							"activities": [
+								{
+									"name": "SP-ActivitySuccess02",
+									"type": "SqlServerStoredProcedure",
+									"dependsOn": [],
+									"policy": {
+										"timeout": "0.00:10:00",
+										"retry": 50,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"storedProcedureName": "[dbo].[generic_activity_audit_log]",
+										"storedProcedureParameters": {
+											"activity_name": {
+												"value": {
+													"value": "CP-ServerToLand",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"application_name": {
+												"value": {
+													"value": "@{pipeline().parameters.application_name}",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"dataset_name": {
+												"value": {
+													"value": "@{pipeline().parameters.dataset_name}",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"pipeline_run_id": {
+												"value": {
+													"value": "@{pipeline().parameters.pipeline_run_id}",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"activity_status": {
+												"value": {
+													"value": "Successful",
+													"type": "Expression"
+												},
+												"type": "String"
+											}
+										}
+									},
+									"linkedServiceName": {
+										"referenceName": "LS_SQL",
+										"type": "LinkedServiceReference"
+									}
+								},
+								{
+									"name": "DL-noGo",
+									"type": "Delete",
+									"dependsOn": [
+										{
+											"activity": "SP-ActivitySuccess02",
+											"dependencyConditions": [
+												"Succeeded"
+											]
+										}
+									],
+									"policy": {
+										"timeout": "0.00:10:00",
+										"retry": 0,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"dataset": {
+											"referenceName": "DS_KHCDE_GENERIC_BLOB_BINARY_FolderFile",
+											"type": "DatasetReference",
+											"parameters": {
+												"container_name": {
+													"value": "@{pipeline().parameters.container_name}",
+													"type": "Expression"
+												},
+												"blob_name": {
+													"value": "@{concat(replace(pipeline().parameters.archival_blob_name, 'yyyyMMdd', 'processing'), '/noGo')}",
+													"type": "Expression"
+												},
+												"file_name": {
+													"value": "@if(contains(pipeline().parameters.blob_trigger_name, '/'), last(split(pipeline().parameters.blob_trigger_name, '/')), pipeline().parameters.blob_trigger_name)",
+													"type": "Expression"
+												}
+											}
+										},
+										"enableLogging": false,
+										"storeSettings": {
+											"type": "AzureBlobFSReadSettings",
+											"recursive": true
+										}
+									}
+								}
+							]
+						},
+						{
+							"value": "N0",
+							"activities": [
+								{
+									"name": "CP-noGo02",
+									"type": "Copy",
+									"dependsOn": [],
+									"policy": {
+										"timeout": "7.00:00:00",
+										"retry": 0,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"source": {
+											"type": "SqlServerSource",
+											"sqlReaderQuery": {
+												"value": "select current_timestamp",
+												"type": "Expression"
+											},
+											"queryTimeout": "02:00:00",
+											"partitionOption": "None"
+										},
+										"sink": {
+											"type": "DelimitedTextSink",
+											"storeSettings": {
+												"type": "AzureBlobFSWriteSettings"
+											},
+											"formatSettings": {
+												"type": "DelimitedTextWriteSettings",
+												"quoteAllText": true,
+												"fileExtension": ".txt"
+											}
+										},
+										"enableStaging": false
+									},
+									"inputs": [
+										{
+											"referenceName": "DS_KHCDE_GENERIC_MSSQL_Metadata",
+											"type": "DatasetReference"
+										}
+									],
+									"outputs": [
+										{
+											"referenceName": "DS_KHCDE_GENERIC_BLOB_CSV_FolderFile",
+											"type": "DatasetReference",
+											"parameters": {
+												"container_name": {
+													"value": "@{pipeline().parameters.container_name}",
+													"type": "Expression"
+												},
+												"blob_name": {
+													"value": "@{concat(replace(pipeline().parameters.archival_blob_name, 'yyyyMMdd', 'processing'), '/noGo')}",
+													"type": "Expression"
+												},
+												"file_name": {
+													"value": "@if(contains(pipeline().parameters.blob_trigger_name, '/'), last(split(pipeline().parameters.blob_trigger_name, '/')), pipeline().parameters.blob_trigger_name)",
+													"type": "Expression"
+												},
+												"field_delimiter": {
+													"value": ",",
+													"type": "Expression"
+												}
+											}
+										}
+									]
+								}
+							]
+						},
+						{
+							"value": "N1",
+							"activities": [
+								{
+									"name": "Wait-Filler",
+									"type": "Wait",
+									"dependsOn": [],
+									"userProperties": [],
+									"typeProperties": {
+										"waitTimeInSeconds": 1
+									}
+								}
+							]
+						}
+					]
+				}
+			}
+		],
+		"parameters": {
+			"server_name": {
+				"type": "string"
+			},
+			"application_name": {
+				"type": "string"
+			},
+			"dataset_name": {
+				"type": "string"
+			},
+			"server_path": {
+				"type": "string"
+			},
+			"filename": {
+				"type": "string"
+			},
+			"container_name": {
+				"type": "string"
+			},
+			"archival_blob_name": {
+				"type": "string"
+			},
+			"blob_trigger_name": {
+				"type": "string"
+			},
+			"pipeline_name": {
+				"type": "string"
+			},
+			"pipeline_run_id": {
+				"type": "string"
+			}
+		},
+		"variables": {
+			"goAhead": {
+				"type": "String",
+				"defaultValue": "N"
+			}
+		},
+		"folder": {
+			"name": "Generic_Frameworks/Sub_Pipelines"
+		},
+		"annotations": []
+	},
+	"type": "Microsoft.DataFactory/factories/pipelines"
+}

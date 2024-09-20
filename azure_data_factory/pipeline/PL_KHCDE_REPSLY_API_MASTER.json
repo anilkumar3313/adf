@@ -1,0 +1,1170 @@
+{
+	"name": "PL_KHCDE_REPSLY_API_MASTER",
+	"properties": {
+		"description": "Repsly API ingestion pipeline",
+		"activities": [
+			{
+				"name": "LU-Metadata",
+				"description": "Lookup to fetch orchestration metadata",
+				"type": "Lookup",
+				"dependsOn": [
+					{
+						"activity": "SP-PipelineStart",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "SqlServerSource",
+						"sqlReaderQuery": {
+							"value": "select * from khc_orchestration_metadata where application_name like '@{pipeline().parameters.ApplicationName}' and dataset_group like '@{pipeline().parameters.DatasetGroup}'  and active_ind = 'y' ",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "DS_KHCDE_GENERIC_MSSQL_Metadata",
+						"type": "DatasetReference"
+					},
+					"firstRowOnly": false
+				}
+			},
+			{
+				"name": "SP-PipelineStart",
+				"description": "Store procedure to start pipe line",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": {
+								"value": "I",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.ApplicationName",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.DatasetGroup",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@{pipeline().Pipeline}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Processing",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-ActivityAndPipelineFailed01",
+				"description": "Stored procedure to capture entries to audit table in case of prior activity failure",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "LU-Metadata",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": {
+								"value": "LU-Metadata",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@{activity('LU-Metadata').output.value[0].application_name}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@{activity('LU-Metadata').output.value[0].dataset_group}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_code": {
+							"value": {
+								"value": "@{activity('LU-Metadata').Error.errorCode}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_detail": {
+							"value": {
+								"value": "@{activity('LU-Metadata').Error.message}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "EP-SnowflakeIngestion",
+				"description": "SFK Ingestion sub-pipeline",
+				"type": "ExecutePipeline",
+				"dependsOn": [
+					{
+						"activity": "IF-CA or US",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"pipeline": {
+						"referenceName": "PL_KHCDE_GENERIC_SnowflakeIngestion",
+						"type": "PipelineReference"
+					},
+					"waitOnCompletion": true,
+					"parameters": {
+						"ApplicationName": {
+							"value": "@{activity('LU-Metadata').output.value[0].application_name}",
+							"type": "Expression"
+						},
+						"DatasetGroup": {
+							"value": "@{activity('LU-Metadata').output.value[0].dataset_group}",
+							"type": "Expression"
+						},
+						"ParameterJson": {
+							"value": "@{activity('LU-Metadata').output.value[0].parameter_json}",
+							"type": "Expression"
+						}
+					}
+				}
+			},
+			{
+				"name": "SP-ActivityAndPipelineFailed03",
+				"description": "Stored procedure to capture entries to audit table in case of prior activity failure",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "EP-SnowflakeIngestion",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": {
+								"value": "Snowflake Ingestion Step",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@{activity('LU-Metadata').output.value[0].application_name}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@{activity('LU-Metadata').output.value[0].dataset_group}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_code": {
+							"value": {
+								"value": "@{activity('EP-SnowflakeIngestion').Error.errorCode}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_detail": {
+							"value": {
+								"value": "@{activity('EP-SnowflakeIngestion').Error.message}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "EP-DBTProcessing",
+				"description": "Sub-pipleline for DBT processing to load data from SFK raw to final tables and subsequent steps in SFK",
+				"type": "ExecutePipeline",
+				"dependsOn": [
+					{
+						"activity": "FE - Metadata",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"pipeline": {
+						"referenceName": "PL_KHCDE_GENERIC_DBTProcessing",
+						"type": "PipelineReference"
+					},
+					"waitOnCompletion": true,
+					"parameters": {
+						"ApplicationName": {
+							"value": "@{activity('LU-Metadata').output.value[0].application_name}",
+							"type": "Expression"
+						},
+						"DatasetGroup": {
+							"value": "@{activity('LU-Metadata').output.value[0].dataset_group}",
+							"type": "Expression"
+						},
+						"ParameterJson": {
+							"value": "@{activity('LU-Metadata').output.value[0].parameter_json}",
+							"type": "Expression"
+						}
+					}
+				}
+			},
+			{
+				"name": "SP-PipelineSuccessful",
+				"description": "Stored procedure to capture entries to audit table in case of prior activity success",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "EP-DBTProcessing",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": {
+								"value": "U",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@{activity('LU-Metadata').output.value[0].application_name}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@{activity('LU-Metadata').output.value[0].dataset_name}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@{pipeline().Pipeline}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Successful",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-PipelineFailed04",
+				"description": "Stored procedure to capture entries to audit table in case of prior activity failure",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "EP-DBTProcessing",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": {
+								"value": "U",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@{activity('LU-Metadata').output.value[0].application_name}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@{activity('LU-Metadata').output.value[0].dataset_name}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@{pipeline().Pipeline}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "FE - Metadata",
+				"description": "This loop iterates over all records fetched from Metadata.",
+				"type": "ForEach",
+				"dependsOn": [
+					{
+						"activity": "EP-SnowflakeIngestion",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"items": {
+						"value": "@activity('LU-Metadata').output.value",
+						"type": "Expression"
+					},
+					"activities": [
+						{
+							"name": "GM-StageFile",
+							"description": "This activity checks if stage file exists",
+							"type": "GetMetadata",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"dataset": {
+									"referenceName": "DS_KHCDE_GENERIC_BLOB_BINARY_Folder",
+									"type": "DatasetReference",
+									"parameters": {
+										"container_name": {
+											"value": "@item().container_name",
+											"type": "Expression"
+										},
+										"blob_name": {
+											"value": "@item().stage_blob_name",
+											"type": "Expression"
+										}
+									}
+								},
+								"fieldList": [
+									"exists"
+								],
+								"storeSettings": {
+									"type": "AzureBlobFSReadSettings",
+									"recursive": true,
+									"enablePartitionDiscovery": false
+								},
+								"formatSettings": {
+									"type": "BinaryReadSettings"
+								}
+							}
+						},
+						{
+							"name": "IF-Stage File Exists",
+							"description": "Confirms if the stage file exists",
+							"type": "IfCondition",
+							"dependsOn": [
+								{
+									"activity": "GM-StageFile",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"userProperties": [],
+							"typeProperties": {
+								"expression": {
+									"value": "@activity('GM-StageFile').output.exists",
+									"type": "Expression"
+								},
+								"ifFalseActivities": [
+									{
+										"name": "CP-ReraiseError_Inner",
+										"description": "Raise error",
+										"type": "Copy",
+										"dependsOn": [],
+										"policy": {
+											"timeout": "7.00:00:00",
+											"retry": 0,
+											"retryIntervalInSeconds": 30,
+											"secureOutput": false,
+											"secureInput": false
+										},
+										"userProperties": [],
+										"typeProperties": {
+											"source": {
+												"type": "BinarySource",
+												"storeSettings": {
+													"type": "AzureBlobFSReadSettings",
+													"recursive": true
+												},
+												"formatSettings": {
+													"type": "BinaryReadSettings"
+												}
+											},
+											"sink": {
+												"type": "BinarySink",
+												"storeSettings": {
+													"type": "AzureBlobFSWriteSettings"
+												}
+											},
+											"enableStaging": false
+										},
+										"inputs": [
+											{
+												"referenceName": "DS_KHCDE_GENERIC_BLOB_BINARY_Folder",
+												"type": "DatasetReference",
+												"parameters": {
+													"container_name": {
+														"value": "doesNotExist_Input",
+														"type": "Expression"
+													},
+													"blob_name": {
+														"value": "doesNotExist_Input",
+														"type": "Expression"
+													}
+												}
+											}
+										],
+										"outputs": [
+											{
+												"referenceName": "DS_KHCDE_GENERIC_BLOB_BINARY_Folder",
+												"type": "DatasetReference",
+												"parameters": {
+													"container_name": {
+														"value": "doesNotExist_Input",
+														"type": "Expression"
+													},
+													"blob_name": {
+														"value": "doesNotExist_Input",
+														"type": "Expression"
+													}
+												}
+											}
+										]
+									}
+								],
+								"ifTrueActivities": [
+									{
+										"name": "Delete-Stage",
+										"description": "This activity would delete the stage files after ingestion",
+										"type": "Delete",
+										"dependsOn": [],
+										"policy": {
+											"timeout": "7.00:00:00",
+											"retry": 0,
+											"retryIntervalInSeconds": 30,
+											"secureOutput": false,
+											"secureInput": false
+										},
+										"userProperties": [],
+										"typeProperties": {
+											"dataset": {
+												"referenceName": "DS_KHCDE_ADLS_Blob",
+												"type": "DatasetReference",
+												"parameters": {
+													"container": {
+														"value": "@item().container_name",
+														"type": "Expression"
+													},
+													"stage_path": {
+														"value": "@item().stage_blob_name",
+														"type": "Expression"
+													}
+												}
+											},
+											"enableLogging": false,
+											"storeSettings": {
+												"type": "AzureBlobFSReadSettings",
+												"recursive": true,
+												"wildcardFileName": {
+													"value": "@{concat('*',substring(item().data_filename,0,lastindexof(item().data_filename,'_')),'*')}",
+													"type": "Expression"
+												},
+												"enablePartitionDiscovery": false
+											}
+										}
+									}
+								]
+							}
+						}
+					]
+				}
+			},
+			{
+				"name": "IF-CA or US",
+				"description": "IF condition checks if its CA dataset or US dataset",
+				"type": "IfCondition",
+				"dependsOn": [
+					{
+						"activity": "LU-Metadata",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"expression": {
+						"value": "@equals(substring(pipeline().parameters.DatasetGroup,7,2),'ca')",
+						"type": "Expression"
+					},
+					"ifFalseActivities": [
+						{
+							"name": "EP-REPSLY-US",
+							"description": "Sub pipeline to call python code thru container",
+							"type": "ExecutePipeline",
+							"dependsOn": [],
+							"userProperties": [],
+							"typeProperties": {
+								"pipeline": {
+									"referenceName": "PL_KHCDE_REPSLY_US_API_DOWNLOAD",
+									"type": "PipelineReference"
+								},
+								"waitOnCompletion": true,
+								"parameters": {
+									"ApplicationName": {
+										"value": "@{activity('LU-Metadata').output.value[0].application_name}",
+										"type": "Expression"
+									},
+									"DatasetGroup": {
+										"value": "@{activity('LU-Metadata').output.value[0].dataset_group}",
+										"type": "Expression"
+									},
+									"FullRefreshFlag": {
+										"value": "@{pipeline().parameters.FullRefreshFlag}",
+										"type": "Expression"
+									},
+									"ParameterJson": {
+										"value": "@{activity('LU-Metadata').output.value[0].parameter_json}",
+										"type": "Expression"
+									}
+								}
+							}
+						}
+					],
+					"ifTrueActivities": [
+						{
+							"name": "EP-REPSLYCANADA",
+							"description": "Sub pipeline to call python code thru container",
+							"type": "ExecutePipeline",
+							"dependsOn": [],
+							"userProperties": [],
+							"typeProperties": {
+								"pipeline": {
+									"referenceName": "PL_KHCDE_REPSLY_CANADA_API_DOWNLOAD",
+									"type": "PipelineReference"
+								},
+								"waitOnCompletion": true,
+								"parameters": {
+									"ApplicationName": {
+										"value": "@{activity('LU-Metadata').output.value[0].application_name}",
+										"type": "Expression"
+									},
+									"DatasetGroup": {
+										"value": "@{activity('LU-Metadata').output.value[0].dataset_group}",
+										"type": "Expression"
+									},
+									"FullRefreshFlag": {
+										"value": "@{pipeline().parameters.FullRefreshFlag}",
+										"type": "Expression"
+									},
+									"ParameterJson": {
+										"value": "@{activity('LU-Metadata').output.value[0].parameter_json}",
+										"type": "Expression"
+									}
+								}
+							}
+						}
+					]
+				}
+			},
+			{
+				"name": "IF- Failure Email 2",
+				"description": "IF condition checks if its CA dataset or US dataset",
+				"type": "IfCondition",
+				"dependsOn": [
+					{
+						"activity": "EP-SnowflakeIngestion",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"expression": {
+						"value": "@equals(substring(pipeline().parameters.DatasetGroup,7,2),'ca')",
+						"type": "Expression"
+					},
+					"ifFalseActivities": [
+						{
+							"name": "WB-SendFailureEmail06",
+							"description": "Email notification for tracking of failure in SFK ingestion sub pipeline",
+							"type": "WebActivity",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"url": {
+									"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+									"type": "Expression"
+								},
+								"method": "POST",
+								"body": {
+									"value": "{ \n            \"to_email\": \"@{variables('emailTo2')}\", \n            \"subject\": \"Failed during SnowflakeIngestion: @{activity('LU-Metadata').output.value[0].application_name} - @{split(last(split(activity('LU-Metadata').output.value[0].dataset_name, '/')),'.')[0]}\", \n            \"body\": \"Hi,<br><br>The Repsly data load process failed for the Application: \n @{activity('LU-Metadata').output.value[0].application_name}<br> DatasetGroup: @{activity('LU-Metadata').output.value[0].dataset_group}<br>Please find below the details: <br><br> Pipeline Name: @{pipeline().Pipeline} <br> Pipeline Run ID: @{pipeline().RunId}<br><br><br>Parameters:<br>===========<br>Application Name:@{activity('LU-Metadata').output.value[0].application_name}<br>Dataset Name: @{activity('LU-Metadata').output.value[0].dataset_name}<br><br>Error Message: Snowflake-Ingestion Step failed <br><br>Regards,<br>Cloud Analytics Team\", \n            \"importance\": \"Normal\"\n    }    ",
+									"type": "Expression"
+								}
+							}
+						}
+					],
+					"ifTrueActivities": [
+						{
+							"name": "WB-SendFailureEmail03",
+							"description": "Email notification for tracking of failure in SFK ingestion sub pipeline",
+							"type": "WebActivity",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"url": {
+									"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+									"type": "Expression"
+								},
+								"method": "POST",
+								"body": {
+									"value": "{ \n            \"to_email\": \"@{variables('emailTo1')}\", \n            \"subject\": \"Failed during SnowflakeIngestion: @{activity('LU-Metadata').output.value[0].application_name} - @{split(last(split(activity('LU-Metadata').output.value[0].dataset_name, '/')),'.')[0]}\", \n            \"body\": \"Hi,<br><br>The Repsly data load process failed for the Application: \n @{activity('LU-Metadata').output.value[0].application_name}<br> DatasetGroup: @{activity('LU-Metadata').output.value[0].dataset_group}<br>Please find below the details: <br><br> Pipeline Name: @{pipeline().Pipeline} <br> Pipeline Run ID: @{pipeline().RunId}<br><br><br>Parameters:<br>===========<br>Application Name:@{activity('LU-Metadata').output.value[0].application_name}<br>Dataset Name: @{activity('LU-Metadata').output.value[0].dataset_name}<br><br>Error Message: Snowflake-Ingestion Step failed <br><br>Regards,<br>Cloud Analytics Team\", \n            \"importance\": \"Normal\"\n    }    ",
+									"type": "Expression"
+								}
+							}
+						}
+					]
+				}
+			},
+			{
+				"name": "IF- Failure Email 3",
+				"description": "IF condition checks if its CA dataset or US dataset",
+				"type": "IfCondition",
+				"dependsOn": [
+					{
+						"activity": "EP-DBTProcessing",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"expression": {
+						"value": "@equals(substring(pipeline().parameters.DatasetGroup,7,2),'ca')",
+						"type": "Expression"
+					},
+					"ifFalseActivities": [
+						{
+							"name": "WB-SendFailureEmail07",
+							"description": "Email notification for tracking failure status of sub pipeline of DBT processing",
+							"type": "WebActivity",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"url": {
+									"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+									"type": "Expression"
+								},
+								"method": "POST",
+								"body": {
+									"value": "{ \n            \"to_email\": \"@{variables('emailTo2')}\", \n            \"subject\": \"Failed during DBT Processing: @{activity('LU-Metadata').output.value[0].application_name} - @{split(last(split(activity('LU-Metadata').output.value[0].dataset_group, '/')),'.')[0]}\", \n            \"body\": \"Hi,<br><br>The Repsly data load process failed for the Application: @{activity('LU-Metadata').output.value[0].application_name}<br> DatasetGroup: @{activity('LU-Metadata').output.value[0].dataset_group}<br>Please find below the details: <br><br> Pipeline Name: @{pipeline().Pipeline} <br> Pipeline Run ID: @{pipeline().RunId}<br><br><br>Parameters:<br>===========<br>Application Name: @{activity('LU-Metadata').output.value[0].application_name}<br>Dataset Name: @{activity('LU-Metadata').output.value[0].dataset_name}<br><br>Error Message: DBT Processing Step failed <br><br>Regards,<br>Cloud Analytics Team\", \n            \"importance\": \"Normal\"\n    }        ",
+									"type": "Expression"
+								}
+							}
+						}
+					],
+					"ifTrueActivities": [
+						{
+							"name": "WB-SendFailureEmail04",
+							"description": "Email notification for tracking failure status of sub pipeline of DBT processing",
+							"type": "WebActivity",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"url": {
+									"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+									"type": "Expression"
+								},
+								"method": "POST",
+								"body": {
+									"value": "{ \n            \"to_email\": \"@{variables('emailTo1')}\", \n            \"subject\": \"Failed during DBT Processing: @{activity('LU-Metadata').output.value[0].application_name} - @{split(last(split(activity('LU-Metadata').output.value[0].dataset_group, '/')),'.')[0]}\", \n            \"body\": \"Hi,<br><br>The Repsly data load process failed for the Application: @{activity('LU-Metadata').output.value[0].application_name}<br> DatasetGroup: @{activity('LU-Metadata').output.value[0].dataset_group}<br>Please find below the details: <br><br> Pipeline Name: @{pipeline().Pipeline} <br> Pipeline Run ID: @{pipeline().RunId}<br><br><br>Parameters:<br>===========<br>Application Name: @{activity('LU-Metadata').output.value[0].application_name}<br>Dataset Name: @{activity('LU-Metadata').output.value[0].dataset_name}<br><br>Error Message: DBT Processing Step failed <br><br>Regards,<br>Cloud Analytics Team\", \n            \"importance\": \"Normal\"\n    }        ",
+									"type": "Expression"
+								}
+							}
+						}
+					]
+				}
+			},
+			{
+				"name": "IF- Success Email 1",
+				"description": "IF condition checks if its CA dataset or US dataset",
+				"type": "IfCondition",
+				"dependsOn": [
+					{
+						"activity": "EP-DBTProcessing",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"expression": {
+						"value": "@equals(substring(pipeline().parameters.DatasetGroup,7,2),'ca')",
+						"type": "Expression"
+					},
+					"ifFalseActivities": [
+						{
+							"name": "WB-SendSuccessEmail2",
+							"description": "Email notification for success status of sub pipeline of DBT processing",
+							"type": "WebActivity",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"url": {
+									"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+									"type": "Expression"
+								},
+								"method": "POST",
+								"body": {
+									"value": "{ \n            \"to_email\": \"@{variables('emailTo2')}\", \n            \"subject\": \"Success: @{activity('LU-Metadata').output.value[0].application_name} - @{split(last(split(activity('LU-Metadata').output.value[0].dataset_group, '/')),'.')[0]}\", \n            \"body\": \"Hi,<br><br>The Repsly data load process succeeded for the Application: @{activity('LU-Metadata').output.value[0].application_name}<br> DatasetGroup: @{activity('LU-Metadata').output.value[0].dataset_group}<br>Please find below the details: <br><br> Pipeline Name: @{pipeline().Pipeline} <br> Pipeline Run ID: @{pipeline().RunId}\n    Parameters:<br>===========<br>Application Name: @{activity('LU-Metadata').output.value[0].application_name}<br>Dataset Name: @{activity('LU-Metadata').output.value[0].dataset_name}<br><br>Regards,<br>Cloud Analytics Team\", \n            \"importance\": \"Low\"\n    }           ",
+									"type": "Expression"
+								}
+							}
+						}
+					],
+					"ifTrueActivities": [
+						{
+							"name": "WB-SendSuccessEmail1",
+							"description": "Email notification for success status of sub pipeline of DBT processing",
+							"type": "WebActivity",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"url": {
+									"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+									"type": "Expression"
+								},
+								"method": "POST",
+								"body": {
+									"value": "{ \n            \"to_email\": \"@{variables('emailTo1')}\", \n            \"subject\": \"Success: @{activity('LU-Metadata').output.value[0].application_name} - @{split(last(split(activity('LU-Metadata').output.value[0].dataset_group, '/')),'.')[0]}\", \n            \"body\": \"Hi,<br><br>The Repsly data load process succeeded for the Application: @{activity('LU-Metadata').output.value[0].application_name}<br> DatasetGroup: @{activity('LU-Metadata').output.value[0].dataset_group}<br>Please find below the details: <br><br> Pipeline Name: @{pipeline().Pipeline} <br> Pipeline Run ID: @{pipeline().RunId}\n    Parameters:<br>===========<br>Application Name: @{activity('LU-Metadata').output.value[0].application_name}<br>Dataset Name: @{activity('LU-Metadata').output.value[0].dataset_name}<br><br>Regards,<br>Cloud Analytics Team\", \n            \"importance\": \"Low\"\n    }           ",
+									"type": "Expression"
+								}
+							}
+						}
+					]
+				}
+			},
+			{
+				"name": "SP-ActivityAndPipelineFailed02",
+				"description": "Stored procedure to capture entries to audit table in case of prior activity failure",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "IF-CA or US",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": {
+								"value": "REPSLY PORTAL Call Step",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@{activity('LU-Metadata').output.value[0].application_name}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@{activity('LU-Metadata').output.value[0].dataset_group}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_code": {
+							"value": {
+								"value": "@{activity('EP-REPSLYCANADA').Error.errorCode}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_detail": {
+							"value": {
+								"value": "@{activity('EP-REPSLYCANADA').Error.message}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "IF- Failure Email 1",
+				"description": "IF condition checks if its CA dataset or US dataset",
+				"type": "IfCondition",
+				"dependsOn": [
+					{
+						"activity": "IF-CA or US",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"expression": {
+						"value": "@equals(substring(pipeline().parameters.DatasetGroup,7,2),'ca')",
+						"type": "Expression"
+					},
+					"ifFalseActivities": [
+						{
+							"name": "WB-SendFailureEmail05",
+							"description": "Email notification for failure of sub-pipeline which calls the python code thru container",
+							"type": "WebActivity",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"url": {
+									"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+									"type": "Expression"
+								},
+								"method": "POST",
+								"body": {
+									"value": "{ \n            \"to_email\": \"@{variables('emailTo2')}\", \n            \"subject\": \"Failed during Repsly: @{activity('LU-Metadata').output.value[0].application_name} - @{split(last(split(activity('LU-Metadata').output.value[0].dataset_group, '/')),'.')[0]}\", \n            \"body\": \"Hi,<br><br>The Repsly data load process failed for the Application: @{activity('LU-Metadata').output.value[0].application_name}<br> DatasetGroup: @{activity('LU-Metadata').output.value[0].dataset_group}<br>Please find below the details: <br><br> Pipeline Name: @{pipeline().Pipeline} <br> Pipeline Run ID: @{pipeline().RunId}<br><br><br>Parameters:<br>===========<br>Application Name: @{activity('LU-Metadata').output.value[0].application_name}<br>Dataset Name: @{activity('LU-Metadata').output.value[0].dataset_name}<br><br>Error Message: REPSLY-US Step failed <br><br>Regards,<br>Cloud Analytics Team\", \n            \"importance\": \"Normal\"\n    }  ",
+									"type": "Expression"
+								}
+							}
+						}
+					],
+					"ifTrueActivities": [
+						{
+							"name": "WB-SendFailureEmail02",
+							"description": "Email notification for failure of sub-pipeline which calls the python code thru container",
+							"type": "WebActivity",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"url": {
+									"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+									"type": "Expression"
+								},
+								"method": "POST",
+								"body": {
+									"value": "{ \n            \"to_email\": \"@{variables('emailTo1')}\", \n            \"subject\": \"Failed during Repsly: @{activity('LU-Metadata').output.value[0].application_name} - @{split(last(split(activity('LU-Metadata').output.value[0].dataset_group, '/')),'.')[0]}\", \n            \"body\": \"Hi,<br><br>The Repsly data load process failed for the Application: @{activity('LU-Metadata').output.value[0].application_name}<br> DatasetGroup: @{activity('LU-Metadata').output.value[0].dataset_group}<br>Please find below the details: <br><br> Pipeline Name: @{pipeline().Pipeline} <br> Pipeline Run ID: @{pipeline().RunId}<br><br><br>Parameters:<br>===========<br>Application Name: @{activity('LU-Metadata').output.value[0].application_name}<br>Dataset Name: @{activity('LU-Metadata').output.value[0].dataset_name}<br><br>Error Message: REPSLY-CANADA Step failed <br><br>Regards,<br>Cloud Analytics Team\", \n            \"importance\": \"Normal\"\n    }  ",
+									"type": "Expression"
+								}
+							}
+						}
+					]
+				}
+			}
+		],
+		"parameters": {
+			"ApplicationName": {
+				"type": "string",
+				"defaultValue": "repsly_api"
+			},
+			"DatasetGroup": {
+				"type": "string",
+				"defaultValue": "repsly_"
+			},
+			"FullRefreshFlag": {
+				"type": "string",
+				"defaultValue": "N"
+			}
+		},
+		"variables": {
+			"exit_ind": {
+				"type": "String",
+				"defaultValue": "N"
+			},
+			"emailTo1": {
+				"type": "String",
+				"defaultValue": "KHC_CANADA_DE@kraftheinz.com, jeffery.raine@kraftheinz.com, nicholas.stoycheff@kraftheinz.com"
+			},
+			"emailTo2": {
+				"type": "String",
+				"defaultValue": "KHC_CANADA_DE@kraftheinz.com, jeffery.raine@kraftheinz.com, nicholas.stoycheff@kraftheinz.com"
+			}
+		},
+		"folder": {
+			"name": "Repsly_API"
+		},
+		"annotations": []
+	},
+	"type": "Microsoft.DataFactory/factories/pipelines"
+}

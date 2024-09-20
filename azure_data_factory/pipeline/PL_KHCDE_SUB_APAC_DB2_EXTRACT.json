@@ -1,0 +1,2413 @@
+{
+	"name": "PL_KHCDE_SUB_APAC_DB2_EXTRACT",
+	"properties": {
+		"description": "To extract the data for various DB2 databases",
+		"activities": [
+			{
+				"name": "LU-DB2_BPCS_Metadata",
+				"description": "This LU Metadata activity fetches required details for data extraction from orchestration and dataengg_extract table ",
+				"type": "Lookup",
+				"dependsOn": [
+					{
+						"activity": "SP-PipelineStart",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "SqlServerSource",
+						"sqlReaderQuery": {
+							"value": "select\n    om.application_name,\n    om.dataset_name,\n    ctrl.table_name,\n    om.server_name,\n    om.server_path as source_object_type,\n    om.filename as dso_changelog_table,\n    om.data_filename,\n    om.container_name,\n    om.archival_blob_name,\n    om.stage_blob_name,\n    om.blob_trigger_name,\n    om.data_level,\n    om.active_ind,\n    om.parent_id,\n    ctrl.dynamic_partition_ind,\n    ctrl.partition_column,\n    ctrl.incr_column_name,\n    ctrl.last_incr_value\nfrom dbo.khc_orchestration_metadata om inner join\n( Select\n    parent_id,\n    table_name,\n    dynamic_partition_ind,\n    partition_column,\n    where_clause,\n    incr_column_name,\n    last_incr_value\nfrom dbo.khc_data_extract_control_table\n) ctrl\non om.parent_id = ctrl.parent_id\nwhere len(trim(om.server_name)) > 0\n    and om.application_name in ('@{pipeline().parameters.application_name}')\n  and om.adf_trigger_name in ('@{pipeline().parameters.adf_trigger_name}')\n  and om.server_name IN ('LS_APAC_DB2_BPCS','LS_APAC_DWH_DB2','LS_APAC_INDO_DF_DB2','LS_APAC_EXPORT_DB2','LS_APAC_CN_DF_DB2','LS_APAC_NEA_DF_DB2','LS_APAC_ANZ_DWH_DB2_2', 'LS_APAC_NEA_DF_DB2_GCOE', 'LS_APAC_INDO_DF_DB2_GCOE')\n  and om.data_level=2 and om.active_ind='y'",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "DS_KHCDE_GENERIC_MSSQL_Metadata",
+						"type": "DatasetReference"
+					},
+					"firstRowOnly": false
+				}
+			},
+			{
+				"name": "ForEach-DB2_Inp",
+				"description": "For each entry in metadata performs data extraction from relevant databases",
+				"type": "ForEach",
+				"dependsOn": [
+					{
+						"activity": "LU-DB2_BPCS_Metadata",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"items": {
+						"value": "@activity('LU-DB2_BPCS_Metadata').output.value",
+						"type": "Expression"
+					},
+					"isSequential": false,
+					"batchCount": 10,
+					"activities": [
+						{
+							"name": "SW-DB2_EXTRACT",
+							"description": "This is switch activity which performs db2 extraction based on server name",
+							"type": "Switch",
+							"dependsOn": [],
+							"userProperties": [],
+							"typeProperties": {
+								"on": {
+									"value": "@{activity('LU-DB2_BPCS_Metadata').output.value[0].server_name}",
+									"type": "Expression"
+								},
+								"cases": [
+									{
+										"value": "LS_APAC_DWH_DB2",
+										"activities": [
+											{
+												"name": "SP-PipelineEnd_Extract_Failed",
+												"description": "This activity logs success of  Data Extract in khc_audit_log_detail table.",
+												"type": "SqlServerStoredProcedure",
+												"dependsOn": [
+													{
+														"activity": "EP-EXTRACT",
+														"dependencyConditions": [
+															"Failed"
+														]
+													}
+												],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+													"storedProcedureParameters": {
+														"action_ind": {
+															"value": {
+																"value": "U",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"application_name": {
+															"value": {
+																"value": "@{item().application_name}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"dataset_name": {
+															"value": {
+																"value": "@{item().data_filename}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"pipeline_name": {
+															"value": {
+																"value": "@{pipeline().Pipeline}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"pipeline_run_id": {
+															"value": {
+																"value": "@{pipeline().RunId}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"pipeline_status": {
+															"value": {
+																"value": "Failed",
+																"type": "Expression"
+															},
+															"type": "String"
+														}
+													}
+												},
+												"linkedServiceName": {
+													"referenceName": "LS_SQL",
+													"type": "LinkedServiceReference"
+												}
+											},
+											{
+												"name": "SP-PipelineEnd_Extract",
+												"description": "This activity logs success of  Data Extract in khc_audit_log_detail table.",
+												"type": "SqlServerStoredProcedure",
+												"dependsOn": [
+													{
+														"activity": "EP-EXTRACT",
+														"dependencyConditions": [
+															"Succeeded"
+														]
+													}
+												],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+													"storedProcedureParameters": {
+														"action_ind": {
+															"value": {
+																"value": "U",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"application_name": {
+															"value": {
+																"value": "@{item().application_name}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"dataset_name": {
+															"value": {
+																"value": "@{item().data_filename}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"pipeline_name": {
+															"value": {
+																"value": "@{pipeline().Pipeline}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"pipeline_run_id": {
+															"value": {
+																"value": "@{pipeline().RunId}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"pipeline_status": {
+															"value": {
+																"value": "Successful",
+																"type": "Expression"
+															},
+															"type": "String"
+														}
+													}
+												},
+												"linkedServiceName": {
+													"referenceName": "LS_SQL",
+													"type": "LinkedServiceReference"
+												}
+											},
+											{
+												"name": "SP-PipelineStart_Extract",
+												"description": "This activity logs success of  Data Extract in khc_audit_log_detail table.",
+												"type": "SqlServerStoredProcedure",
+												"dependsOn": [],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+													"storedProcedureParameters": {
+														"action_ind": {
+															"value": {
+																"value": "I",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"application_name": {
+															"value": {
+																"value": "@{item().application_name}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"dataset_name": {
+															"value": {
+																"value": "@{item().data_filename}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"pipeline_name": {
+															"value": {
+																"value": "@{pipeline().Pipeline}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"pipeline_run_id": {
+															"value": {
+																"value": "@{pipeline().RunId}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"pipeline_status": {
+															"value": {
+																"value": "Processing",
+																"type": "Expression"
+															},
+															"type": "String"
+														}
+													}
+												},
+												"linkedServiceName": {
+													"referenceName": "LS_SQL",
+													"type": "LinkedServiceReference"
+												}
+											},
+											{
+												"name": "EP-EXTRACT",
+												"description": "Extraction Pipeline for DB2 Server",
+												"type": "ExecutePipeline",
+												"dependsOn": [
+													{
+														"activity": "SP-PipelineStart_Extract",
+														"dependencyConditions": [
+															"Succeeded"
+														]
+													}
+												],
+												"userProperties": [],
+												"typeProperties": {
+													"pipeline": {
+														"referenceName": "PL_KHCDE_SUB_APAC_PROFIT_DB2_EXTRACT",
+														"type": "PipelineReference"
+													},
+													"waitOnCompletion": true,
+													"parameters": {
+														"table_name": {
+															"value": "@{item().table_name}",
+															"type": "Expression"
+														},
+														"data_filename": {
+															"value": "@{item().data_filename}",
+															"type": "Expression"
+														},
+														"container_name": {
+															"value": "@{item().container_name}",
+															"type": "Expression"
+														},
+														"stage_blob_name": {
+															"value": "@{item().stage_blob_name}",
+															"type": "Expression"
+														},
+														"application_name": {
+															"value": "@{item().application_name}",
+															"type": "Expression"
+														},
+														"adf_trigger_name": {
+															"value": "@pipeline().parameters.adf_trigger_name",
+															"type": "Expression"
+														}
+													}
+												}
+											}
+										]
+									},
+									{
+										"value": "LS_APAC_INDO_DF_DB2",
+										"activities": [
+											{
+												"name": "SP-PipelineStart_Extract_02",
+												"description": "This activity logs success of  Data Extract in khc_audit_log_detail table.",
+												"type": "SqlServerStoredProcedure",
+												"dependsOn": [],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+													"storedProcedureParameters": {
+														"action_ind": {
+															"value": {
+																"value": "I",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"application_name": {
+															"value": {
+																"value": "@{item().application_name}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"dataset_name": {
+															"value": {
+																"value": "@{item().data_filename}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"pipeline_name": {
+															"value": {
+																"value": "@{pipeline().Pipeline}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"pipeline_run_id": {
+															"value": {
+																"value": "@{pipeline().RunId}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"pipeline_status": {
+															"value": {
+																"value": "Processing",
+																"type": "Expression"
+															},
+															"type": "String"
+														}
+													}
+												},
+												"linkedServiceName": {
+													"referenceName": "LS_SQL",
+													"type": "LinkedServiceReference"
+												}
+											},
+											{
+												"name": "Copy_DB2_BPCS_DATA",
+												"description": "Data extraction from DB2 BPCS system and copying extracted files to specified blob location",
+												"type": "Copy",
+												"dependsOn": [
+													{
+														"activity": "SP-PipelineStart_Extract_02",
+														"dependencyConditions": [
+															"Succeeded"
+														]
+													}
+												],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"source": {
+														"type": "Db2Source",
+														"query": {
+															"value": "@{item().table_name}",
+															"type": "Expression"
+														}
+													},
+													"sink": {
+														"type": "DelimitedTextSink",
+														"storeSettings": {
+															"type": "AzureBlobFSWriteSettings"
+														},
+														"formatSettings": {
+															"type": "DelimitedTextWriteSettings",
+															"quoteAllText": true,
+															"fileExtension": ".txt"
+														}
+													},
+													"enableStaging": false,
+													"translator": {
+														"type": "TabularTranslator",
+														"typeConversion": true,
+														"typeConversionSettings": {
+															"allowDataTruncation": true,
+															"treatBooleanAsNumber": false
+														}
+													}
+												},
+												"inputs": [
+													{
+														"referenceName": "DS_KHCDE_APAC_INDO_SEABPP_DB2",
+														"type": "DatasetReference"
+													}
+												],
+												"outputs": [
+													{
+														"referenceName": "DS_KHCDE_APAC_INDO_SEABPP_BLOB",
+														"type": "DatasetReference",
+														"parameters": {
+															"cw_fileName": {
+																"value": "@{concat(item().data_filename,'.csv')}",
+																"type": "Expression"
+															},
+															"cw_containerName": {
+																"value": "@{item().container_name}",
+																"type": "Expression"
+															},
+															"cw_filePath": {
+																"value": "@{item().stage_blob_name}",
+																"type": "Expression"
+															}
+														}
+													}
+												]
+											},
+											{
+												"name": "SP-PipelineEnd_Extract02",
+												"description": "This activity logs success of  Data Extract in khc_audit_log_detail table.",
+												"type": "SqlServerStoredProcedure",
+												"dependsOn": [
+													{
+														"activity": "Copy_DB2_BPCS_DATA",
+														"dependencyConditions": [
+															"Succeeded"
+														]
+													}
+												],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+													"storedProcedureParameters": {
+														"action_ind": {
+															"value": {
+																"value": "U",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"application_name": {
+															"value": {
+																"value": "@{item().application_name}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"dataset_name": {
+															"value": {
+																"value": "@{item().data_filename}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"pipeline_name": {
+															"value": {
+																"value": "@{pipeline().Pipeline}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"pipeline_run_id": {
+															"value": {
+																"value": "@{pipeline().RunId}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"pipeline_status": {
+															"value": {
+																"value": "Successful",
+																"type": "Expression"
+															},
+															"type": "String"
+														}
+													}
+												},
+												"linkedServiceName": {
+													"referenceName": "LS_SQL",
+													"type": "LinkedServiceReference"
+												}
+											},
+											{
+												"name": "SP-PipelineEnd_Extract_Failed02",
+												"description": "This activity logs success of  Data Extract in khc_audit_log_detail table.",
+												"type": "SqlServerStoredProcedure",
+												"dependsOn": [
+													{
+														"activity": "Copy_DB2_BPCS_DATA",
+														"dependencyConditions": [
+															"Failed"
+														]
+													}
+												],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+													"storedProcedureParameters": {
+														"action_ind": {
+															"value": {
+																"value": "U",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"application_name": {
+															"value": {
+																"value": "@{item().application_name}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"dataset_name": {
+															"value": {
+																"value": "@{item().data_filename}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"pipeline_name": {
+															"value": {
+																"value": "@{pipeline().Pipeline}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"pipeline_run_id": {
+															"value": {
+																"value": "@{pipeline().RunId}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"pipeline_status": {
+															"value": {
+																"value": "Failed",
+																"type": "Expression"
+															},
+															"type": "String"
+														}
+													}
+												},
+												"linkedServiceName": {
+													"referenceName": "LS_SQL",
+													"type": "LinkedServiceReference"
+												}
+											}
+										]
+									},
+									{
+										"value": "LS_APAC_EXPORT_DB2",
+										"activities": [
+											{
+												"name": "SP-PipelineStart_Extract03",
+												"description": "This activity logs success of  Data Extract in khc_audit_log_detail table.",
+												"type": "SqlServerStoredProcedure",
+												"dependsOn": [],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+													"storedProcedureParameters": {
+														"action_ind": {
+															"value": {
+																"value": "I",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"application_name": {
+															"value": {
+																"value": "@{item().application_name}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"dataset_name": {
+															"value": {
+																"value": "@{item().data_filename}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"pipeline_name": {
+															"value": {
+																"value": "@{pipeline().Pipeline}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"pipeline_run_id": {
+															"value": {
+																"value": "@{pipeline().RunId}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"pipeline_status": {
+															"value": {
+																"value": "Processing",
+																"type": "Expression"
+															},
+															"type": "String"
+														}
+													}
+												},
+												"linkedServiceName": {
+													"referenceName": "LS_SQL",
+													"type": "LinkedServiceReference"
+												}
+											},
+											{
+												"name": "Copy_DB2_BPCS_EXPORT",
+												"description": "Data extraction from DB2 BPCS system and copying extracted files to specified blob location",
+												"type": "Copy",
+												"dependsOn": [
+													{
+														"activity": "SP-PipelineStart_Extract03",
+														"dependencyConditions": [
+															"Succeeded"
+														]
+													}
+												],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"source": {
+														"type": "Db2Source",
+														"query": {
+															"value": "@{item().table_name}",
+															"type": "Expression"
+														}
+													},
+													"sink": {
+														"type": "DelimitedTextSink",
+														"storeSettings": {
+															"type": "AzureBlobFSWriteSettings"
+														},
+														"formatSettings": {
+															"type": "DelimitedTextWriteSettings",
+															"quoteAllText": true,
+															"fileExtension": ".txt"
+														}
+													},
+													"enableStaging": false
+												},
+												"inputs": [
+													{
+														"referenceName": "DS_KHCDE_APAC_EXPORT_DB2",
+														"type": "DatasetReference"
+													}
+												],
+												"outputs": [
+													{
+														"referenceName": "DS_KHCDE_APAC_CN_DF_BLOB_Folder",
+														"type": "DatasetReference",
+														"parameters": {
+															"cw_fileName": {
+																"value": "@{concat(item().data_filename,'.csv')}",
+																"type": "Expression"
+															},
+															"cw_containerName": {
+																"value": "@{item().container_name}",
+																"type": "Expression"
+															},
+															"cw_filePath": {
+																"value": "@{item().stage_blob_name}",
+																"type": "Expression"
+															}
+														}
+													}
+												]
+											},
+											{
+												"name": "SP-PipelineEnd_Extract03",
+												"description": "This activity logs success of  Data Extract in khc_audit_log_detail table.",
+												"type": "SqlServerStoredProcedure",
+												"dependsOn": [
+													{
+														"activity": "Copy_DB2_BPCS_EXPORT",
+														"dependencyConditions": [
+															"Succeeded"
+														]
+													}
+												],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+													"storedProcedureParameters": {
+														"action_ind": {
+															"value": {
+																"value": "U",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"application_name": {
+															"value": {
+																"value": "@{item().application_name}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"dataset_name": {
+															"value": {
+																"value": "@{item().data_filename}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"pipeline_name": {
+															"value": {
+																"value": "@{pipeline().Pipeline}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"pipeline_run_id": {
+															"value": {
+																"value": "@{pipeline().RunId}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"pipeline_status": {
+															"value": {
+																"value": "Successful",
+																"type": "Expression"
+															},
+															"type": "String"
+														}
+													}
+												},
+												"linkedServiceName": {
+													"referenceName": "LS_SQL",
+													"type": "LinkedServiceReference"
+												}
+											},
+											{
+												"name": "SP-PipelineEnd_Extract_Failed03",
+												"description": "This activity logs success of  Data Extract in khc_audit_log_detail table.",
+												"type": "SqlServerStoredProcedure",
+												"dependsOn": [
+													{
+														"activity": "Copy_DB2_BPCS_EXPORT",
+														"dependencyConditions": [
+															"Failed"
+														]
+													}
+												],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+													"storedProcedureParameters": {
+														"action_ind": {
+															"value": {
+																"value": "U",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"application_name": {
+															"value": {
+																"value": "@{item().application_name}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"dataset_name": {
+															"value": {
+																"value": "@{item().data_filename}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"pipeline_name": {
+															"value": {
+																"value": "@{pipeline().Pipeline}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"pipeline_run_id": {
+															"value": {
+																"value": "@{pipeline().RunId}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"pipeline_status": {
+															"value": {
+																"value": "Failed",
+																"type": "Expression"
+															},
+															"type": "String"
+														}
+													}
+												},
+												"linkedServiceName": {
+													"referenceName": "LS_SQL",
+													"type": "LinkedServiceReference"
+												}
+											}
+										]
+									},
+									{
+										"value": "LS_APAC_CN_DF_DB2",
+										"activities": [
+											{
+												"name": "SP-PipelineStart_Extract_ChinaDF_DB2",
+												"description": "This activity logs success of  Data Extract in khc_audit_log_detail table.",
+												"type": "SqlServerStoredProcedure",
+												"dependsOn": [],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+													"storedProcedureParameters": {
+														"action_ind": {
+															"value": {
+																"value": "I",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"application_name": {
+															"value": {
+																"value": "@{item().application_name}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"dataset_name": {
+															"value": {
+																"value": "@{item().data_filename}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"pipeline_name": {
+															"value": {
+																"value": "@{pipeline().Pipeline}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"pipeline_run_id": {
+															"value": {
+																"value": "@{pipeline().RunId}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"pipeline_status": {
+															"value": {
+																"value": "Processing",
+																"type": "Expression"
+															},
+															"type": "String"
+														}
+													}
+												},
+												"linkedServiceName": {
+													"referenceName": "LS_SQL",
+													"type": "LinkedServiceReference"
+												}
+											},
+											{
+												"name": "Copy_China_DF_DB2_BPCS",
+												"description": "Data extraction from DB2 BPCS system and copying extracted files to specified blob location",
+												"type": "Copy",
+												"dependsOn": [
+													{
+														"activity": "SP-PipelineStart_Extract_ChinaDF_DB2",
+														"dependencyConditions": [
+															"Succeeded"
+														]
+													}
+												],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"source": {
+														"type": "Db2Source",
+														"query": {
+															"value": "@{item().table_name}",
+															"type": "Expression"
+														}
+													},
+													"sink": {
+														"type": "DelimitedTextSink",
+														"storeSettings": {
+															"type": "AzureBlobFSWriteSettings"
+														},
+														"formatSettings": {
+															"type": "DelimitedTextWriteSettings",
+															"quoteAllText": true,
+															"fileExtension": ".txt"
+														}
+													},
+													"enableStaging": false
+												},
+												"inputs": [
+													{
+														"referenceName": "DS_KHCDE_APAC_CN_DF_DB2",
+														"type": "DatasetReference"
+													}
+												],
+												"outputs": [
+													{
+														"referenceName": "DS_KHCDE_APAC_CN_DF_BLOB_Folder",
+														"type": "DatasetReference",
+														"parameters": {
+															"cw_fileName": {
+																"value": "@{concat(item().data_filename,'.csv')}",
+																"type": "Expression"
+															},
+															"cw_containerName": {
+																"value": "@{item().container_name}",
+																"type": "Expression"
+															},
+															"cw_filePath": {
+																"value": "@{item().stage_blob_name}",
+																"type": "Expression"
+															}
+														}
+													}
+												]
+											},
+											{
+												"name": "SP-PipelineEnd_China_DF_DB2_Extract",
+												"description": "This activity logs success of  Data Extract in khc_audit_log_detail table.",
+												"type": "SqlServerStoredProcedure",
+												"dependsOn": [
+													{
+														"activity": "Copy_China_DF_DB2_BPCS",
+														"dependencyConditions": [
+															"Succeeded"
+														]
+													}
+												],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+													"storedProcedureParameters": {
+														"action_ind": {
+															"value": {
+																"value": "U",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"application_name": {
+															"value": {
+																"value": "@{item().application_name}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"dataset_name": {
+															"value": {
+																"value": "@{item().data_filename}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"pipeline_name": {
+															"value": {
+																"value": "@{pipeline().Pipeline}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"pipeline_run_id": {
+															"value": {
+																"value": "@{pipeline().RunId}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"pipeline_status": {
+															"value": {
+																"value": "Successful",
+																"type": "Expression"
+															},
+															"type": "String"
+														}
+													}
+												},
+												"linkedServiceName": {
+													"referenceName": "LS_SQL",
+													"type": "LinkedServiceReference"
+												}
+											},
+											{
+												"name": "SP-PipelineEnd_China_DF_DB2_Extract_Failed",
+												"description": "This activity logs success of  Data Extract in khc_audit_log_detail table.",
+												"type": "SqlServerStoredProcedure",
+												"dependsOn": [
+													{
+														"activity": "Copy_China_DF_DB2_BPCS",
+														"dependencyConditions": [
+															"Failed"
+														]
+													}
+												],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+													"storedProcedureParameters": {
+														"action_ind": {
+															"value": {
+																"value": "U",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"application_name": {
+															"value": {
+																"value": "@{item().application_name}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"dataset_name": {
+															"value": {
+																"value": "@{item().data_filename}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"pipeline_name": {
+															"value": {
+																"value": "@{pipeline().Pipeline}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"pipeline_run_id": {
+															"value": {
+																"value": "@{pipeline().RunId}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"pipeline_status": {
+															"value": {
+																"value": "Failed",
+																"type": "Expression"
+															},
+															"type": "String"
+														}
+													}
+												},
+												"linkedServiceName": {
+													"referenceName": "LS_SQL",
+													"type": "LinkedServiceReference"
+												}
+											}
+										]
+									},
+									{
+										"value": "LS_APAC_NEA_DF_DB2",
+										"activities": [
+											{
+												"name": "SP-PipelineStart_Extract_NEA_DF_DB2",
+												"description": "This activity logs success of  Data Extract in khc_audit_log_detail table.",
+												"type": "SqlServerStoredProcedure",
+												"dependsOn": [],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+													"storedProcedureParameters": {
+														"action_ind": {
+															"value": {
+																"value": "I",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"application_name": {
+															"value": {
+																"value": "@{item().application_name}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"dataset_name": {
+															"value": {
+																"value": "@{item().data_filename}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"pipeline_name": {
+															"value": {
+																"value": "@{pipeline().Pipeline}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"pipeline_run_id": {
+															"value": {
+																"value": "@{pipeline().RunId}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"pipeline_status": {
+															"value": {
+																"value": "Processing",
+																"type": "Expression"
+															},
+															"type": "String"
+														}
+													}
+												},
+												"linkedServiceName": {
+													"referenceName": "LS_SQL",
+													"type": "LinkedServiceReference"
+												}
+											},
+											{
+												"name": "Copy_DB2_NEA_BPCS_DATA",
+												"description": "Data extraction from DB2 BPCS system and copying extracted files to specified blob location",
+												"type": "Copy",
+												"dependsOn": [
+													{
+														"activity": "SP-PipelineStart_Extract_NEA_DF_DB2",
+														"dependencyConditions": [
+															"Succeeded"
+														]
+													}
+												],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"source": {
+														"type": "Db2Source",
+														"query": {
+															"value": "@{item().table_name}",
+															"type": "Expression"
+														}
+													},
+													"sink": {
+														"type": "ParquetSink",
+														"storeSettings": {
+															"type": "AzureBlobFSWriteSettings"
+														},
+														"formatSettings": {
+															"type": "ParquetWriteSettings"
+														}
+													},
+													"enableStaging": false
+												},
+												"inputs": [
+													{
+														"referenceName": "DS_KHCDE_APAC_NEA_DF_DB2",
+														"type": "DatasetReference"
+													}
+												],
+												"outputs": [
+													{
+														"referenceName": "DS_KHCDE_GENERIC_BLOB_PARQUET_FolderFile",
+														"type": "DatasetReference",
+														"parameters": {
+															"container_name": {
+																"value": "@{item().container_name}",
+																"type": "Expression"
+															},
+															"blob_name": {
+																"value": "@{item().stage_blob_name}",
+																"type": "Expression"
+															},
+															"file_name": {
+																"value": "@{concat(item().data_filename,'.parquet')}",
+																"type": "Expression"
+															}
+														}
+													}
+												]
+											},
+											{
+												"name": "SP-PipelineEnd_NEA_DF_DB2_Extract",
+												"description": "This activity logs success of  Data Extract in khc_audit_log_detail table.",
+												"type": "SqlServerStoredProcedure",
+												"dependsOn": [
+													{
+														"activity": "Copy_DB2_NEA_BPCS_DATA",
+														"dependencyConditions": [
+															"Succeeded"
+														]
+													}
+												],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+													"storedProcedureParameters": {
+														"action_ind": {
+															"value": {
+																"value": "U",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"application_name": {
+															"value": {
+																"value": "@{item().application_name}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"dataset_name": {
+															"value": {
+																"value": "@{item().data_filename}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"pipeline_name": {
+															"value": {
+																"value": "@{pipeline().Pipeline}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"pipeline_run_id": {
+															"value": {
+																"value": "@{pipeline().RunId}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"pipeline_status": {
+															"value": {
+																"value": "Successful",
+																"type": "Expression"
+															},
+															"type": "String"
+														}
+													}
+												},
+												"linkedServiceName": {
+													"referenceName": "LS_SQL",
+													"type": "LinkedServiceReference"
+												}
+											},
+											{
+												"name": "SP-PipelineEnd_NEA_DF_DB2_Extract_Failed",
+												"description": "This activity logs success of  Data Extract in khc_audit_log_detail table.",
+												"type": "SqlServerStoredProcedure",
+												"dependsOn": [
+													{
+														"activity": "Copy_DB2_NEA_BPCS_DATA",
+														"dependencyConditions": [
+															"Failed"
+														]
+													}
+												],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+													"storedProcedureParameters": {
+														"action_ind": {
+															"value": {
+																"value": "U",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"application_name": {
+															"value": {
+																"value": "@{item().application_name}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"dataset_name": {
+															"value": {
+																"value": "@{item().data_filename}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"pipeline_name": {
+															"value": {
+																"value": "@{pipeline().Pipeline}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"pipeline_run_id": {
+															"value": {
+																"value": "@{pipeline().RunId}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"pipeline_status": {
+															"value": {
+																"value": "Failed",
+																"type": "Expression"
+															},
+															"type": "String"
+														}
+													}
+												},
+												"linkedServiceName": {
+													"referenceName": "LS_SQL",
+													"type": "LinkedServiceReference"
+												}
+											}
+										]
+									},
+									{
+										"value": "LS_APAC_DB2_BPCS",
+										"activities": [
+											{
+												"name": "SP-PipelineEnd_Extract_Failed1",
+												"description": "This activity logs success of  Data Extract in khc_audit_log_detail table.",
+												"type": "SqlServerStoredProcedure",
+												"dependsOn": [
+													{
+														"activity": "CP-BPCS DB2 DATA",
+														"dependencyConditions": [
+															"Failed"
+														]
+													}
+												],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+													"storedProcedureParameters": {
+														"action_ind": {
+															"value": {
+																"value": "U",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"application_name": {
+															"value": {
+																"value": "@{item().application_name}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"dataset_name": {
+															"value": {
+																"value": "@{item().data_filename}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"pipeline_name": {
+															"value": {
+																"value": "@{pipeline().Pipeline}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"pipeline_run_id": {
+															"value": {
+																"value": "@{pipeline().RunId}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"pipeline_status": {
+															"value": {
+																"value": "Failed",
+																"type": "Expression"
+															},
+															"type": "String"
+														}
+													}
+												},
+												"linkedServiceName": {
+													"referenceName": "LS_SQL",
+													"type": "LinkedServiceReference"
+												}
+											},
+											{
+												"name": "SP-PipelineEnd_Extract1",
+												"description": "This activity logs success of  Data Extract in khc_audit_log_detail table.",
+												"type": "SqlServerStoredProcedure",
+												"dependsOn": [
+													{
+														"activity": "CP-BPCS DB2 DATA",
+														"dependencyConditions": [
+															"Succeeded"
+														]
+													}
+												],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+													"storedProcedureParameters": {
+														"action_ind": {
+															"value": {
+																"value": "U",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"application_name": {
+															"value": {
+																"value": "@{item().application_name}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"dataset_name": {
+															"value": {
+																"value": "@{item().data_filename}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"pipeline_name": {
+															"value": {
+																"value": "@{pipeline().Pipeline}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"pipeline_run_id": {
+															"value": {
+																"value": "@{pipeline().RunId}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"pipeline_status": {
+															"value": {
+																"value": "Successful",
+																"type": "Expression"
+															},
+															"type": "String"
+														}
+													}
+												},
+												"linkedServiceName": {
+													"referenceName": "LS_SQL",
+													"type": "LinkedServiceReference"
+												}
+											},
+											{
+												"name": "CP-BPCS DB2 DATA",
+												"description": "Data extraction from DB2 BPCS system and copying extracted files to specified blob location",
+												"type": "Copy",
+												"dependsOn": [
+													{
+														"activity": "SP-PipelineStart_Extract1",
+														"dependencyConditions": [
+															"Succeeded"
+														]
+													}
+												],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"source": {
+														"type": "Db2Source",
+														"query": {
+															"value": "@{item().table_name}",
+															"type": "Expression"
+														}
+													},
+													"sink": {
+														"type": "DelimitedTextSink",
+														"storeSettings": {
+															"type": "AzureBlobFSWriteSettings"
+														},
+														"formatSettings": {
+															"type": "DelimitedTextWriteSettings",
+															"quoteAllText": true,
+															"fileExtension": ".txt"
+														}
+													},
+													"enableStaging": false,
+													"translator": {
+														"type": "TabularTranslator",
+														"typeConversion": true,
+														"typeConversionSettings": {
+															"allowDataTruncation": true,
+															"treatBooleanAsNumber": false
+														}
+													}
+												},
+												"inputs": [
+													{
+														"referenceName": "DS_KHCDE_APAC_ANZ_DF_DB2",
+														"type": "DatasetReference"
+													}
+												],
+												"outputs": [
+													{
+														"referenceName": "DS_KHCDE_APAC_INDO_SEABPP_BLOB",
+														"type": "DatasetReference",
+														"parameters": {
+															"cw_fileName": {
+																"value": "@{concat(item().data_filename,'.csv')}",
+																"type": "Expression"
+															},
+															"cw_containerName": {
+																"value": "@{item().container_name}",
+																"type": "Expression"
+															},
+															"cw_filePath": {
+																"value": "@{item().stage_blob_name}",
+																"type": "Expression"
+															}
+														}
+													}
+												]
+											},
+											{
+												"name": "SP-PipelineStart_Extract1",
+												"description": "This activity logs success of  Data Extract in khc_audit_log_detail table.",
+												"type": "SqlServerStoredProcedure",
+												"dependsOn": [],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+													"storedProcedureParameters": {
+														"action_ind": {
+															"value": {
+																"value": "I",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"application_name": {
+															"value": {
+																"value": "@{item().application_name}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"dataset_name": {
+															"value": {
+																"value": "@{item().data_filename}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"pipeline_name": {
+															"value": {
+																"value": "@{pipeline().Pipeline}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"pipeline_run_id": {
+															"value": {
+																"value": "@{pipeline().RunId}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"pipeline_status": {
+															"value": {
+																"value": "Processing",
+																"type": "Expression"
+															},
+															"type": "String"
+														}
+													}
+												},
+												"linkedServiceName": {
+													"referenceName": "LS_SQL",
+													"type": "LinkedServiceReference"
+												}
+											}
+										]
+									},
+									{
+										"value": "LS_APAC_ANZ_DWH_DB2_2",
+										"activities": [
+											{
+												"name": "SP-PipelineStart_Extract_001",
+												"description": "This activity logs success of  Data Extract in khc_audit_log_detail table.",
+												"type": "SqlServerStoredProcedure",
+												"dependsOn": [],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+													"storedProcedureParameters": {
+														"action_ind": {
+															"value": {
+																"value": "I",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"application_name": {
+															"value": {
+																"value": "@{item().application_name}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"dataset_name": {
+															"value": {
+																"value": "@{item().data_filename}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"pipeline_name": {
+															"value": {
+																"value": "@{pipeline().Pipeline}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"pipeline_run_id": {
+															"value": {
+																"value": "@{pipeline().RunId}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"pipeline_status": {
+															"value": {
+																"value": "Processing",
+																"type": "Expression"
+															},
+															"type": "String"
+														}
+													}
+												},
+												"linkedServiceName": {
+													"referenceName": "LS_SQL",
+													"type": "LinkedServiceReference"
+												}
+											},
+											{
+												"name": "EP-DWH Load",
+												"type": "ExecutePipeline",
+												"dependsOn": [
+													{
+														"activity": "SP-PipelineStart_Extract_001",
+														"dependencyConditions": [
+															"Succeeded"
+														]
+													}
+												],
+												"userProperties": [],
+												"typeProperties": {
+													"pipeline": {
+														"referenceName": "PL_KHCDE_SUB_APAC_ANZ_SOO_EXT_SCH_EXTRACT",
+														"type": "PipelineReference"
+													},
+													"waitOnCompletion": true,
+													"parameters": {
+														"application_name": {
+															"value": "@pipeline().parameters.application_name",
+															"type": "Expression"
+														},
+														"adf_trigger_name": {
+															"value": "@pipeline().parameters.adf_trigger_name",
+															"type": "Expression"
+														}
+													}
+												}
+											},
+											{
+												"name": "SP-PipelineEnd_Extract_Failed_001",
+												"description": "This activity logs success of  Data Extract in khc_audit_log_detail table.",
+												"type": "SqlServerStoredProcedure",
+												"dependsOn": [
+													{
+														"activity": "EP-DWH Load",
+														"dependencyConditions": [
+															"Failed"
+														]
+													}
+												],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+													"storedProcedureParameters": {
+														"action_ind": {
+															"value": {
+																"value": "U",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"application_name": {
+															"value": {
+																"value": "@{item().application_name}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"dataset_name": {
+															"value": {
+																"value": "@{item().data_filename}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"pipeline_name": {
+															"value": {
+																"value": "@{pipeline().Pipeline}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"pipeline_run_id": {
+															"value": {
+																"value": "@{pipeline().RunId}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"pipeline_status": {
+															"value": {
+																"value": "Failed",
+																"type": "Expression"
+															},
+															"type": "String"
+														}
+													}
+												},
+												"linkedServiceName": {
+													"referenceName": "LS_SQL",
+													"type": "LinkedServiceReference"
+												}
+											},
+											{
+												"name": "SP-PipelineEnd_Extract_001",
+												"description": "This activity logs success of  Data Extract in khc_audit_log_detail table.",
+												"type": "SqlServerStoredProcedure",
+												"dependsOn": [
+													{
+														"activity": "EP-DWH Load",
+														"dependencyConditions": [
+															"Succeeded"
+														]
+													}
+												],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+													"storedProcedureParameters": {
+														"action_ind": {
+															"value": {
+																"value": "U",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"application_name": {
+															"value": {
+																"value": "@{item().application_name}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"dataset_name": {
+															"value": {
+																"value": "@{item().data_filename}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"pipeline_name": {
+															"value": {
+																"value": "@{pipeline().Pipeline}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"pipeline_run_id": {
+															"value": {
+																"value": "@{pipeline().RunId}",
+																"type": "Expression"
+															},
+															"type": "String"
+														},
+														"pipeline_status": {
+															"value": {
+																"value": "Successful",
+																"type": "Expression"
+															},
+															"type": "String"
+														}
+													}
+												},
+												"linkedServiceName": {
+													"referenceName": "LS_SQL",
+													"type": "LinkedServiceReference"
+												}
+											}
+										]
+									}
+								],
+								"defaultActivities": [
+									{
+										"name": "Wait",
+										"description": "Wait Activity",
+										"type": "Wait",
+										"dependsOn": [],
+										"userProperties": [],
+										"typeProperties": {
+											"waitTimeInSeconds": 1
+										}
+									}
+								]
+							}
+						},
+						{
+							"name": "SW-DB2_Extract_Others",
+							"description": "switch activity for other tables",
+							"type": "Switch",
+							"dependsOn": [],
+							"userProperties": [],
+							"typeProperties": {
+								"on": {
+									"value": "@item().server_name",
+									"type": "Expression"
+								},
+								"cases": [
+									{
+										"value": "LS_APAC_INDO_DF_DB2_GCOE",
+										"activities": [
+											{
+												"name": "Copy_DB2_BPCS_DATA_INDO",
+												"description": "Data extraction from DB2 BPCS system and copying extracted files to specified blob location",
+												"type": "Copy",
+												"dependsOn": [],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"source": {
+														"type": "Db2Source",
+														"query": {
+															"value": "@{item().table_name}",
+															"type": "Expression"
+														}
+													},
+													"sink": {
+														"type": "DelimitedTextSink",
+														"storeSettings": {
+															"type": "AzureBlobFSWriteSettings"
+														},
+														"formatSettings": {
+															"type": "DelimitedTextWriteSettings",
+															"quoteAllText": true,
+															"fileExtension": ".txt"
+														}
+													},
+													"enableStaging": false,
+													"translator": {
+														"type": "TabularTranslator",
+														"typeConversion": true,
+														"typeConversionSettings": {
+															"allowDataTruncation": true,
+															"treatBooleanAsNumber": false
+														}
+													}
+												},
+												"inputs": [
+													{
+														"referenceName": "DS_KHCDE_APAC_INDO_SEABPP_DB2",
+														"type": "DatasetReference"
+													}
+												],
+												"outputs": [
+													{
+														"referenceName": "DS_KHCDE_APAC_INDO_SEABPP_BLOB_GCOE",
+														"type": "DatasetReference",
+														"parameters": {
+															"cw_fileName": {
+																"value": "apac_indo_hpo.csv",
+																"type": "Expression"
+															},
+															"cw_containerName": {
+																"value": "@{item().container_name}",
+																"type": "Expression"
+															},
+															"cw_filePath": {
+																"value": "@{item().stage_blob_name}",
+																"type": "Expression"
+															}
+														}
+													}
+												]
+											}
+										]
+									},
+									{
+										"value": "LS_APAC_NEA_DF_DB2_GCOE",
+										"activities": [
+											{
+												"name": "Copy_DB2_NEA_BPCS_DATA_CSV",
+												"description": "Data extraction from DB2 BPCS system and copying extracted files to specified blob location",
+												"type": "Copy",
+												"dependsOn": [],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"source": {
+														"type": "Db2Source",
+														"query": {
+															"value": "@{item().table_name}",
+															"type": "Expression"
+														}
+													},
+													"sink": {
+														"type": "DelimitedTextSink",
+														"storeSettings": {
+															"type": "AzureBlobFSWriteSettings"
+														},
+														"formatSettings": {
+															"type": "DelimitedTextWriteSettings",
+															"quoteAllText": true,
+															"fileExtension": ".txt"
+														}
+													},
+													"enableStaging": false
+												},
+												"inputs": [
+													{
+														"referenceName": "DS_KHCDE_APAC_NEA_DF_DB2",
+														"type": "DatasetReference"
+													}
+												],
+												"outputs": [
+													{
+														"referenceName": "DS_KHCDE_APAC_INDO_SEABPP_BLOB",
+														"type": "DatasetReference",
+														"parameters": {
+															"cw_fileName": {
+																"value": "@{concat(item().data_filename,'.csv')}",
+																"type": "Expression"
+															},
+															"cw_containerName": {
+																"value": "@item().container_name",
+																"type": "Expression"
+															},
+															"cw_filePath": {
+																"value": "@item().stage_blob_name",
+																"type": "Expression"
+															}
+														}
+													}
+												]
+											}
+										]
+									}
+								]
+							}
+						}
+					]
+				}
+			},
+			{
+				"name": "Audit_Log_Data_Extraction_Success",
+				"description": "This activity logs success of  Data Extract in khc_audit_log_detail table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "ForEach-DB2_Inp",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": "Data_Extraction",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Successful",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.Application_Name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.adf_trigger_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "Audit_Log_Data_Extraction_Failure",
+				"description": "This activity logs failure of Data Extract in khc_audit_log_detail table and failure of pipeline in  khc_audit_log table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "ForEach-DB2_Inp",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": "U",
+							"type": "String"
+						},
+						"activity_name": {
+							"value": {
+								"value": "Copy Extract for DB2 BPCS Indo",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"activity_status": {
+							"value": "Failed",
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.adf_trigger_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_code": {
+							"value": {
+								"value": "@{activity('ForEach-DB2_Inp').Error.errorCode}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_detail": {
+							"value": {
+								"value": "@{activity('ForEach-DB2_Inp').Error.message}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@pipeline().RunId",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": "Failed ",
+							"type": "String"
+						},
+						"skip_pipeline_audit_update": {
+							"value": "N",
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-PipelineStart",
+				"description": "This Activity logs starting of pipeline in khc_audit_log table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": {
+								"value": "I",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.adf_trigger_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@pipeline().Pipeline",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@pipeline().RunId",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": {
+								"value": "Extract Pipeline Started",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			}
+		],
+		"parameters": {
+			"application_name": {
+				"type": "string"
+			},
+			"adf_trigger_name": {
+				"type": "string"
+			}
+		},
+		"variables": {
+			"dataset": {
+				"type": "Array"
+			}
+		},
+		"folder": {
+			"name": "Apac_Master/sub-pipeline"
+		},
+		"annotations": []
+	},
+	"type": "Microsoft.DataFactory/factories/pipelines"
+}

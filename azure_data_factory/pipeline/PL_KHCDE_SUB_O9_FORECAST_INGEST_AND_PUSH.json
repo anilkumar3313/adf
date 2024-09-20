@@ -1,0 +1,3302 @@
+{
+	"name": "PL_KHCDE_SUB_O9_FORECAST_INGEST_AND_PUSH",
+	"properties": {
+		"description": "This pipeline will ingest proforma data sent by o9, will build snwoflake tables using snowflake ingestion and dbt processing. After DBT processing it will extract the same and send it to SAPBI's Oracle Sink.",
+		"activities": [
+			{
+				"name": "LU-Metadata",
+				"description": "Metadata after joining orchestration and extration.",
+				"type": "Lookup",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "SqlServerSource",
+						"sqlReaderQuery": {
+							"value": "select exm.*,om.dbt_trigger_name , om.parameter_json from \nkhc_enggextract_metadata exm\ninner join khc_orchestration_metadata om\non exm.application_name = om.application_name\nand exm.dataset_group = om.dataset_group\nand exm.parent_id = om.parent_id\nwhere \nexm.application_name = '@{pipeline().parameters.application_name}' \nand om.adf_trigger_name = '@{replace(pipeline().parameters.blob_trigger_name,'_trigger.txt','')}' \nand exm.active_ind = 'y'\nand om.active_ind = 'y'",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "DS_KHCDE_GENERIC_MSSQL_Metadata",
+						"type": "DatasetReference"
+					},
+					"firstRowOnly": false
+				}
+			},
+			{
+				"name": "EP-Snowflake_Ingestion",
+				"description": "This will perform Snowflake Ingestion for the datasets.",
+				"type": "ExecutePipeline",
+				"dependsOn": [
+					{
+						"activity": "LU-Metadata",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"pipeline": {
+						"referenceName": "PL_KHCDE_GENERIC_SnowflakeIngestion",
+						"type": "PipelineReference"
+					},
+					"waitOnCompletion": true,
+					"parameters": {
+						"ApplicationName": {
+							"value": "@pipeline().parameters.application_name",
+							"type": "Expression"
+						},
+						"DatasetGroup": {
+							"value": "@activity('LU-Metadata').output.value[0].dataset_group",
+							"type": "Expression"
+						},
+						"ParameterJson": {
+							"value": "@activity('LU-Metadata').output.value[0].parameter_json",
+							"type": "Expression"
+						}
+					}
+				}
+			},
+			{
+				"name": "EP-DBT_Processing",
+				"description": "This will perform DBT Processing for the datasets",
+				"type": "ExecutePipeline",
+				"dependsOn": [
+					{
+						"activity": "EP-Snowflake_Ingestion",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"pipeline": {
+						"referenceName": "PL_KHCDE_GENERIC_DBTProcessing",
+						"type": "PipelineReference"
+					},
+					"waitOnCompletion": true,
+					"parameters": {
+						"ApplicationName": {
+							"value": "@pipeline().parameters.application_name",
+							"type": "Expression"
+						},
+						"DatasetGroup": {
+							"value": "@activity('LU-Metadata').output.value[0].dataset_group",
+							"type": "Expression"
+						},
+						"ParameterJson": {
+							"value": "@activity('LU-Metadata').output.value[0].parameter_json",
+							"type": "Expression"
+						}
+					}
+				}
+			},
+			{
+				"name": "FE-Create_DBT_Trigger",
+				"description": "This will create DBT triggers for the datasets.",
+				"type": "ForEach",
+				"dependsOn": [
+					{
+						"activity": "EP-DBT_Processing",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"items": {
+						"value": "@activity('LU-Metadata').output.value",
+						"type": "Expression"
+					},
+					"activities": [
+						{
+							"name": "If Condition1",
+							"description": "To checke where to put the dbt triggers",
+							"type": "IfCondition",
+							"dependsOn": [],
+							"userProperties": [],
+							"typeProperties": {
+								"expression": {
+									"value": "@and(not(empty(item().dbt_trigger_name)),greater(length(trim(item().dbt_trigger_name)), 0))",
+									"type": "Expression"
+								},
+								"ifTrueActivities": [
+									{
+										"name": "CP-Create_DBT_Trigger",
+										"description": "Copy activity to actually create the dbt trigger files",
+										"type": "Copy",
+										"dependsOn": [],
+										"policy": {
+											"timeout": "7.00:00:00",
+											"retry": 5,
+											"retryIntervalInSeconds": 30,
+											"secureOutput": false,
+											"secureInput": false
+										},
+										"userProperties": [],
+										"typeProperties": {
+											"source": {
+												"type": "SqlServerSource",
+												"sqlReaderQuery": {
+													"value": "select current_timestamp",
+													"type": "Expression"
+												},
+												"queryTimeout": "02:00:00",
+												"partitionOption": "None"
+											},
+											"sink": {
+												"type": "DelimitedTextSink",
+												"storeSettings": {
+													"type": "AzureBlobFSWriteSettings"
+												},
+												"formatSettings": {
+													"type": "DelimitedTextWriteSettings",
+													"quoteAllText": true,
+													"fileExtension": ".txt"
+												}
+											},
+											"enableStaging": false,
+											"translator": {
+												"type": "TabularTranslator",
+												"typeConversion": true,
+												"typeConversionSettings": {
+													"allowDataTruncation": true,
+													"treatBooleanAsNumber": false
+												}
+											}
+										},
+										"inputs": [
+											{
+												"referenceName": "DS_KHCDE_GENERIC_MSSQL_Metadata",
+												"type": "DatasetReference"
+											}
+										],
+										"outputs": [
+											{
+												"referenceName": "DS_KHCDE_GENERIC_BLOB_CSV_FolderFile",
+												"type": "DatasetReference",
+												"parameters": {
+													"container_name": {
+														"value": "@{item().container_name}",
+														"type": "Expression"
+													},
+													"blob_name": {
+														"value": "@if(contains(item().dbt_trigger_name, '/'), substring(item().dbt_trigger_name, 0, lastIndexOf(item().dbt_trigger_name, '/')), 'sales/triggers')",
+														"type": "Expression"
+													},
+													"file_name": {
+														"value": "@if(contains(item().dbt_trigger_name, '/'), last(split(item().dbt_trigger_name, '/')), item().dbt_trigger_name)",
+														"type": "Expression"
+													},
+													"field_delimiter": ","
+												}
+											}
+										]
+									},
+									{
+										"name": "WB-SendFailureEmail03",
+										"description": "to send email notification",
+										"type": "WebActivity",
+										"dependsOn": [
+											{
+												"activity": "CP-Create_DBT_Trigger",
+												"dependencyConditions": [
+													"Failed"
+												]
+											}
+										],
+										"policy": {
+											"timeout": "7.00:00:00",
+											"retry": 5,
+											"retryIntervalInSeconds": 30,
+											"secureOutput": false,
+											"secureInput": false
+										},
+										"userProperties": [],
+										"typeProperties": {
+											"url": {
+												"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+												"type": "Expression"
+											},
+											"method": "POST",
+											"body": {
+												"value": "{ \n        \"to_email\": \"@{variables('emailTo')}\", \n        \"subject\": \"Failed during Create DBT Trigger: @{pipeline().parameters.application_name} - @{pipeline().parameters.blob_trigger_name}\", \n        \"body\": \"Dear All,<br><br>The cloud analytics data load process failed for the below:<br><b>Application: @{pipeline().parameters.application_name}</b><br><br> Please find below the details: <br><br> Pipeline Name: @{pipeline().Pipeline} <br> Pipeline Run ID: @{pipeline().RunId}<br> Pipeline Trigger Name: @{pipeline().TriggerName}<br> Pipeline Trigger Type: @{pipeline().TriggerType}<br> Pipeline Start Time: @{pipeline().TriggerTime}<br> Activity: FE-Create_DBT_Trigger<br>Next Step: Please check the dataset group and active_ind<br><br>Parameters:<br>===========<br>Application Name: @{pipeline().parameters.application_name}<br>Blob Trigger Name: @{pipeline().parameters.blob_trigger_name}<br><br>Error Code: @{activity('CP-Create_DBT_Trigger').Error.errorCode} <br>Error Message: @{activity('CP-Create_DBT_Trigger').Error.message}, check the logs. <br><br>Please take care.<br><br>Regards,<br>Cloud Analytics Team\", \n        \"importance\": \"High\"\n}",
+												"type": "Expression"
+											}
+										}
+									}
+								]
+							}
+						}
+					]
+				}
+			},
+			{
+				"name": "FE-Push_To_Oracle_And_Create_Trigger",
+				"description": "This will push the extracted datasets into Oracle server. After pushing triggers will be created",
+				"type": "ForEach",
+				"dependsOn": [
+					{
+						"activity": "EP-Snowflake_Extraction",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"items": {
+						"value": "@activity('LU-Metadata').output.value",
+						"type": "Expression"
+					},
+					"activities": [
+						{
+							"name": "Switch1",
+							"description": "Check which dataset to work upon.",
+							"type": "Switch",
+							"dependsOn": [],
+							"userProperties": [],
+							"typeProperties": {
+								"on": {
+									"value": "@item().sftp_path",
+									"type": "Expression"
+								},
+								"cases": [
+									{
+										"value": "O9_APO_DAILY_FORECAST",
+										"activities": [
+											{
+												"name": "CP-Copy_to_Oracle_Daily",
+												"description": "Copy activity to copy the daily files into oracle.",
+												"type": "Copy",
+												"dependsOn": [],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"source": {
+														"type": "DelimitedTextSource",
+														"storeSettings": {
+															"type": "AzureBlobFSReadSettings",
+															"recursive": true,
+															"wildcardFolderPath": {
+																"value": "@item().extract_blob_location",
+																"type": "Expression"
+															},
+															"wildcardFileName": {
+																"value": "@{item().extract_file_name}*",
+																"type": "Expression"
+															},
+															"enablePartitionDiscovery": false
+														},
+														"formatSettings": {
+															"type": "DelimitedTextReadSettings"
+														}
+													},
+													"sink": {
+														"type": "OracleSink",
+														"writeBatchSize": 200000,
+														"preCopyScript": {
+															"value": "@{concat('truncate table O9_APO_FORECAST.',item().sftp_path)}",
+															"type": "Expression"
+														}
+													},
+													"enableStaging": false,
+													"translator": {
+														"type": "TabularTranslator",
+														"mappings": [
+															{
+																"source": {
+																	"type": "String",
+																	"ordinal": 1
+																},
+																"sink": {
+																	"name": "SKU",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"type": "String",
+																	"ordinal": 2
+																},
+																"sink": {
+																	"name": "VERSION",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"type": "String",
+																	"ordinal": 3
+																},
+																"sink": {
+																	"name": "IBP_CUSTOMER_CODE",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"type": "String",
+																	"ordinal": 4
+																},
+																"sink": {
+																	"name": "IBP_CUSTOMER_DESCRIPTION",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"type": "String",
+																	"ordinal": 5
+																},
+																"sink": {
+																	"name": "LOCATION",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"type": "String",
+																	"ordinal": 6
+																},
+																"sink": {
+																	"name": "SALES_ORG",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"type": "String",
+																	"ordinal": 7
+																},
+																"sink": {
+																	"name": "EPM_CODE",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"type": "String",
+																	"ordinal": 8
+																},
+																"sink": {
+																	"name": "EPM_DESCRIPTION",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"type": "String",
+																	"ordinal": 9
+																},
+																"sink": {
+																	"name": "FISCAL_WEEK",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"type": "String",
+																	"ordinal": 10
+																},
+																"sink": {
+																	"name": "DISTRIBUTION_CHANNEL",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"type": "String",
+																	"ordinal": 11
+																},
+																"sink": {
+																	"name": "BASECODE",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"type": "String",
+																	"ordinal": 12
+																},
+																"sink": {
+																	"name": "ML_FORECAST",
+																	"type": "Double"
+																}
+															},
+															{
+																"source": {
+																	"type": "String",
+																	"ordinal": 13
+																},
+																"sink": {
+																	"name": "CONSENSUS_FORECAST",
+																	"type": "Double"
+																}
+															},
+															{
+																"source": {
+																	"type": "String",
+																	"ordinal": 14
+																},
+																"sink": {
+																	"name": "FINAL_FORECAST",
+																	"type": "Double"
+																}
+															},
+															{
+																"source": {
+																	"type": "String",
+																	"ordinal": 15
+																},
+																"sink": {
+																	"name": "BASE_UOM",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"type": "String",
+																	"ordinal": 16
+																},
+																"sink": {
+																	"name": "CALENDAR_YEAR_MONTH",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"type": "String",
+																	"ordinal": 17
+																},
+																"sink": {
+																	"name": "SNAPSHOT_DATE",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"type": "String",
+																	"ordinal": 18
+																},
+																"sink": {
+																	"name": "SNAPSHOT_TIME",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"type": "String",
+																	"ordinal": 19
+																},
+																"sink": {
+																	"name": "SNAPSHOT_MONTH",
+																	"type": "Decimal"
+																}
+															},
+															{
+																"source": {
+																	"type": "String",
+																	"ordinal": 20
+																},
+																"sink": {
+																	"name": "FORECAST_DATE",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"type": "String",
+																	"ordinal": 21
+																},
+																"sink": {
+																	"name": "CALENDAR_YEAR_WEEK",
+																	"type": "Decimal"
+																}
+															},
+															{
+																"source": {
+																	"type": "String",
+																	"ordinal": 22
+																},
+																"sink": {
+																	"name": "FISCAL_MONTH",
+																	"type": "Decimal"
+																}
+															},
+															{
+																"source": {
+																	"type": "String",
+																	"ordinal": 23
+																},
+																"sink": {
+																	"name": "LIST_PRICE",
+																	"type": "Double"
+																}
+															},
+															{
+																"source": {
+																	"type": "String",
+																	"ordinal": 24
+																},
+																"sink": {
+																	"name": "BASE_CURRENCY",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"type": "String",
+																	"ordinal": 25
+																},
+																"sink": {
+																	"name": "FISCAL_YEAR",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"type": "String",
+																	"ordinal": 26
+																},
+																"sink": {
+																	"name": "VALUE_TYPE",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"type": "String",
+																	"ordinal": 27
+																},
+																"sink": {
+																	"name": "ML_FORECAST_REVENUE_IN_DOLLAR",
+																	"type": "Double"
+																}
+															},
+															{
+																"source": {
+																	"type": "String",
+																	"ordinal": 28
+																},
+																"sink": {
+																	"name": "CONSENSUS_FORECAST_IN_DOLLAR",
+																	"type": "Double"
+																}
+															},
+															{
+																"source": {
+																	"type": "String",
+																	"ordinal": 29
+																},
+																"sink": {
+																	"name": "FINAL_FORECAST_IN_DOLLAR",
+																	"type": "Double"
+																}
+															},
+															{
+																"source": {
+																	"type": "String",
+																	"ordinal": 30
+																},
+																"sink": {
+																	"name": "PROFORMA_VERSION_FOR_DAY",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"type": "String",
+																	"ordinal": 31
+																},
+																"sink": {
+																	"name": "EPM_SUB_FAMILY",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"type": "String",
+																	"ordinal": 32
+																},
+																"sink": {
+																	"name": "EPM_SUB_FAMILY_DESCRIPTION",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"type": "String",
+																	"ordinal": 33
+																},
+																"sink": {
+																	"name": "PPG_GROUP",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"type": "String",
+																	"ordinal": 34
+																},
+																"sink": {
+																	"name": "PPG_GROUP_DESCRIPTION",
+																	"type": "String"
+																}
+															}
+														],
+														"typeConversion": true,
+														"typeConversionSettings": {
+															"allowDataTruncation": true,
+															"treatBooleanAsNumber": false
+														}
+													}
+												},
+												"inputs": [
+													{
+														"referenceName": "DS_KHCDE_GENERIC_BLOB_CSV_Folder",
+														"type": "DatasetReference",
+														"parameters": {
+															"container_name": {
+																"value": "@item().container_name",
+																"type": "Expression"
+															},
+															"blob_name": {
+																"value": "@item().extract_blob_location",
+																"type": "Expression"
+															},
+															"field_delimiter": "|"
+														}
+													}
+												],
+												"outputs": [
+													{
+														"referenceName": "DS_KHCDE_O9_FORECAST_ORACLE_INGESTION",
+														"type": "DatasetReference",
+														"parameters": {
+															"table_name": {
+																"value": "@item().sftp_path",
+																"type": "Expression"
+															}
+														}
+													}
+												]
+											},
+											{
+												"name": "WB-SendFailureEmail06",
+												"description": "to send email notification",
+												"type": "WebActivity",
+												"dependsOn": [
+													{
+														"activity": "CP-Copy_to_Oracle_Daily",
+														"dependencyConditions": [
+															"Failed"
+														]
+													}
+												],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"url": {
+														"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+														"type": "Expression"
+													},
+													"method": "POST",
+													"body": {
+														"value": "{ \n        \"to_email\": \"@{variables('emailTo')}\", \n        \"subject\": \"Failed during Push To Oracle And Create Trigger: @{pipeline().parameters.application_name} - @{pipeline().parameters.blob_trigger_name}\", \n        \"body\": \"Dear All,<br><br>The cloud analytics data load process failed for the below:<br><b>Application: @{pipeline().parameters.application_name}</b><br><br> Please find below the details: <br><br> Pipeline Name: @{pipeline().Pipeline} <br> Pipeline Run ID: @{pipeline().RunId}<br> Pipeline Trigger Name: @{pipeline().TriggerName}<br> Pipeline Trigger Type: @{pipeline().TriggerType}<br> Pipeline Start Time: @{pipeline().TriggerTime}<br> Activity: CP-Copy_to_Oracle_Daily<br>Next Step: Please check the dataset group and active_ind<br><br>Parameters:<br>===========<br>Application Name: @{pipeline().parameters.application_name}<br>Blob Trigger Name: @{pipeline().parameters.blob_trigger_name}<br><br>Error Code: @{activity('CP-Copy_to_Oracle_Daily').Error.errorCode} <br>Error Message: @{activity('CP-Copy_to_Oracle_Daily').Error.message}, check the logs. <br><br>Please take care.<br><br>Regards,<br>Cloud Analytics Team\", \n        \"importance\": \"High\"\n}",
+														"type": "Expression"
+													}
+												}
+											}
+										]
+									},
+									{
+										"value": "O9_APO_WEEKLY_FORECAST",
+										"activities": [
+											{
+												"name": "CP-Copy_to_Oracle_Weekly",
+												"description": "Copy activity to copy the weekly files into oracle.",
+												"type": "Copy",
+												"dependsOn": [],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"source": {
+														"type": "DelimitedTextSource",
+														"storeSettings": {
+															"type": "AzureBlobFSReadSettings",
+															"recursive": true,
+															"wildcardFolderPath": {
+																"value": "@item().extract_blob_location",
+																"type": "Expression"
+															},
+															"wildcardFileName": {
+																"value": "@{item().extract_file_name}*",
+																"type": "Expression"
+															},
+															"enablePartitionDiscovery": false
+														},
+														"formatSettings": {
+															"type": "DelimitedTextReadSettings"
+														}
+													},
+													"sink": {
+														"type": "OracleSink",
+														"writeBatchSize": 200000,
+														"preCopyScript": {
+															"value": "@{concat('truncate table O9_APO_FORECAST.',item().sftp_path)}",
+															"type": "Expression"
+														}
+													},
+													"enableStaging": false,
+													"translator": {
+														"type": "TabularTranslator",
+														"mappings": [
+															{
+																"source": {
+																	"name": "SKU",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "SKU",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"name": "REVENUE_CATEGORY",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "REVENUE_CATEGORY",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"name": "REVENUE_CATEGORY_DESCRIPTION",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "REVENUE_CATEGORY_DESCRIPTION",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"name": "PRODUCT_CATEGORY",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "PRODUCT_CATEGORY",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"name": "PRODUCT_CATEGORY_DESCRIPTION",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "PRODUCT_CATEGORY_DESCRIPTION",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"name": "VERSION",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "VERSION",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"name": "IBP_CUSTOMER_CODE",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "IBP_CUSTOMER_CODE",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"name": "IBP_CUSTOMER_DESCRIPTION",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "IBP_CUSTOMER_DESCRIPTION",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"name": "LOCATION",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "LOCATION",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"name": "SALES_ORG",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "SALES_ORG",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"name": "EPM_CODE",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "EPM_CODE",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"name": "EPM_DESCRIPTION",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "EPM_DESCRIPTION",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"name": "FISCAL_WEEK",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "FISCAL_WEEK",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"name": "DISTRIBUTION_CHANNEL",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "DISTRIBUTION_CHANNEL",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"name": "BASECODE",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "BASECODE",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"name": "ML_FORECAST",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "ML_FORECAST",
+																	"type": "Double"
+																}
+															},
+															{
+																"source": {
+																	"name": "CONSENSUS_FORECAST",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "CONSENSUS_FORECAST",
+																	"type": "Double"
+																}
+															},
+															{
+																"source": {
+																	"name": "FINAL_FORECAST",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "FINAL_FORECAST",
+																	"type": "Double"
+																}
+															},
+															{
+																"source": {
+																	"name": "BASE_UOM",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "BASE_UOM",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"name": "ML_FORECAST_LBS",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "ML_FORECAST_LBS",
+																	"type": "Double"
+																}
+															},
+															{
+																"source": {
+																	"name": "CONSENSUS_FORECAST_LBS",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "CONSENSUS_FORECAST_LBS",
+																	"type": "Double"
+																}
+															},
+															{
+																"source": {
+																	"name": "FINAL_FORECAST_LBS",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "FINAL_FORECAST_LBS",
+																	"type": "Double"
+																}
+															},
+															{
+																"source": {
+																	"name": "CALENDAR_YEAR_MONTH",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "CALENDAR_YEAR_MONTH",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"name": "SNAPSHOT_DATE",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "SNAPSHOT_DATE",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"name": "SNAPSHOT_TIME",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "SNAPSHOT_TIME",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"name": "SNAPSHOT_MONTH",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "SNAPSHOT_MONTH",
+																	"type": "Decimal"
+																}
+															},
+															{
+																"source": {
+																	"name": "SNAPSHOT_DT_SAT_FLAG",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "SNAPSHOT_DAY_FLAG",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"name": "FORECAST_DATE",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "FORECAST_DATE",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"name": "WEEK_FIRST_DAY_FRCST_DT",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "FCST_WK_S_DATE",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"name": "CALENDAR_YEAR_WEEK",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "CALENDAR_YEAR_WEEK",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"name": "FISCAL_MONTH",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "FISCAL_MONTH",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"name": "LIST_PRICE",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "LIST_PRICE",
+																	"type": "Double"
+																}
+															},
+															{
+																"source": {
+																	"name": "BASE_CURRENCY",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "BASE_CURRENCY",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"name": "FISCAL_YEAR",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "FISCAL_YEAR",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"name": "VALUE_TYPE",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "VALUE_TYPE",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"name": "ML_FORECAST_REVENUE_IN_DOLLAR",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "ML_FORECAST_REVENUE_IN_DOLLAR",
+																	"type": "Double"
+																}
+															},
+															{
+																"source": {
+																	"name": "CONSENSUS_FORECAST_IN_DOLLAR",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "CONSENSUS_FORECAST_IN_DOLLAR",
+																	"type": "Double"
+																}
+															},
+															{
+																"source": {
+																	"name": "FINAL_FORECAST_IN_DOLLAR",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "FINAL_FORECAST_IN_DOLLAR",
+																	"type": "Double"
+																}
+															},
+															{
+																"source": {
+																	"name": "PROFORMA_VERSION_FOR_WEEKLY",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "PROFORMA_VERSION_FOR_WEEKLY",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"name": "EPM_SUB_FAMILY",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "EPM_SUB_FAMILY",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"name": "EPM_SUB_FAMILY_DESCRIPTION",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "EPM_SUB_FAMILY_DESCRIPTION",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"name": "PPG_GROUP",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "PPG_GROUP",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"name": "PPG_GROUP_DESCRIPTION",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "PPG_GROUP_DESCRIPTION",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"name": "LAG",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "LAG",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"name": "AGGR_FLAG",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "AGGR_FLAG",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"name": "ACTUAL_QUANTITY_LY_LBS",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "ACTUAL_QUANTITY_LY_LBS",
+																	"type": "Double"
+																}
+															},
+															{
+																"source": {
+																	"name": "ACTUAL_QUANTITY_LLY_LBS",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "ACTUAL_QUANTITY_LLY_LBS",
+																	"type": "Double"
+																}
+															}
+														],
+														"typeConversion": true,
+														"typeConversionSettings": {
+															"allowDataTruncation": true,
+															"treatBooleanAsNumber": false
+														}
+													}
+												},
+												"inputs": [
+													{
+														"referenceName": "DS_KHCDE_GENERIC_BLOB_CSV_WITH_HEADER",
+														"type": "DatasetReference",
+														"parameters": {
+															"container_name": {
+																"value": "@item().container_name",
+																"type": "Expression"
+															},
+															"blob_name": {
+																"value": "@item().extract_blob_location",
+																"type": "Expression"
+															},
+															"field_delimiter": "|"
+														}
+													}
+												],
+												"outputs": [
+													{
+														"referenceName": "DS_KHCDE_O9_FORECAST_ORACLE_INGESTION",
+														"type": "DatasetReference",
+														"parameters": {
+															"table_name": {
+																"value": "@item().sftp_path",
+																"type": "Expression"
+															}
+														}
+													}
+												]
+											},
+											{
+												"name": "CP-Create_Weekly_Trigger",
+												"description": "This will create the trigger for control-m process",
+												"type": "Copy",
+												"dependsOn": [
+													{
+														"activity": "CP-Copy_to_Oracle_Weekly",
+														"dependencyConditions": [
+															"Succeeded"
+														]
+													}
+												],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"source": {
+														"type": "BinarySource",
+														"storeSettings": {
+															"type": "AzureBlobFSReadSettings",
+															"recursive": true,
+															"wildcardFolderPath": "logistics/demand_planning/triggers",
+															"wildcardFileName": {
+																"value": "@pipeline().parameters.blob_trigger_name",
+																"type": "Expression"
+															},
+															"deleteFilesAfterCompletion": false
+														},
+														"formatSettings": {
+															"type": "BinaryReadSettings"
+														}
+													},
+													"sink": {
+														"type": "BinarySink",
+														"storeSettings": {
+															"type": "FileServerWriteSettings"
+														}
+													},
+													"enableStaging": false
+												},
+												"inputs": [
+													{
+														"referenceName": "DS_KHCDE_ADLS_Blob",
+														"type": "DatasetReference",
+														"parameters": {
+															"container": {
+																"value": "@item().container_name",
+																"type": "Expression"
+															},
+															"stage_path": "%"
+														}
+													}
+												],
+												"outputs": [
+													{
+														"referenceName": "DS_KHCDE_GENERIC_FS_ORACLE_APPs_112_BINARY_Folder",
+														"type": "DatasetReference",
+														"parameters": {
+															"fs_path": {
+																"value": "@concat('o9\\outbound_triggers\\', pipeline().globalParameters.AZURE_ENV)",
+																"type": "Expression"
+															}
+														}
+													}
+												]
+											},
+											{
+												"name": "WB-SendFailureEmail07",
+												"description": "to send email notification",
+												"type": "WebActivity",
+												"dependsOn": [
+													{
+														"activity": "CP-Copy_to_Oracle_Weekly",
+														"dependencyConditions": [
+															"Failed"
+														]
+													}
+												],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"url": {
+														"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+														"type": "Expression"
+													},
+													"method": "POST",
+													"body": {
+														"value": "{ \n        \"to_email\": \"@{variables('emailTo')}\", \n        \"subject\": \"Failed during Push To Oracle And Create Trigger: @{pipeline().parameters.application_name} - @{pipeline().parameters.blob_trigger_name}\", \n        \"body\": \"Dear All,<br><br>The cloud analytics data load process failed for the below:<br><b>Application: @{pipeline().parameters.application_name}</b><br><br> Please find below the details: <br><br> Pipeline Name: @{pipeline().Pipeline} <br> Pipeline Run ID: @{pipeline().RunId}<br> Pipeline Trigger Name: @{pipeline().TriggerName}<br> Pipeline Trigger Type: @{pipeline().TriggerType}<br> Pipeline Start Time: @{pipeline().TriggerTime}<br> Activity: CP-Copy_to_Oracle_Weekly<br>Next Step: Please check the dataset group and active_ind<br><br>Parameters:<br>===========<br>Application Name: @{pipeline().parameters.application_name}<br>Blob Trigger Name: @{pipeline().parameters.blob_trigger_name}<br><br>Error Code: @{activity('CP-Copy_to_Oracle_Weekly').Error.errorCode} <br>Error Message: @{activity('CP-Copy_to_Oracle_Weekly').Error.message}, check the logs. <br><br>Please take care.<br><br>Regards,<br>Cloud Analytics Team\", \n        \"importance\": \"High\"\n}",
+														"type": "Expression"
+													}
+												}
+											}
+										]
+									},
+									{
+										"value": "O9_APO_ADHOC_FORECAST",
+										"activities": [
+											{
+												"name": "CP-Copy_to_Oracle_Adhoc",
+												"description": "Copy activity to copy the adhoc files into oracle.",
+												"type": "Copy",
+												"dependsOn": [],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"source": {
+														"type": "DelimitedTextSource",
+														"storeSettings": {
+															"type": "AzureBlobFSReadSettings",
+															"recursive": true,
+															"wildcardFolderPath": {
+																"value": "@item().extract_blob_location",
+																"type": "Expression"
+															},
+															"wildcardFileName": {
+																"value": "@{item().extract_file_name}*",
+																"type": "Expression"
+															},
+															"enablePartitionDiscovery": false
+														},
+														"formatSettings": {
+															"type": "DelimitedTextReadSettings"
+														}
+													},
+													"sink": {
+														"type": "OracleSink",
+														"writeBatchSize": 200000,
+														"preCopyScript": {
+															"value": "@{concat('truncate table O9_APO_FORECAST.',item().sftp_path)}",
+															"type": "Expression"
+														}
+													},
+													"enableStaging": false,
+													"translator": {
+														"type": "TabularTranslator",
+														"mappings": [
+															{
+																"source": {
+																	"name": "SKU",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "SKU",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"name": "REVENUE_CATEGORY",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "REVENUE_CATEGORY",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"name": "REVENUE_CATEGORY_DESCRIPTION",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "REVENUE_CATEGORY_DESCRIPTION",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"name": "PRODUCT_CATEGORY",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "PRODUCT_CATEGORY",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"name": "PRODUCT_CATEGORY_DESCRIPTION",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "PRODUCT_CATEGORY_DESCRIPTION",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"name": "VERSION",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "VERSION",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"name": "IBP_CUSTOMER_CODE",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "IBP_CUSTOMER_CODE",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"name": "IBP_CUSTOMER_DESCRIPTION",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "IBP_CUSTOMER_DESCRIPTION",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"name": "LOCATION",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "LOCATION",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"name": "SALES_ORG",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "SALES_ORG",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"name": "EPM_CODE",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "EPM_CODE",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"name": "EPM_DESCRIPTION",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "EPM_DESCRIPTION",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"name": "FISCAL_WEEK",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "FISCAL_WEEK",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"name": "DISTRIBUTION_CHANNEL",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "DISTRIBUTION_CHANNEL",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"name": "BASECODE",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "BASECODE",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"name": "ML_FORECAST",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "ML_FORECAST",
+																	"type": "Double"
+																}
+															},
+															{
+																"source": {
+																	"name": "CONSENSUS_FORECAST",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "CONSENSUS_FORECAST",
+																	"type": "Double"
+																}
+															},
+															{
+																"source": {
+																	"name": "FINAL_FORECAST",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "FINAL_FORECAST",
+																	"type": "Double"
+																}
+															},
+															{
+																"source": {
+																	"name": "BASE_UOM",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "BASE_UOM",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"name": "ML_FORECAST_LBS",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "ML_FORECAST_LBS",
+																	"type": "Double"
+																}
+															},
+															{
+																"source": {
+																	"name": "CONSENSUS_FORECAST_LBS",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "CONSENSUS_FORECAST_LBS",
+																	"type": "Double"
+																}
+															},
+															{
+																"source": {
+																	"name": "FINAL_FORECAST_LBS",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "FINAL_FORECAST_LBS",
+																	"type": "Double"
+																}
+															},
+															{
+																"source": {
+																	"name": "CALENDAR_YEAR_MONTH",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "CALENDAR_YEAR_MONTH",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"name": "SNAPSHOT_DATE",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "SNAPSHOT_DATE",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"name": "SNAPSHOT_TIME",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "SNAPSHOT_TIME",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"name": "SNAPSHOT_MONTH",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "SNAPSHOT_MONTH",
+																	"type": "Decimal"
+																}
+															},
+															{
+																"source": {
+																	"name": "SNAPSHOT_DT_SAT_FLAG",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "SNAPSHOT_DAY_FLAG",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"name": "FORECAST_DATE",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "FORECAST_DATE",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"name": "WEEK_FIRST_DAY_FRCST_DT",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "FCST_WK_S_DATE",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"name": "CALENDAR_YEAR_WEEK",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "CALENDAR_YEAR_WEEK",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"name": "FISCAL_MONTH",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "FISCAL_MONTH",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"name": "LIST_PRICE",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "LIST_PRICE",
+																	"type": "Double"
+																}
+															},
+															{
+																"source": {
+																	"name": "BASE_CURRENCY",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "BASE_CURRENCY",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"name": "FISCAL_YEAR",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "FISCAL_YEAR",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"name": "VALUE_TYPE",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "VALUE_TYPE",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"name": "ML_FORECAST_REVENUE_IN_DOLLAR",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "ML_FORECAST_REVENUE_IN_DOLLAR",
+																	"type": "Double"
+																}
+															},
+															{
+																"source": {
+																	"name": "CONSENSUS_FORECAST_IN_DOLLAR",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "CONSENSUS_FORECAST_IN_DOLLAR",
+																	"type": "Double"
+																}
+															},
+															{
+																"source": {
+																	"name": "FINAL_FORECAST_IN_DOLLAR",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "FINAL_FORECAST_IN_DOLLAR",
+																	"type": "Double"
+																}
+															},
+															{
+																"source": {
+																	"name": "PROFORMA_VERSION_FOR_WEEKLY",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "PROFORMA_VERSION_FOR_WEEKLY",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"name": "EPM_SUB_FAMILY",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "EPM_SUB_FAMILY",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"name": "EPM_SUB_FAMILY_DESCRIPTION",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "EPM_SUB_FAMILY_DESCRIPTION",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"name": "PPG_GROUP",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "PPG_GROUP",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"name": "PPG_GROUP_DESCRIPTION",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "PPG_GROUP_DESCRIPTION",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"name": "LAG",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "LAG",
+																	"type": "String"
+																}
+															},
+															{
+																"source": {
+																	"name": "AGGR_FLAG",
+																	"type": "String",
+																	"physicalType": "String"
+																},
+																"sink": {
+																	"name": "AGGR_FLAG",
+																	"type": "String"
+																}
+															}
+														],
+														"typeConversion": true,
+														"typeConversionSettings": {
+															"allowDataTruncation": true,
+															"treatBooleanAsNumber": false
+														}
+													}
+												},
+												"inputs": [
+													{
+														"referenceName": "DS_KHCDE_GENERIC_BLOB_CSV_WITH_HEADER",
+														"type": "DatasetReference",
+														"parameters": {
+															"container_name": {
+																"value": "@item().container_name",
+																"type": "Expression"
+															},
+															"blob_name": {
+																"value": "@item().extract_blob_location",
+																"type": "Expression"
+															},
+															"field_delimiter": "|"
+														}
+													}
+												],
+												"outputs": [
+													{
+														"referenceName": "DS_KHCDE_O9_FORECAST_ORACLE_INGESTION",
+														"type": "DatasetReference",
+														"parameters": {
+															"table_name": {
+																"value": "@item().sftp_path",
+																"type": "Expression"
+															}
+														}
+													}
+												]
+											},
+											{
+												"name": "CP-Create_Adhoc_Trigger",
+												"description": "This will create the trigger for control-m process",
+												"type": "Copy",
+												"dependsOn": [
+													{
+														"activity": "CP-Copy_to_Oracle_Adhoc",
+														"dependencyConditions": [
+															"Succeeded"
+														]
+													}
+												],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"source": {
+														"type": "BinarySource",
+														"storeSettings": {
+															"type": "AzureBlobFSReadSettings",
+															"recursive": true,
+															"wildcardFolderPath": "logistics/demand_planning/triggers",
+															"wildcardFileName": {
+																"value": "@pipeline().parameters.blob_trigger_name",
+																"type": "Expression"
+															},
+															"deleteFilesAfterCompletion": false
+														},
+														"formatSettings": {
+															"type": "BinaryReadSettings"
+														}
+													},
+													"sink": {
+														"type": "BinarySink",
+														"storeSettings": {
+															"type": "FileServerWriteSettings"
+														}
+													},
+													"enableStaging": false
+												},
+												"inputs": [
+													{
+														"referenceName": "DS_KHCDE_ADLS_Blob",
+														"type": "DatasetReference",
+														"parameters": {
+															"container": {
+																"value": "@item().container_name",
+																"type": "Expression"
+															},
+															"stage_path": "%"
+														}
+													}
+												],
+												"outputs": [
+													{
+														"referenceName": "DS_KHCDE_GENERIC_FS_ORACLE_APPs_112_BINARY_Folder",
+														"type": "DatasetReference",
+														"parameters": {
+															"fs_path": {
+																"value": "@concat('o9\\outbound_triggers\\', pipeline().globalParameters.AZURE_ENV)",
+																"type": "Expression"
+															}
+														}
+													}
+												]
+											},
+											{
+												"name": "WB-SendFailureEmail08",
+												"description": "to send email notification",
+												"type": "WebActivity",
+												"dependsOn": [
+													{
+														"activity": "CP-Copy_to_Oracle_Adhoc",
+														"dependencyConditions": [
+															"Failed"
+														]
+													}
+												],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 5,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"url": {
+														"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+														"type": "Expression"
+													},
+													"method": "POST",
+													"body": {
+														"value": "{ \n        \"to_email\": \"@{variables('emailTo')}\", \n        \"subject\": \"Failed during Push To Oracle And Create Trigger: @{pipeline().parameters.application_name} - @{pipeline().parameters.blob_trigger_name}\", \n        \"body\": \"Dear All,<br><br>The cloud analytics data load process failed for the below:<br><b>Application: @{pipeline().parameters.application_name}</b><br><br> Please find below the details: <br><br> Pipeline Name: @{pipeline().Pipeline} <br> Pipeline Run ID: @{pipeline().RunId}<br> Pipeline Trigger Name: @{pipeline().TriggerName}<br> Pipeline Trigger Type: @{pipeline().TriggerType}<br> Pipeline Start Time: @{pipeline().TriggerTime}<br> Activity: CP-Copy_to_Oracle_Adhoc<br>Next Step: Please check the dataset group and active_ind<br><br>Parameters:<br>===========<br>Application Name: @{pipeline().parameters.application_name}<br>Blob Trigger Name: @{pipeline().parameters.blob_trigger_name}<br><br>Error Code: @{activity('CP-Copy_to_Oracle_Adhoc').Error.errorCode} <br>Error Message: @{activity('CP-Copy_to_Oracle_Adhoc').Error.message}, check the logs. <br><br>Please take care.<br><br>Regards,<br>Cloud Analytics Team\", \n        \"importance\": \"High\"\n}",
+														"type": "Expression"
+													}
+												}
+											}
+										]
+									}
+								]
+							}
+						}
+					]
+				}
+			},
+			{
+				"name": "EP-Snowflake_Extraction",
+				"description": "This will perform snowflake extraction for the datasets",
+				"type": "ExecutePipeline",
+				"dependsOn": [
+					{
+						"activity": "FE-ClearExtractionFolder",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"pipeline": {
+						"referenceName": "PL_KHCDE_GENERIC_SnowflakeExtraction",
+						"type": "PipelineReference"
+					},
+					"waitOnCompletion": true,
+					"parameters": {
+						"ApplicationName": {
+							"value": "@pipeline().parameters.application_name",
+							"type": "Expression"
+						},
+						"DatasetGroup": {
+							"value": "@activity('LU-Metadata').output.value[0].dataset_group",
+							"type": "Expression"
+						},
+						"ParameterJson": {
+							"value": "@activity('LU-Metadata').output.value[0].parameter_json",
+							"type": "Expression"
+						}
+					}
+				}
+			},
+			{
+				"name": "FE-ClearExtractionFolder",
+				"description": "This will clear the extraction folder prior to snowflake extraction",
+				"type": "ForEach",
+				"dependsOn": [
+					{
+						"activity": "FE-Create_DBT_Trigger",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"items": {
+						"value": "@activity('LU-Metadata').output.value",
+						"type": "Expression"
+					},
+					"activities": [
+						{
+							"name": "GM-ExtractionFolder",
+							"description": "Get details about the extraction folder",
+							"type": "GetMetadata",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 5,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"dataset": {
+									"referenceName": "DS_ADLS_NonCompressed",
+									"type": "DatasetReference",
+									"parameters": {
+										"container_name": {
+											"value": "@item().container_name",
+											"type": "Expression"
+										},
+										"stage_path": {
+											"value": "@item().extract_blob_location",
+											"type": "Expression"
+										}
+									}
+								},
+								"fieldList": [
+									"exists"
+								],
+								"storeSettings": {
+									"type": "AzureBlobFSReadSettings",
+									"recursive": true,
+									"enablePartitionDiscovery": false
+								},
+								"formatSettings": {
+									"type": "BinaryReadSettings"
+								}
+							}
+						},
+						{
+							"name": "IF-ExtractionFolderExists",
+							"description": "Check whther folder to be deleted exists or not.",
+							"type": "IfCondition",
+							"dependsOn": [
+								{
+									"activity": "GM-ExtractionFolder",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"userProperties": [],
+							"typeProperties": {
+								"expression": {
+									"value": "@activity('GM-ExtractionFolder').output.exists",
+									"type": "Expression"
+								},
+								"ifTrueActivities": [
+									{
+										"name": "DELETE-ExtractionFolder",
+										"description": "Delete the extraction folder.",
+										"type": "Delete",
+										"dependsOn": [],
+										"policy": {
+											"timeout": "7.00:00:00",
+											"retry": 5,
+											"retryIntervalInSeconds": 30,
+											"secureOutput": false,
+											"secureInput": false
+										},
+										"userProperties": [],
+										"typeProperties": {
+											"dataset": {
+												"referenceName": "DS_ADLS_NonCompressed",
+												"type": "DatasetReference",
+												"parameters": {
+													"container_name": {
+														"value": "@item().container_name",
+														"type": "Expression"
+													},
+													"stage_path": {
+														"value": "@item().extract_blob_location",
+														"type": "Expression"
+													}
+												}
+											},
+											"enableLogging": false,
+											"storeSettings": {
+												"type": "AzureBlobFSReadSettings",
+												"recursive": true,
+												"enablePartitionDiscovery": false
+											}
+										}
+									}
+								]
+							}
+						}
+					]
+				}
+			},
+			{
+				"name": "SP-ActivityAndPipelineFailed02",
+				"description": "Stored procedure for audit purposes",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "EP-Snowflake_Ingestion",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": "EP-Snowflake_Ingestion",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@{pipeline().parameters.application_name}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@{replace(pipeline().parameters.blob_trigger_name,'_trigger.txt','')}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_code": {
+							"value": {
+								"value": "N.A.",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_detail": {
+							"value": "N.A.",
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-ActivityAndPipelineFailed03",
+				"description": "Stored procedure for audit purposes",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "EP-DBT_Processing",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": "EP-DBT_Processing",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@{pipeline().parameters.application_name}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@{replace(pipeline().parameters.blob_trigger_name,'_trigger.txt','')}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_code": {
+							"value": {
+								"value": "N.A.",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_detail": {
+							"value": "N.A.",
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-ActivityAndPipelineFailed04",
+				"description": "Stored procedure for audit purposes",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "FE-Create_DBT_Trigger",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": "FE-Create_DBT_Trigger",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@{pipeline().parameters.application_name}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@{replace(pipeline().parameters.blob_trigger_name,'_trigger.txt','')}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_code": {
+							"value": {
+								"value": "N.A.",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_detail": {
+							"value": "N.A.",
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-ActivityAndPipelineFailed05",
+				"description": "Stored procedure for audit purposes",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "FE-ClearExtractionFolder",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": "FE-ClearExtractionFolder",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@{pipeline().parameters.application_name}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@{replace(pipeline().parameters.blob_trigger_name,'_trigger.txt','')}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_code": {
+							"value": {
+								"value": "N.A.",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_detail": {
+							"value": "N.A.",
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-ActivityAndPipelineFailed06",
+				"description": "Stored procedure for audit purposes",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "EP-Snowflake_Extraction",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": "EP-Snowflake_Extraction",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@{pipeline().parameters.application_name}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@{replace(pipeline().parameters.blob_trigger_name,'_trigger.txt','')}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_code": {
+							"value": {
+								"value": "N.A.",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_detail": {
+							"value": "N.A.",
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-ActivityAndPipelineFailed07",
+				"description": "Stored procedure for audit purposes",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "FE-Push_To_Oracle_And_Create_Trigger",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": "FE-Push_To_Oracle",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Failed",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@{pipeline().parameters.application_name}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@{replace(pipeline().parameters.blob_trigger_name,'_trigger.txt','')}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_code": {
+							"value": {
+								"value": "N.A.",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_detail": {
+							"value": "N.A.",
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-EP_Snowflake_Ingestion_Successful",
+				"description": "Stored procedure for audit purposes",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "EP-Snowflake_Ingestion",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": "EP-Snowflake_Ingestion",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": "Successful",
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@{pipeline().parameters.application_name}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@{replace(pipeline().parameters.blob_trigger_name,'_trigger.txt','')}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-EP-DBT_Processing_Successful",
+				"description": "Stored procedure for audit purposes",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "EP-DBT_Processing",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": "EP-DBT_Processing",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": "Successful",
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@{pipeline().parameters.application_name}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@{replace(pipeline().parameters.blob_trigger_name,'_trigger.txt','')}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-FE-Create_DBT_Trigger_Successful",
+				"description": "Stored procedure for audit purposes",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "FE-Create_DBT_Trigger",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": "FE-Create_DBT_Trigger",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": "Successful",
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@{pipeline().parameters.application_name}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@{replace(pipeline().parameters.blob_trigger_name,'_trigger.txt','')}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-FE-ClearExtractionFolder_Successful",
+				"description": "Stored procedure for audit purposes",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "FE-ClearExtractionFolder",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": "FE-ClearExtractionFolder",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": "Successful",
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@{pipeline().parameters.application_name}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@{replace(pipeline().parameters.blob_trigger_name,'_trigger.txt','')}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-EP-Snowflake_Extraction_Successful",
+				"description": "Stored procedure for audit purposes",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "EP-Snowflake_Extraction",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": "EP-Snowflake_Extraction",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": "Successful",
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@{pipeline().parameters.application_name}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@{replace(pipeline().parameters.blob_trigger_name,'_trigger.txt','')}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-FE-Push_To_Oracle_Successful",
+				"description": "Stored procedure for audit purposes",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "FE-Push_To_Oracle_And_Create_Trigger",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": "FE-Push_To_Oracle",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": "Successful",
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@{pipeline().parameters.application_name}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@{replace(pipeline().parameters.blob_trigger_name,'_trigger.txt','')}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "WB-SendFailureEmail01",
+				"description": "to send email notification",
+				"type": "WebActivity",
+				"dependsOn": [
+					{
+						"activity": "EP-Snowflake_Ingestion",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"url": {
+						"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+						"type": "Expression"
+					},
+					"method": "POST",
+					"body": {
+						"value": "{ \n        \"to_email\": \"@{variables('emailTo')}\", \n        \"subject\": \"Failed during Snowflake ingestion: @{pipeline().parameters.application_name} - @{pipeline().parameters.blob_trigger_name}\", \n        \"body\": \"Dear All,<br><br>The cloud analytics data load process failed for the below:<br><b>Application: @{pipeline().parameters.application_name}</b><br><br> Please find below the details: <br><br> Pipeline Name: @{pipeline().Pipeline} <br> Pipeline Run ID: @{pipeline().RunId}<br> Pipeline Trigger Name: @{pipeline().TriggerName}<br> Pipeline Trigger Type: @{pipeline().TriggerType}<br> Pipeline Start Time: @{pipeline().TriggerTime}<br> Activity: EP-Snowflake_Ingestion<br>Next Step: Please check the dataset group and active_ind<br><br>Parameters:<br>===========<br>Application Name: @{pipeline().parameters.application_name}<br>Blob Trigger Name: @{pipeline().parameters.blob_trigger_name}<br><br> check the logs. <br><br>Please take care.<br><br>Regards,<br>Cloud Analytics Team\", \n        \"importance\": \"High\"\n}",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "WB-SendFailureEmail02",
+				"description": "to send email notification",
+				"type": "WebActivity",
+				"dependsOn": [
+					{
+						"activity": "EP-DBT_Processing",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"url": {
+						"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+						"type": "Expression"
+					},
+					"method": "POST",
+					"body": {
+						"value": "{ \n        \"to_email\": \"@{variables('emailTo')}\", \n        \"subject\": \"Failed during DBT Processing: @{pipeline().parameters.application_name} - @{pipeline().parameters.blob_trigger_name}\", \n        \"body\": \"Dear All,<br><br>The cloud analytics data load process failed for the below:<br><b>Application: @{pipeline().parameters.application_name}</b><br><br> Please find below the details: <br><br> Pipeline Name: @{pipeline().Pipeline} <br> Pipeline Run ID: @{pipeline().RunId}<br> Pipeline Trigger Name: @{pipeline().TriggerName}<br> Pipeline Trigger Type: @{pipeline().TriggerType}<br> Pipeline Start Time: @{pipeline().TriggerTime}<br> Activity: EP-DBT_Processing<br>Next Step: Please check the dataset group and active_ind<br><br>Parameters:<br>===========<br>Application Name: @{pipeline().parameters.application_name}<br>Blob Trigger Name: @{pipeline().parameters.blob_trigger_name}<br><br> check the logs. <br><br>Please take care.<br><br>Regards,<br>Cloud Analytics Team\", \n        \"importance\": \"High\"\n}",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "WB-SendFailureEmail05",
+				"description": "to send email notification",
+				"type": "WebActivity",
+				"dependsOn": [
+					{
+						"activity": "EP-Snowflake_Extraction",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"url": {
+						"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+						"type": "Expression"
+					},
+					"method": "POST",
+					"body": {
+						"value": "{ \n        \"to_email\": \"@{variables('emailTo')}\", \n        \"subject\": \"Failed during Snowflake Extraction: @{pipeline().parameters.application_name} - @{pipeline().parameters.blob_trigger_name}\", \n        \"body\": \"Dear All,<br><br>The cloud analytics data load process failed for the below:<br><b>Application: @{pipeline().parameters.application_name}</b><br><br> Please find below the details: <br><br> Pipeline Name: @{pipeline().Pipeline} <br> Pipeline Run ID: @{pipeline().RunId}<br> Pipeline Trigger Name: @{pipeline().TriggerName}<br> Pipeline Trigger Type: @{pipeline().TriggerType}<br> Pipeline Start Time: @{pipeline().TriggerTime}<br> Activity: EP-Snowflake_Extraction<br>Next Step: Please check the dataset group and active_ind<br><br>Parameters:<br>===========<br>Application Name: @{pipeline().parameters.application_name}<br>Blob Trigger Name: @{pipeline().parameters.blob_trigger_name}<br><br> check the logs. <br><br>Please take care.<br><br>Regards,<br>Cloud Analytics Team\", \n        \"importance\": \"High\"\n}",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "SP-PipelineEnd_Master_Poll_Load",
+				"description": "update the Audit entry for the pipeline  run id to success",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "SP-FE-Push_To_Oracle_Successful",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": "U",
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@{pipeline().parameters.application_name}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@{replace(pipeline().parameters.blob_trigger_name,'_trigger.txt','')}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@{pipeline().Pipeline}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": "Successful",
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "WB-SendSuccessEmail",
+				"description": "To send email Notification",
+				"type": "WebActivity",
+				"dependsOn": [
+					{
+						"activity": "SP-PipelineEnd_Master_Poll_Load",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"url": {
+						"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+						"type": "Expression"
+					},
+					"method": "POST",
+					"body": {
+						"value": "{ \n        \"to_email\": \"@{variables('emailTo')}\", \n        \"subject\": \"Success : @{pipeline().parameters.application_name} - @{pipeline().parameters.blob_trigger_name}\", \n        \"body\": \"Dear All,<br><br>The cloud analytics data load process succeeded for the below:<br><b>Application: @{pipeline().parameters.application_name}</b><br><br> Please find below the details: <br><br> Pipeline Name: @{pipeline().Pipeline} <br> Pipeline Run ID: @{pipeline().RunId}<br> Pipeline Trigger Name: @{pipeline().TriggerName}<br> Pipeline Trigger Type: @{pipeline().TriggerType}<br> Pipeline Start Time: @{pipeline().TriggerTime}<br><br>Parameters:<br>===========<br>Application Name: @{pipeline().parameters.application_name}<br><br>Regards,<br>Cloud Analytics Team\", \n        \"importance\": \"Low\"\n} ",
+						"type": "Expression"
+					}
+				}
+			}
+		],
+		"parameters": {
+			"application_name": {
+				"type": "string",
+				"defaultValue": "demand_planning"
+			},
+			"blob_trigger_name": {
+				"type": "string",
+				"defaultValue": "o9_forecast_trigger.txt"
+			}
+		},
+		"variables": {
+			"emailTo": {
+				"type": "String",
+				"defaultValue": "DL_KHCDE_O9@kraftheinz.com"
+			}
+		},
+		"folder": {
+			"name": "O9"
+		},
+		"annotations": []
+	}
+}

@@ -1,0 +1,165 @@
+{
+	"name": "PL_KHCDE_GENERIC_SUB_STAGEDelete",
+	"properties": {
+		"description": "This pipeline deletes all the files from a given ADLS location.",
+		"activities": [
+			{
+				"name": "IF-Delete_stage",
+				"description": "IF file is to be deleted based on conditions ",
+				"type": "IfCondition",
+				"dependsOn": [
+					{
+						"activity": "StageBlob_File_Count",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"expression": {
+						"value": "@and(equals(pipeline().parameters.stage_delete_ind,'y'),not(equals(variables('file_count_to_delete'),'0')))",
+						"type": "Expression"
+					},
+					"ifTrueActivities": [
+						{
+							"name": "DL-Blob",
+							"type": "Delete",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "0.00:10:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"dataset": {
+									"referenceName": "DS_KHCDE_GENERIC_BLOB_BINARY_Folder",
+									"type": "DatasetReference",
+									"parameters": {
+										"container_name": {
+											"value": "@{pipeline().parameters.container_name}",
+											"type": "Expression"
+										},
+										"blob_name": {
+											"value": "@{pipeline().parameters.blob_name}",
+											"type": "Expression"
+										}
+									}
+								},
+								"enableLogging": false,
+								"storeSettings": {
+									"type": "AzureBlobFSReadSettings",
+									"recursive": true,
+									"wildcardFileName": {
+										"value": "*",
+										"type": "Expression"
+									}
+								}
+							}
+						}
+					]
+				}
+			},
+			{
+				"name": "Get_StageBlob_File_Count",
+				"description": "Lists file from given location ",
+				"type": "GetMetadata",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "0.00:10:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"dataset": {
+						"referenceName": "DS_KHCDE_GENERIC_BLOB_BINARY_Folder",
+						"type": "DatasetReference",
+						"parameters": {
+							"container_name": {
+								"value": "@{pipeline().parameters.container_name}",
+								"type": "Expression"
+							},
+							"blob_name": {
+								"value": "@{pipeline().parameters.blob_name}",
+								"type": "Expression"
+							}
+						}
+					},
+					"fieldList": [
+						"childItems",
+						"exists"
+					],
+					"storeSettings": {
+						"type": "AzureBlobFSReadSettings",
+						"recursive": true,
+						"enablePartitionDiscovery": false
+					},
+					"formatSettings": {
+						"type": "BinaryReadSettings"
+					}
+				}
+			},
+			{
+				"name": "StageBlob_File_Count",
+				"description": "set file count to the variable.",
+				"type": "SetVariable",
+				"dependsOn": [
+					{
+						"activity": "Get_StageBlob_File_Count",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"variableName": "file_count_to_delete",
+					"value": {
+						"value": "@if(activity('Get_StageBlob_File_Count').output.exists,string(length(activity('Get_StageBlob_File_Count').output.childItems)),'0')",
+						"type": "Expression"
+					}
+				}
+			}
+		],
+		"parameters": {
+			"container_name": {
+				"type": "string"
+			},
+			"blob_name": {
+				"type": "string"
+			},
+			"activity_name": {
+				"type": "string"
+			},
+			"application_name": {
+				"type": "string"
+			},
+			"dataset_name": {
+				"type": "string"
+			},
+			"pipeline_run_id": {
+				"type": "string"
+			},
+			"stage_delete_ind": {
+				"type": "string"
+			}
+		},
+		"variables": {
+			"file_count_to_delete": {
+				"type": "String",
+				"defaultValue": "0"
+			}
+		},
+		"folder": {
+			"name": "Generic_Frameworks/Sub_Pipelines"
+		},
+		"annotations": []
+	},
+	"type": "Microsoft.DataFactory/factories/pipelines"
+}

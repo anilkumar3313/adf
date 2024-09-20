@@ -1,0 +1,107 @@
+{
+	"name": "PL_KHCDE_IRI_APAC_AU_STORE_SFTP_BLOB_INGESTION",
+	"properties": {
+		"activities": [
+			{
+				"name": "LU-Metadata",
+				"type": "Lookup",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "SqlServerSource",
+						"sqlReaderQuery": "select\n* \nfrom khc_orchestration_metadata where len(trim(server_name)) > 0\nand len(trim(application_name)) > 0\nand len(trim(dataset_name)) > 0 and data_level = 1 and active_ind = 'y'\nand server_name = 'LS_Sftp_AU_IRI' and dataset_name in ('coles','woolworths')",
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "DS_KHCDE_GENERIC_MSSQL_Metadata",
+						"type": "DatasetReference"
+					},
+					"firstRowOnly": false
+				}
+			},
+			{
+				"name": "FE-Metadata",
+				"type": "ForEach",
+				"dependsOn": [
+					{
+						"activity": "LU-Metadata",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"items": {
+						"value": "@activity('LU-Metadata').output.value",
+						"type": "Expression"
+					},
+					"isSequential": false,
+					"activities": [
+						{
+							"name": "EP-IRISTORE_EXTRACTION",
+							"type": "ExecutePipeline",
+							"dependsOn": [],
+							"userProperties": [],
+							"typeProperties": {
+								"pipeline": {
+									"referenceName": "PL_KHCDE_IRI_APAC_AU_STORE_IRI_SFTP_FILES_EXTRACTION",
+									"type": "PipelineReference"
+								},
+								"waitOnCompletion": true,
+								"parameters": {
+									"application_name": {
+										"value": "@{item().application_name}",
+										"type": "Expression"
+									},
+									"dataset_name": {
+										"value": "@{item().dataset_name}",
+										"type": "Expression"
+									},
+									"filename": {
+										"value": "@{item().filename}",
+										"type": "Expression"
+									},
+									"container_name": {
+										"value": "@{item().container_name}",
+										"type": "Expression"
+									},
+									"archival_blob_name": {
+										"value": "@{item().archival_blob_name}",
+										"type": "Expression"
+									},
+									"stage_blob_name": {
+										"value": "@{item().stage_blob_name}",
+										"type": "Expression"
+									},
+									"sftp_path": {
+										"value": "@{item().server_path}",
+										"type": "Expression"
+									}
+								}
+							}
+						}
+					]
+				}
+			}
+		],
+		"variables": {
+			"date": {
+				"type": "String"
+			}
+		},
+		"folder": {
+			"name": "IRI_International/Sub_Pipelines"
+		},
+		"annotations": []
+	}
+}

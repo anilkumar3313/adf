@@ -1,0 +1,777 @@
+{
+	"name": "PL_KHCDE_O9_FORECAST_INGEST_PUSH_AND_LOAD",
+	"properties": {
+		"description": "This pipeline will ingest proforma data sent by o9, will build snwoflake tables using snowflake ingestion and dbt processing. After DBT processing it will extract the same and send it to SAPBI's Oracle Sink.",
+		"activities": [
+			{
+				"name": "SP-PipelineStart_Master_Poll_load",
+				"description": "Stored procedure for audit purposes",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": "I",
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@{pipeline().parameters.application_name}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@{replace(pipeline().parameters.blob_trigger_name,'_trigger.txt','')}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@{pipeline().Pipeline}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": "Processing",
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "LU-Metadata",
+				"description": "Metadata after joining orchestration and extration.",
+				"type": "Lookup",
+				"dependsOn": [
+					{
+						"activity": "SP-PipelineStart_Master_Poll_load",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "SqlServerSource",
+						"sqlReaderQuery": {
+							"value": "select exm.*,om.archival_blob_name,om.stage_blob_name,om.dbt_trigger_name , om.parameter_json,om.server_name as source_server_name, om.server_path as source_server_path from \nkhc_enggextract_metadata exm\ninner join khc_orchestration_metadata om\non exm.application_name = om.application_name\nand exm.dataset_group = om.dataset_group\nand exm.parent_id = om.parent_id\nwhere \nexm.application_name = '@{pipeline().parameters.application_name}' \nand om.adf_trigger_name = '@{replace(pipeline().parameters.blob_trigger_name,'_trigger.txt','')}' \nand exm.active_ind = 'y'\nand om.active_ind = 'y'",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "DS_KHCDE_GENERIC_MSSQL_Metadata",
+						"type": "DatasetReference"
+					},
+					"firstRowOnly": false
+				}
+			},
+			{
+				"name": "Execute-ingest-push-pipeline",
+				"description": "This pipeline will ingest proforma data sent by o9, will build snwoflake tables using snowflake ingestion and dbt processing. After DBT processing it will extract the same and send it to SAPBI's Oracle Sink.",
+				"type": "ExecutePipeline",
+				"dependsOn": [
+					{
+						"activity": "Delete_from_source",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"pipeline": {
+						"referenceName": "PL_KHCDE_SUB_O9_FORECAST_INGEST_AND_PUSH",
+						"type": "PipelineReference"
+					},
+					"waitOnCompletion": true,
+					"parameters": {
+						"application_name": {
+							"value": "@pipeline().parameters.application_name",
+							"type": "Expression"
+						},
+						"blob_trigger_name": {
+							"value": "@pipeline().parameters.blob_trigger_name",
+							"type": "Expression"
+						}
+					}
+				}
+			},
+			{
+				"name": "SP-Pipelinesuccesful-Forecast_ingest_push",
+				"description": "update the Audit entry for the pipeline  run id to success",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "Execute-ingest-push-pipeline",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_pipeline_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": "U",
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@{pipeline().parameters.application_name}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@{replace(pipeline().parameters.blob_trigger_name,'_trigger.txt','')}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_name": {
+							"value": {
+								"value": "@{pipeline().Pipeline}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@{pipeline().RunId}",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": "Successful",
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "External_storage_to_blob",
+				"description": "Copy files from external storage to blob",
+				"type": "Copy",
+				"dependsOn": [
+					{
+						"activity": "If_stage_data_exists",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "BinarySource",
+						"storeSettings": {
+							"type": "AzureBlobFSReadSettings",
+							"recursive": true
+						},
+						"formatSettings": {
+							"type": "BinaryReadSettings"
+						}
+					},
+					"sink": {
+						"type": "BinarySink",
+						"storeSettings": {
+							"type": "AzureBlobFSWriteSettings"
+						}
+					},
+					"enableStaging": false
+				},
+				"inputs": [
+					{
+						"referenceName": "DS_KHCDE_GENERIC_KHC_O9EXTERNALSHARE_STRGV2_Folder",
+						"type": "DatasetReference",
+						"parameters": {
+							"container_name": {
+								"value": "@split(activity('LU-Metadata').output.value[0].source_server_path,'/')[0]",
+								"type": "Expression"
+							},
+							"blob_name": {
+								"value": "@concat(pipeline().globalParameters.AZURE_ENV,'/',split(activity('LU-Metadata').output.value[0].source_server_path,'/')[2])",
+								"type": "Expression"
+							}
+						}
+					}
+				],
+				"outputs": [
+					{
+						"referenceName": "DS_KHCDE_ADLS_Blob",
+						"type": "DatasetReference",
+						"parameters": {
+							"container": "@activity('LU-Metadata').output.value[0].container_name",
+							"stage_path": "@activity('LU-Metadata').output.value[0].stage_blob_name"
+						}
+					}
+				]
+			},
+			{
+				"name": "Get_Metadata1",
+				"description": "To Get external blob location",
+				"type": "GetMetadata",
+				"dependsOn": [
+					{
+						"activity": "LU-Metadata",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"dataset": {
+						"referenceName": "DS_KHCDE_GENERIC_KHC_O9EXTERNALSHARE_STRGV2_Folder",
+						"type": "DatasetReference",
+						"parameters": {
+							"container_name": "@split(activity('LU-Metadata').output.value[0].source_server_path,'/')[0]",
+							"blob_name": {
+								"value": "@concat(pipeline().globalParameters.AZURE_ENV,'/',split(activity('LU-Metadata').output.value[0].source_server_path,'/')[2])",
+								"type": "Expression"
+							}
+						}
+					},
+					"fieldList": [
+						"childItems"
+					],
+					"storeSettings": {
+						"type": "AzureBlobFSReadSettings",
+						"recursive": true,
+						"enablePartitionDiscovery": false
+					},
+					"formatSettings": {
+						"type": "BinaryReadSettings"
+					}
+				}
+			},
+			{
+				"name": "ForEach1",
+				"description": "To check each file size",
+				"type": "ForEach",
+				"dependsOn": [
+					{
+						"activity": "Get_Metadata1",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"items": {
+						"value": "@activity('Get_Metadata1').output.childItems",
+						"type": "Expression"
+					},
+					"batchCount": 1,
+					"activities": [
+						{
+							"name": "Get Metadata2",
+							"description": "To check file size",
+							"type": "GetMetadata",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 5,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"dataset": {
+									"referenceName": "DS_KHCDE_GENERIC_KHC_O9EXTERNALSHARE_STRGV2_ParqetFile",
+									"type": "DatasetReference",
+									"parameters": {
+										"container_name": "@split(activity('LU-Metadata').output.value[0].source_server_path,'/')[0]",
+										"blob_location": "@concat(pipeline().globalParameters.AZURE_ENV,'/',split(activity('LU-Metadata').output.value[0].source_server_path,'/')[2])",
+										"file_name": {
+											"value": "@item().name",
+											"type": "Expression"
+										}
+									}
+								},
+								"fieldList": [
+									"size"
+								],
+								"storeSettings": {
+									"type": "AzureBlobFSReadSettings",
+									"recursive": true,
+									"enablePartitionDiscovery": false
+								}
+							}
+						},
+						{
+							"name": "If Condition1",
+							"description": "To check if file size zero",
+							"type": "IfCondition",
+							"dependsOn": [
+								{
+									"activity": "Get Metadata2",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"userProperties": [],
+							"typeProperties": {
+								"expression": {
+									"value": "@equals(activity('Get Metadata2').output.size,0)",
+									"type": "Expression"
+								},
+								"ifTrueActivities": [
+									{
+										"name": "Fail_pipeline_activity",
+										"description": "Fail_pipeline_activity",
+										"type": "Copy",
+										"dependsOn": [
+											{
+												"activity": "0kb_File_Alert_mail",
+												"dependencyConditions": [
+													"Succeeded"
+												]
+											}
+										],
+										"policy": {
+											"timeout": "7.00:00:00",
+											"retry": 5,
+											"retryIntervalInSeconds": 30,
+											"secureOutput": false,
+											"secureInput": false
+										},
+										"userProperties": [],
+										"typeProperties": {
+											"source": {
+												"type": "BinarySource",
+												"storeSettings": {
+													"type": "AzureBlobFSReadSettings",
+													"recursive": true
+												},
+												"formatSettings": {
+													"type": "BinaryReadSettings",
+													"compressionProperties": {
+														"type": "ZipDeflateReadSettings"
+													}
+												}
+											},
+											"sink": {
+												"type": "BinarySink",
+												"storeSettings": {
+													"type": "AzureBlobFSWriteSettings"
+												}
+											},
+											"enableStaging": false
+										},
+										"inputs": [
+											{
+												"referenceName": "DS_ADLS_Compressed",
+												"type": "DatasetReference",
+												"parameters": {
+													"container_name": "fail_pipeline_activity",
+													"stage_path": "fail_pipeline_activity"
+												}
+											}
+										],
+										"outputs": [
+											{
+												"referenceName": "DS_ADLS_Compressed",
+												"type": "DatasetReference",
+												"parameters": {
+													"container_name": "fail_pipeline_activity",
+													"stage_path": "fail_pipeline_activity"
+												}
+											}
+										]
+									},
+									{
+										"name": "0kb_File_Alert_mail",
+										"description": "to send email notification",
+										"type": "WebActivity",
+										"dependsOn": [],
+										"policy": {
+											"timeout": "7.00:00:00",
+											"retry": 5,
+											"retryIntervalInSeconds": 30,
+											"secureOutput": false,
+											"secureInput": false
+										},
+										"userProperties": [],
+										"typeProperties": {
+											"url": {
+												"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+												"type": "Expression"
+											},
+											"method": "POST",
+											"body": {
+												"value": "{ \n        \"to_email\": \"@{variables('emailTo')}\", \n        \"subject\": \"0kb Files in Outbound Share of Today\", \n        \"body\": \"Dear O9 Team,<br><br>Today we have received 0kb files in blob storage.<br>  <br> Can you please check and re-share the files? <br><br>Regards,<br>KHC Data Engineering Team.\", \n        \"importance\": \"High\"\n}",
+												"type": "Expression"
+											}
+										}
+									}
+								]
+							}
+						}
+					]
+				}
+			},
+			{
+				"name": "Delete_from_source",
+				"description": "Deleting files from the source ",
+				"type": "Delete",
+				"dependsOn": [
+					{
+						"activity": "CP_Create_blob_trigger",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"dataset": {
+						"referenceName": "DS_KHCDE_GENERIC_KHC_O9EXTERNALSHARE_STRGV2_Folder",
+						"type": "DatasetReference",
+						"parameters": {
+							"container_name": "@split(activity('LU-Metadata').output.value[0].source_server_path,'/')[0]",
+							"blob_name": "@concat(pipeline().globalParameters.AZURE_ENV,'/',split(activity('LU-Metadata').output.value[0].source_server_path,'/')[2])"
+						}
+					},
+					"enableLogging": false,
+					"storeSettings": {
+						"type": "AzureBlobFSReadSettings",
+						"recursive": true,
+						"wildcardFileName": "*.parq.snappy",
+						"enablePartitionDiscovery": false
+					}
+				}
+			},
+			{
+				"name": "CP_Create_blob_trigger",
+				"description": "To create blob trigger files in the trigger location",
+				"type": "Copy",
+				"dependsOn": [
+					{
+						"activity": "External_storage_to_blob",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "SqlServerSource",
+						"sqlReaderQuery": "select current_timestamp",
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"sink": {
+						"type": "DelimitedTextSink",
+						"storeSettings": {
+							"type": "AzureBlobFSWriteSettings",
+							"maxConcurrentConnections": 1
+						},
+						"formatSettings": {
+							"type": "DelimitedTextWriteSettings",
+							"quoteAllText": true,
+							"fileExtension": ".txt"
+						}
+					},
+					"enableStaging": false,
+					"translator": {
+						"type": "TabularTranslator",
+						"typeConversion": true,
+						"typeConversionSettings": {
+							"allowDataTruncation": true,
+							"treatBooleanAsNumber": false
+						}
+					}
+				},
+				"inputs": [
+					{
+						"referenceName": "DS_KHCDE_GENERIC_MSSQL_Metadata",
+						"type": "DatasetReference"
+					}
+				],
+				"outputs": [
+					{
+						"referenceName": "DS_KHCDE_GENERIC_BLOB_CSV_FolderFile",
+						"type": "DatasetReference",
+						"parameters": {
+							"container_name": "@activity('LU-Metadata').output.value[0].container_name",
+							"blob_name": "logistics/demand_planning/triggers",
+							"file_name": "@pipeline().parameters.blob_trigger_name",
+							"field_delimiter": ","
+						}
+					}
+				]
+			},
+			{
+				"name": "External_storage_to_archive_copy1",
+				"description": "Copy files from external storage to archival blob",
+				"type": "Copy",
+				"dependsOn": [
+					{
+						"activity": "If_stage_data_exists",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "BinarySource",
+						"storeSettings": {
+							"type": "AzureBlobFSReadSettings",
+							"recursive": true
+						},
+						"formatSettings": {
+							"type": "BinaryReadSettings"
+						}
+					},
+					"sink": {
+						"type": "BinarySink",
+						"storeSettings": {
+							"type": "AzureBlobFSWriteSettings"
+						}
+					},
+					"enableStaging": false
+				},
+				"inputs": [
+					{
+						"referenceName": "DS_KHCDE_GENERIC_KHC_O9EXTERNALSHARE_STRGV2_Folder",
+						"type": "DatasetReference",
+						"parameters": {
+							"container_name": {
+								"value": "@split(activity('LU-Metadata').output.value[0].source_server_path,'/')[0]",
+								"type": "Expression"
+							},
+							"blob_name": {
+								"value": "@concat(pipeline().globalParameters.AZURE_ENV,'/',split(activity('LU-Metadata').output.value[0].source_server_path,'/')[2])",
+								"type": "Expression"
+							}
+						}
+					}
+				],
+				"outputs": [
+					{
+						"referenceName": "DS_KHCDE_ADLS_Blob",
+						"type": "DatasetReference",
+						"parameters": {
+							"container": "@activity('LU-Metadata').output.value[0].container_name",
+							"stage_path": {
+								"value": "@replace(activity('LU-Metadata').output.value[0].archival_blob_name,'yyyyMMdd',formatDateTime(convertFromUtc(utcnow(),'Central Standard Time'),'yyyyMMdd'))",
+								"type": "Expression"
+							}
+						}
+					}
+				]
+			},
+			{
+				"name": "If_stage_data_exists",
+				"description": "If data files exists in stage folder, if true, delete the files",
+				"type": "IfCondition",
+				"dependsOn": [
+					{
+						"activity": "GM_Stage_Details",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"expression": {
+						"value": "@activity('GM_Stage_Details').output.exists",
+						"type": "Expression"
+					},
+					"ifTrueActivities": [
+						{
+							"name": "Delete_data_from_stage",
+							"description": "Delete the existing data from stage folder",
+							"type": "Delete",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 5,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"dataset": {
+									"referenceName": "DS_KHCDE_ADLS_Blob",
+									"type": "DatasetReference",
+									"parameters": {
+										"container": "@activity('LU-Metadata').output.value[0].container_name",
+										"stage_path": "@activity('LU-Metadata').output.value[0].stage_blob_name"
+									}
+								},
+								"enableLogging": false,
+								"storeSettings": {
+									"type": "AzureBlobFSReadSettings",
+									"recursive": true,
+									"wildcardFileName": "QID*",
+									"enablePartitionDiscovery": false
+								}
+							}
+						}
+					]
+				}
+			},
+			{
+				"name": "GM_Stage_Details",
+				"description": "To get the stage path details",
+				"type": "GetMetadata",
+				"dependsOn": [
+					{
+						"activity": "ForEach1",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"dataset": {
+						"referenceName": "DS_KHCDE_ADLS_Blob",
+						"type": "DatasetReference",
+						"parameters": {
+							"container": {
+								"value": "@activity('LU-Metadata').output.value[0].container_name",
+								"type": "Expression"
+							},
+							"stage_path": {
+								"value": "@activity('LU-Metadata').output.value[0].stage_blob_name",
+								"type": "Expression"
+							}
+						}
+					},
+					"fieldList": [
+						"exists"
+					],
+					"storeSettings": {
+						"type": "AzureBlobFSReadSettings",
+						"recursive": true,
+						"enablePartitionDiscovery": false
+					},
+					"formatSettings": {
+						"type": "BinaryReadSettings"
+					}
+				}
+			}
+		],
+		"parameters": {
+			"application_name": {
+				"type": "string",
+				"defaultValue": "demand_planning"
+			},
+			"blob_trigger_name": {
+				"type": "string",
+				"defaultValue": "o9_forecast_trigger.txt"
+			}
+		},
+		"variables": {
+			"emailTo": {
+				"type": "String",
+				"defaultValue": "DL_KHCDE_O9@kraftheinz.com,kraftheinz@o9solutions.com,DLKNASAPBISUPPORT@kraftfoods.com"
+			}
+		},
+		"folder": {
+			"name": "O9"
+		},
+		"annotations": []
+	}
+}

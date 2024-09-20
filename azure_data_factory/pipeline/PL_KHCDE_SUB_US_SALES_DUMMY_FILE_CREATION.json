@@ -1,0 +1,1061 @@
+{
+	"name": "PL_KHCDE_SUB_US_SALES_DUMMY_FILE_CREATION",
+	"properties": {
+		"description": "This pipeline is used to create dummy file if snowflake extract zero files.",
+		"activities": [
+			{
+				"name": "Get_Metadata_of_outbound_files",
+				"description": "This activity pulls the details of extract_blob_location. ",
+				"type": "GetMetadata",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"dataset": {
+						"referenceName": "DS_ADLS_NonCompressed",
+						"type": "DatasetReference",
+						"parameters": {
+							"container_name": {
+								"value": "@pipeline().parameters.container_name",
+								"type": "Expression"
+							},
+							"stage_path": {
+								"value": "@pipeline().parameters.blob_name",
+								"type": "Expression"
+							}
+						}
+					},
+					"fieldList": [
+						"exists",
+						"childItems",
+						"itemName",
+						"itemType",
+						"lastModified"
+					],
+					"storeSettings": {
+						"type": "AzureBlobFSReadSettings",
+						"recursive": true
+					},
+					"formatSettings": {
+						"type": "BinaryReadSettings"
+					}
+				}
+			},
+			{
+				"name": "Switch1",
+				"description": "This activity decides to create dummy file or not based on the createdummyfile parameter",
+				"type": "Switch",
+				"dependsOn": [
+					{
+						"activity": "Get_Metadata_of_outbound_files",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"on": {
+						"value": "@if(\nactivity('Get_Metadata_of_outbound_files').output.exists,\nif(equals(indexof(pipeline().parameters.emailTo,'@'),-1),'success',if(equals(pipeline().parameters.zipOrNot,'y'),'emailfilezip','emailfile')),\nif(equals(pipeline().parameters.create_dummy_file,'y'),'createdummyfile','dontcreatedummyfile')\n)",
+						"type": "Expression"
+					},
+					"cases": [
+						{
+							"value": "success",
+							"activities": [
+								{
+									"name": "SP-Success",
+									"description": "This activity logs success of IF_outbound_folder_exists activity in khc_audit_log_detail table.",
+									"type": "SqlServerStoredProcedure",
+									"dependsOn": [],
+									"policy": {
+										"timeout": "7.00:00:00",
+										"retry": 5,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"storedProcedureName": "[dbo].[generic_activity_audit_log]",
+										"storedProcedureParameters": {
+											"activity_name": {
+												"value": "IF_outbound_folder_exists_2",
+												"type": "String"
+											},
+											"activity_status": {
+												"value": {
+													"value": "Successful",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"application_name": {
+												"value": {
+													"value": "@pipeline().parameters.Application_name",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"dataset_name": {
+												"value": {
+													"value": "@pipeline().parameters.dataset_name",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"pipeline_run_id": {
+												"value": {
+													"value": "@pipeline().RunId",
+													"type": "Expression"
+												},
+												"type": "String"
+											}
+										}
+									},
+									"linkedServiceName": {
+										"referenceName": "LS_SQL",
+										"type": "LinkedServiceReference"
+									}
+								}
+							]
+						},
+						{
+							"value": "createdummyfile",
+							"activities": [
+								{
+									"name": "CP-CreateDummyFile",
+									"description": "This activity is to create a .csv file",
+									"type": "Copy",
+									"dependsOn": [],
+									"policy": {
+										"timeout": "7.00:00:00",
+										"retry": 5,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"source": {
+											"type": "SqlServerSource",
+											"sqlReaderQuery": {
+												"value": "select * from khc_orchestration_metadata where 1<>1",
+												"type": "Expression"
+											},
+											"queryTimeout": "02:00:00",
+											"partitionOption": "None"
+										},
+										"sink": {
+											"type": "DelimitedTextSink",
+											"storeSettings": {
+												"type": "AzureBlobFSWriteSettings"
+											},
+											"formatSettings": {
+												"type": "DelimitedTextWriteSettings",
+												"quoteAllText": true,
+												"fileExtension": ".txt"
+											}
+										},
+										"enableStaging": false
+									},
+									"inputs": [
+										{
+											"referenceName": "DS_KHCDE_GENERIC_MSSQL_Metadata",
+											"type": "DatasetReference"
+										}
+									],
+									"outputs": [
+										{
+											"referenceName": "DS_KHCDE_GENERIC_BLOB_CSV_FolderFile",
+											"type": "DatasetReference",
+											"parameters": {
+												"container_name": {
+													"value": "@pipeline().parameters.container_name",
+													"type": "Expression"
+												},
+												"blob_name": {
+													"value": "@pipeline().parameters.blob_name",
+													"type": "Expression"
+												},
+												"file_name": {
+													"value": "@pipeline().parameters.file_name",
+													"type": "Expression"
+												},
+												"field_delimiter": {
+													"value": ",",
+													"type": "Expression"
+												}
+											}
+										}
+									]
+								},
+								{
+									"name": "SP-Success_20_copy1",
+									"description": "This activity logs success of copy activity in khc_audit_log_detail table.",
+									"type": "SqlServerStoredProcedure",
+									"dependsOn": [
+										{
+											"activity": "CP-CreateDummyFile",
+											"dependencyConditions": [
+												"Succeeded"
+											]
+										}
+									],
+									"policy": {
+										"timeout": "7.00:00:00",
+										"retry": 5,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"storedProcedureName": "[dbo].[generic_activity_audit_log]",
+										"storedProcedureParameters": {
+											"activity_name": {
+												"value": "IF_outbound_folder_exists_2",
+												"type": "String"
+											},
+											"activity_status": {
+												"value": {
+													"value": "Successful",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"application_name": {
+												"value": {
+													"value": "@pipeline().parameters.Application_name",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"dataset_name": {
+												"value": {
+													"value": "@pipeline().parameters.dataset_name",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"pipeline_run_id": {
+												"value": {
+													"value": "@pipeline().RunId",
+													"type": "Expression"
+												},
+												"type": "String"
+											}
+										}
+									},
+									"linkedServiceName": {
+										"referenceName": "LS_SQL",
+										"type": "LinkedServiceReference"
+									}
+								},
+								{
+									"name": "SP-Failure_20_copy1",
+									"description": "This activity logs failure of copy activity in khc_audit_log_detail table and failure of pipeline in  khc_audit_log table.",
+									"type": "SqlServerStoredProcedure",
+									"dependsOn": [
+										{
+											"activity": "CP-CreateDummyFile",
+											"dependencyConditions": [
+												"Failed"
+											]
+										}
+									],
+									"policy": {
+										"timeout": "7.00:00:00",
+										"retry": 5,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+										"storedProcedureParameters": {
+											"action_ind": {
+												"value": "U",
+												"type": "String"
+											},
+											"activity_name": {
+												"value": "IF_outbound_folder_exists_2",
+												"type": "String"
+											},
+											"activity_status": {
+												"value": "Failed",
+												"type": "String"
+											},
+											"application_name": {
+												"value": {
+													"value": "@pipeline().parameters.Application_name",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"dataset_name": {
+												"value": {
+													"value": "@pipeline().parameters.dataset_name",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"error_code": {
+												"value": "N.A.",
+												"type": "String"
+											},
+											"error_detail": {
+												"value": "N.A.",
+												"type": "String"
+											},
+											"pipeline_run_id": {
+												"value": {
+													"value": "@pipeline().RunId",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"pipeline_status": {
+												"value": "Failed",
+												"type": "String"
+											},
+											"skip_pipeline_audit_update": {
+												"value": "N",
+												"type": "String"
+											}
+										}
+									},
+									"linkedServiceName": {
+										"referenceName": "LS_SQL",
+										"type": "LinkedServiceReference"
+									}
+								}
+							]
+						},
+						{
+							"value": "dontcreatedummyfile",
+							"activities": [
+								{
+									"name": "CP-Fail-Pipeline",
+									"description": "This activity is used to fail the pipeline",
+									"type": "Copy",
+									"dependsOn": [],
+									"policy": {
+										"timeout": "7.00:00:00",
+										"retry": 5,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"source": {
+											"type": "BinarySource",
+											"storeSettings": {
+												"type": "AzureBlobFSReadSettings",
+												"recursive": true
+											},
+											"formatSettings": {
+												"type": "BinaryReadSettings"
+											}
+										},
+										"sink": {
+											"type": "BinarySink",
+											"storeSettings": {
+												"type": "AzureBlobFSWriteSettings"
+											}
+										},
+										"enableStaging": false
+									},
+									"inputs": [
+										{
+											"referenceName": "DS_KHCDE_GENERIC_BLOB_BINARY_Folder",
+											"type": "DatasetReference",
+											"parameters": {
+												"container_name": {
+													"value": "doesNotExist_Input",
+													"type": "Expression"
+												},
+												"blob_name": {
+													"value": "doesNotExist_Input",
+													"type": "Expression"
+												}
+											}
+										}
+									],
+									"outputs": [
+										{
+											"referenceName": "DS_KHCDE_GENERIC_BLOB_BINARY_Folder",
+											"type": "DatasetReference",
+											"parameters": {
+												"container_name": {
+													"value": "doesNotExist_Output",
+													"type": "Expression"
+												},
+												"blob_name": {
+													"value": "doesNotExist_Output",
+													"type": "Expression"
+												}
+											}
+										}
+									]
+								},
+								{
+									"name": "WB-SendNoFileMail",
+									"description": "to send email notification",
+									"type": "WebActivity",
+									"dependsOn": [
+										{
+											"activity": "SP-Failure_20_copy2",
+											"dependencyConditions": [
+												"Completed"
+											]
+										}
+									],
+									"policy": {
+										"timeout": "7.00:00:00",
+										"retry": 5,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"url": {
+											"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+											"type": "Expression"
+										},
+										"method": "POST",
+										"body": {
+											"value": "{ \n        \"to_email\": \"@{variables('emailTo')}\", \n        \"subject\": \"@{pipeline().globalParameters.AZURE_ENV} Failed during folder exists Check! \", \n        \"body\": \"Dear All,\n\n<br/>\nThe cloud analytics data load process has failed after extracted folder is not available:\n<br/>\n<br/>\nPlease find below the details:\n<br/>\nPipeline Name: @{pipeline().Pipeline} <br/>\nPipeline Run ID: @{pipeline().RunId} <br/>\nPipeline Trigger Name: @{ pipeline().TriggerName} <br/>\nPipeline Trigger Type: @{pipeline().TriggerType}<br/>\nPipeline Start Time: @{pipeline().TriggerTime}\n<br/>\n\nParameters:<br/>\n===========<br/>\nApplication Name: @{pipeline().parameters.Application_name}<br/>\nDataset Group: @{pipeline().parameters.dataset_name}<br/>\n\", \n        \"importance\": \"High\"\n}",
+											"type": "Expression"
+										}
+									}
+								},
+								{
+									"name": "SP-Success_20_copy2",
+									"description": "This activity logs success of copy  activity in khc_audit_log_detail table.",
+									"type": "SqlServerStoredProcedure",
+									"dependsOn": [
+										{
+											"activity": "CP-Fail-Pipeline",
+											"dependencyConditions": [
+												"Succeeded"
+											]
+										}
+									],
+									"policy": {
+										"timeout": "7.00:00:00",
+										"retry": 5,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"storedProcedureName": "[dbo].[generic_activity_audit_log]",
+										"storedProcedureParameters": {
+											"activity_name": {
+												"value": "IF_outbound_folder_exists_2",
+												"type": "String"
+											},
+											"activity_status": {
+												"value": {
+													"value": "Successful",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"application_name": {
+												"value": {
+													"value": "@pipeline().parameters.Application_name",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"dataset_name": {
+												"value": {
+													"value": "@pipeline().parameters.dataset_name",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"pipeline_run_id": {
+												"value": {
+													"value": "@pipeline().RunId",
+													"type": "Expression"
+												},
+												"type": "String"
+											}
+										}
+									},
+									"linkedServiceName": {
+										"referenceName": "LS_SQL",
+										"type": "LinkedServiceReference"
+									}
+								},
+								{
+									"name": "SP-Failure_20_copy2",
+									"description": "This activity logs failure of copy activity in khc_audit_log_detail table and failure of pipeline in  khc_audit_log table.",
+									"type": "SqlServerStoredProcedure",
+									"dependsOn": [
+										{
+											"activity": "CP-Fail-Pipeline",
+											"dependencyConditions": [
+												"Failed"
+											]
+										}
+									],
+									"policy": {
+										"timeout": "7.00:00:00",
+										"retry": 5,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+										"storedProcedureParameters": {
+											"action_ind": {
+												"value": "U",
+												"type": "String"
+											},
+											"activity_name": {
+												"value": "IF_outbound_folder_exists_2",
+												"type": "String"
+											},
+											"activity_status": {
+												"value": "Failed",
+												"type": "String"
+											},
+											"application_name": {
+												"value": {
+													"value": "@pipeline().parameters.Application_name",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"dataset_name": {
+												"value": {
+													"value": "@pipeline().parameters.dataset_name",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"error_code": {
+												"value": "N.A.",
+												"type": "String"
+											},
+											"error_detail": {
+												"value": "N.A.",
+												"type": "String"
+											},
+											"pipeline_run_id": {
+												"value": {
+													"value": "@pipeline().RunId",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"pipeline_status": {
+												"value": "Failed",
+												"type": "String"
+											},
+											"skip_pipeline_audit_update": {
+												"value": "N",
+												"type": "String"
+											}
+										}
+									},
+									"linkedServiceName": {
+										"referenceName": "LS_SQL",
+										"type": "LinkedServiceReference"
+									}
+								}
+							]
+						},
+						{
+							"value": "emailfilezip",
+							"activities": [
+								{
+									"name": "Set  current time variable",
+									"type": "SetVariable",
+									"dependsOn": [],
+									"userProperties": [],
+									"typeProperties": {
+										"variableName": "currentTime",
+										"value": {
+											"value": "@formatDateTime(utcnow(), 'yyyyMMdd_HHmmss')",
+											"type": "Expression"
+										}
+									}
+								},
+								{
+									"name": "WB-SendSuccessEmail_attachment",
+									"description": "It send Successfull Email alert",
+									"type": "WebActivity",
+									"dependsOn": [
+										{
+											"activity": "set_to_mail_variable",
+											"dependencyConditions": [
+												"Succeeded"
+											]
+										}
+									],
+									"policy": {
+										"timeout": "7.00:00:00",
+										"retry": 5,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"url": {
+											"value": "@pipeline().globalParameters.la_khcde_generic_email_url",
+											"type": "Expression"
+										},
+										"method": "POST",
+										"body": {
+											"value": "{ \n        \"to_email\": \"@{variables('emailTo')}\", \n        \"subject\": \"Snowflake Extract for @{pipeline().parameters.application_name} - @{pipeline().parameters.dataset_name}\", \n        \"body\": \"Hi All,<br><br>PFA the extract from Snowflake for:<br><br>Application: @{pipeline().parameters.application_name}<br>Dataset: @{pipeline().parameters.dataset_name}<br><br>Regards,<br>Cloud Analytics Team\", \n        \"attachment_path\": \"@{concat( pipeline().parameters.container_name, '/', pipeline().parameters.blob_name, '/', pipeline().parameters.dataset_name, '_',variables('currentTime'), '.zip')}\",\n        \"importance\": \"High\"\n}",
+											"type": "Expression"
+										}
+									}
+								},
+								{
+									"name": "Copy zip_file_data",
+									"type": "Copy",
+									"dependsOn": [
+										{
+											"activity": "Set  current time variable",
+											"dependencyConditions": [
+												"Succeeded"
+											]
+										}
+									],
+									"policy": {
+										"timeout": "7.00:00:00",
+										"retry": 0,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"source": {
+											"type": "BinarySource",
+											"storeSettings": {
+												"type": "AzureBlobFSReadSettings",
+												"recursive": true,
+												"deleteFilesAfterCompletion": false
+											},
+											"formatSettings": {
+												"type": "BinaryReadSettings"
+											}
+										},
+										"sink": {
+											"type": "BinarySink",
+											"storeSettings": {
+												"type": "AzureBlobFSWriteSettings"
+											}
+										},
+										"enableStaging": false
+									},
+									"inputs": [
+										{
+											"referenceName": "DS_ADLS_NonCompressed",
+											"type": "DatasetReference",
+											"parameters": {
+												"container_name": {
+													"value": "@pipeline().parameters.container_name",
+													"type": "Expression"
+												},
+												"stage_path": {
+													"value": "@pipeline().parameters.blob_name",
+													"type": "Expression"
+												}
+											}
+										}
+									],
+									"outputs": [
+										{
+											"referenceName": "DS_KHCDE_US_SALES_FolderFile_Zip",
+											"type": "DatasetReference",
+											"parameters": {
+												"container": {
+													"value": "@pipeline().parameters.container_name",
+													"type": "Expression"
+												},
+												"path": {
+													"value": "@pipeline().parameters.blob_name",
+													"type": "Expression"
+												},
+												"filename": {
+													"value": "@concat( pipeline().parameters.dataset_name, '_',variables('currentTime'), '.zip')",
+													"type": "Expression"
+												}
+											}
+										}
+									]
+								},
+								{
+									"name": "set_to_mail_variable",
+									"type": "SetVariable",
+									"dependsOn": [
+										{
+											"activity": "Copy zip_file_data",
+											"dependencyConditions": [
+												"Succeeded"
+											]
+										}
+									],
+									"userProperties": [],
+									"typeProperties": {
+										"variableName": "emailTo",
+										"value": {
+											"value": "@if(equals(pipeline().globalParameters.AZURE_ENV,'PROD'), if(contains(trim(string(pipeline().parameters.emailTo)),'@'),trim(string(pipeline().parameters.emailTo)),'dd895406.Heinz365.onmicrosoft.com@amer.teams.ms'),'dd895406.Heinz365.onmicrosoft.com@amer.teams.ms')",
+											"type": "Expression"
+										}
+									}
+								}
+							]
+						}
+					]
+				}
+			},
+			{
+				"name": "SP-Success_21",
+				"description": "This activity logs success of Get_metadata_of_outbound activity in khc_audit_log_detail table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "Get_Metadata_of_outbound_files",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": "Get_Metadata_of_outbound_files",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Successful",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.Application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.dataset_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@pipeline().RunId",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-Failure_21",
+				"description": "This activity logs failure of Get_Metadata_of_outbound activity in khc_audit_log_detail table and failure of pipeline in  khc_audit_log table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "Get_Metadata_of_outbound_files",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": "U",
+							"type": "String"
+						},
+						"activity_name": {
+							"value": "Get_Metadata_of_outbound_files",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": "Failed",
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.Application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.dataset_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_code": {
+							"value": "N.A.",
+							"type": "String"
+						},
+						"error_detail": {
+							"value": "N.A.",
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@pipeline().RunId",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": "Failed",
+							"type": "String"
+						},
+						"skip_pipeline_audit_update": {
+							"value": "N",
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-Success_20",
+				"description": "This activity logs success of IF_outbound_folder_exists activity in khc_audit_log_detail table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "Switch1",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_audit_log]",
+					"storedProcedureParameters": {
+						"activity_name": {
+							"value": "IF_outbound_folder_exists_2",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": {
+								"value": "Successful",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.Application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.dataset_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@pipeline().RunId",
+								"type": "Expression"
+							},
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "SP-Failure_20",
+				"description": "This activity logs failure of IF_outbound_folder_exists activity in khc_audit_log_detail table and failure of pipeline in  khc_audit_log table.",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "Switch1",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 5,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[dbo].[generic_activity_error_audit_log]",
+					"storedProcedureParameters": {
+						"action_ind": {
+							"value": "U",
+							"type": "String"
+						},
+						"activity_name": {
+							"value": "IF_outbound_folder_exists_2",
+							"type": "String"
+						},
+						"activity_status": {
+							"value": "Failed",
+							"type": "String"
+						},
+						"application_name": {
+							"value": {
+								"value": "@pipeline().parameters.Application_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"dataset_name": {
+							"value": {
+								"value": "@pipeline().parameters.dataset_name",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"error_code": {
+							"value": "N.A.",
+							"type": "String"
+						},
+						"error_detail": {
+							"value": "N.A.",
+							"type": "String"
+						},
+						"pipeline_run_id": {
+							"value": {
+								"value": "@pipeline().RunId",
+								"type": "Expression"
+							},
+							"type": "String"
+						},
+						"pipeline_status": {
+							"value": "Failed",
+							"type": "String"
+						},
+						"skip_pipeline_audit_update": {
+							"value": "N",
+							"type": "String"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "LS_SQL",
+					"type": "LinkedServiceReference"
+				}
+			}
+		],
+		"parameters": {
+			"create_dummy_file": {
+				"type": "string"
+			},
+			"container_name": {
+				"type": "string"
+			},
+			"blob_name": {
+				"type": "string"
+			},
+			"file_name": {
+				"type": "string"
+			},
+			"field_delimiter": {
+				"type": "string"
+			},
+			"Application_name": {
+				"type": "string"
+			},
+			"dataset_name": {
+				"type": "string"
+			},
+			"emailTo": {
+				"type": "string"
+			},
+			"zipOrNot": {
+				"type": "string",
+				"defaultValue": "y"
+			}
+		},
+		"variables": {
+			"emailTo": {
+				"type": "String",
+				"defaultValue": "DL_KHCDE_O9@kraftheinz.com"
+			},
+			"currentTime": {
+				"type": "String"
+			}
+		},
+		"folder": {
+			"name": "US_Sales"
+		},
+		"annotations": []
+	}
+}

@@ -1,0 +1,141 @@
+{
+	"name": "PL_KHCDE_QUINTIQ_ARCHIVE_MOVER",
+	"properties": {
+		"activities": [
+			{
+				"name": "LU_AllDependentLocations",
+				"description": "This will look up all the dependent stage locations of this application. This will include the stage location of the triggering dataset and all the datasets which depend on the triggering dataset.",
+				"type": "Lookup",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "SqlServerSource",
+						"sqlReaderQuery": {
+							"value": "select container_name,archival_blob_name from khc_orchestration_metadata \nwhere parent_id = (select parent_id from khc_orchestration_metadata where application_name = '@{pipeline().parameters.ApplicationName}'  and dataset_name= '@{pipeline().parameters.DatasetName}' and data_level = 1 and active_ind = 'y') \n\nunion all\n\nselect container_name,archival_blob_name from khc_orchestration_metadata\nwhere dependent_id = ((select parent_id from khc_orchestration_metadata where application_name = '@{pipeline().parameters.ApplicationName}'  and dataset_name= '@{pipeline().parameters.DatasetName}' and data_level = 1 and active_ind = 'y'))",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "DS_KHCDE_GENERIC_MSSQL_Metadata",
+						"type": "DatasetReference"
+					},
+					"firstRowOnly": false
+				}
+			},
+			{
+				"name": "FE-DependentLocation",
+				"type": "ForEach",
+				"dependsOn": [
+					{
+						"activity": "LU_AllDependentLocations",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"items": {
+						"value": "@activity('LU_AllDependentLocations').output.value",
+						"type": "Expression"
+					},
+					"activities": [
+						{
+							"name": "Copy-TempToFinalArchive",
+							"type": "Copy",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"source": {
+									"type": "BinarySource",
+									"storeSettings": {
+										"type": "AzureBlobFSReadSettings",
+										"recursive": false,
+										"deleteFilesAfterCompletion": true
+									},
+									"formatSettings": {
+										"type": "BinaryReadSettings"
+									}
+								},
+								"sink": {
+									"type": "BinarySink",
+									"storeSettings": {
+										"type": "AzureBlobFSWriteSettings"
+									}
+								},
+								"enableStaging": false
+							},
+							"inputs": [
+								{
+									"referenceName": "DS_KHCDE_GENERIC_BLOB_BINARY_Folder",
+									"type": "DatasetReference",
+									"parameters": {
+										"container_name": {
+											"value": "@item().container_name",
+											"type": "Expression"
+										},
+										"blob_name": {
+											"value": "@item().archival_blob_name",
+											"type": "Expression"
+										}
+									}
+								}
+							],
+							"outputs": [
+								{
+									"referenceName": "DS_KHCDE_GENERIC_BLOB_BINARY_Folder",
+									"type": "DatasetReference",
+									"parameters": {
+										"container_name": {
+											"value": "@pipeline().parameters.final_container_name",
+											"type": "Expression"
+										},
+										"blob_name": {
+											"value": "@pipeline().parameters.final_archive_location",
+											"type": "Expression"
+										}
+									}
+								}
+							]
+						}
+					]
+				}
+			}
+		],
+		"parameters": {
+			"ApplicationName": {
+				"type": "string"
+			},
+			"DatasetName": {
+				"type": "string"
+			},
+			"final_archive_location": {
+				"type": "string"
+			},
+			"final_container_name": {
+				"type": "string"
+			}
+		},
+		"folder": {
+			"name": "Quintiq"
+		},
+		"annotations": []
+	}
+}

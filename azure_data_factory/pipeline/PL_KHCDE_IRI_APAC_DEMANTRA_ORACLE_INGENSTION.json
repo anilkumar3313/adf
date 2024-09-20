@@ -1,0 +1,164 @@
+{
+	"name": "PL_KHCDE_IRI_APAC_DEMANTRA_ORACLE_INGENSTION",
+	"properties": {
+		"activities": [
+			{
+				"name": "LU_Metadata",
+				"type": "Lookup",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "OracleSource",
+						"oracleReaderQuery": "select 'T_SRC_HZ_SCAN_STATE' as view_name, 'aus_state_category.csv' as filename  from dual union select 'T_SRC_HZ_SCAN_NAT' as view_name, 'aus_national_category.csv' as filename  from dual ",
+						"partitionOption": "None",
+						"queryTimeout": "02:00:00"
+					},
+					"dataset": {
+						"referenceName": "DS_KHCDE_DEMANTRA_ORACLE_DEST",
+						"type": "DatasetReference",
+						"parameters": {
+							"TableName": "_noset"
+						}
+					},
+					"firstRowOnly": false
+				}
+			},
+			{
+				"name": "ForEach",
+				"type": "ForEach",
+				"dependsOn": [
+					{
+						"activity": "LU_Metadata",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"items": {
+						"value": "@activity('LU_Metadata').output.value",
+						"type": "Expression"
+					},
+					"activities": [
+						{
+							"name": "Copy BLOB to Oracle",
+							"type": "Copy",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"source": {
+									"type": "DelimitedTextSource",
+									"storeSettings": {
+										"type": "AzureBlobFSReadSettings",
+										"recursive": true,
+										"enablePartitionDiscovery": false
+									},
+									"formatSettings": {
+										"type": "DelimitedTextReadSettings"
+									}
+								},
+								"sink": {
+									"type": "OracleSink",
+									"writeBatchSize": 10000
+								},
+								"enableStaging": false
+							},
+							"inputs": [
+								{
+									"referenceName": "DS_KHCDE_IRI_DEMANTRA_SOURCE",
+									"type": "DatasetReference",
+									"parameters": {
+										"filename": "@{item().FILENAME}"
+									}
+								}
+							],
+							"outputs": [
+								{
+									"referenceName": "DS_KHCDE_DEMANTRA_ORACLE_DEST",
+									"type": "DatasetReference",
+									"parameters": {
+										"TableName": "@{item().VIEW_NAME}"
+									}
+								}
+							]
+						},
+						{
+							"name": "DeleteFilefrom BLOB",
+							"type": "Delete",
+							"dependsOn": [
+								{
+									"activity": "Copy BLOB to Oracle",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "7.00:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"dataset": {
+									"referenceName": "DS_KHCDE_IRI_DEMANTRA_SOURCE",
+									"type": "DatasetReference",
+									"parameters": {
+										"filename": {
+											"value": "@{item().FILENAME}",
+											"type": "Expression"
+										}
+									}
+								},
+								"enableLogging": false,
+								"storeSettings": {
+									"type": "AzureBlobFSReadSettings",
+									"recursive": true
+								}
+							}
+						}
+					]
+				}
+			},
+			{
+				"name": "Wait-Enforce pipeline success",
+				"type": "Wait",
+				"dependsOn": [
+					{
+						"activity": "ForEach",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"waitTimeInSeconds": 1
+				}
+			}
+		],
+		"folder": {
+			"name": "IRI_International/Sub_Pipelines"
+		},
+		"annotations": []
+	},
+	"type": "Microsoft.DataFactory/factories/pipelines"
+}

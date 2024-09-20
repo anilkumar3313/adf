@@ -1,0 +1,99 @@
+{
+	"name": "PL_KHCDE_GENERIC_SUB_LARGE_FILE_SPLITS",
+	"properties": {
+		"description": "Pipeline to validate file size, then splits the files in multiple files (5 GB each).",
+		"activities": [
+			{
+				"name": "LU-Metadata",
+				"type": "Lookup",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "SqlServerSource",
+						"sqlReaderQuery": {
+							"value": "select distinct container_name, stage_blob_name from khc_orchestration_metadata where stage_blob_name is not null and data_filename is not null and stage_table_name is not null and stage_blob_name is not null and warehouse_size is not null and data_level != 0 and pattern_type is not null and snowflake_database is not null and snowflake_schema is not null and snowflake_role is not null and snowflake_file_format is not null and snowflake_stage_name is not null and stage_blob_name != '' and data_filename != '' and stage_table_name != '' and stage_blob_name != '' and warehouse_size != '' and data_level is not null and pattern_type != '' and snowflake_database != '' and snowflake_schema != '' and snowflake_role != '' and snowflake_file_format != '' and snowflake_stage_name != '' and active_ind = 'y' and application_name = '@{pipeline().parameters.application_name}' and dataset_group = '@{pipeline().parameters.dataset_group}'",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00"
+					},
+					"dataset": {
+						"referenceName": "DS_KHCDE_GENERIC_MSSQL_Metadata",
+						"type": "DatasetReference"
+					},
+					"firstRowOnly": false
+				}
+			},
+			{
+				"name": "FE-Metadata",
+				"type": "ForEach",
+				"dependsOn": [
+					{
+						"activity": "LU-Metadata",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"items": {
+						"value": "@activity('LU-Metadata').output.value",
+						"type": "Expression"
+					},
+					"isSequential": false,
+					"activities": [
+						{
+							"name": "EP-GetFiles",
+							"description": "Fetches each file from stage blob and does large file check and split (if applicable)",
+							"type": "ExecutePipeline",
+							"dependsOn": [],
+							"userProperties": [],
+							"typeProperties": {
+								"pipeline": {
+									"referenceName": "PL_KHCDE_GENERIC_SUB_LARGE_FILE_SPLITS_DATAFLOW",
+									"type": "PipelineReference"
+								},
+								"waitOnCompletion": true,
+								"parameters": {
+									"container_name": {
+										"value": "@{item().container_name}",
+										"type": "Expression"
+									},
+									"stage_blob_name": {
+										"value": "@{item().stage_blob_name}",
+										"type": "Expression"
+									}
+								}
+							}
+						}
+					]
+				}
+			}
+		],
+		"parameters": {
+			"application_name": {
+				"type": "string"
+			},
+			"dataset_group": {
+				"type": "string"
+			}
+		},
+		"variables": {
+			"file_name": {
+				"type": "String"
+			}
+		},
+		"folder": {
+			"name": "Generic_Frameworks/Sub_Pipelines"
+		},
+		"annotations": []
+	}
+}
